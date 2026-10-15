@@ -588,3 +588,64 @@ func TestDiffEditBeginsByTheKey(t *testing.T) {
 		t.Fatalf("copied %q", got)
 	}
 }
+
+// TestDiffEditTakesTheEditorKeys: Enter breaks the line as the editor's
+// does, with the indent, and Tab indents, each a step of undo.
+func TestDiffEditTakesTheEditorKeys(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	_, changed := twoHunkFile(hs, git)
+	_ = changed
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	e := diffEditOf(t, hs, v, hs.path("t.txt"), 25)
+	// Enter at the start of the line breaks it off above.
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyEnter}) {
+		t.Fatal("the edit did not take Enter")
+	}
+	hs.settle()
+	snap := e.doc.buf.Snapshot()
+	if line := snap.LineAt(min(e.ed.sel[1], snap.Len())); line != 26 {
+		t.Fatalf("the caret is on line %d after Enter", line)
+	}
+	if s, en := snap.LineRange(25); s != en {
+		t.Fatalf("Enter left %q on the empty line", snap.Slice(s, en))
+	}
+	if s, en := snap.LineRange(26); snap.Slice(s, en) != "line twenty-five" {
+		t.Fatalf("Enter left %q below", snap.Slice(s, en))
+	}
+	// Tab indents the line the caret is on.
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyTab}) {
+		t.Fatal("the edit did not take Tab")
+	}
+	hs.settle()
+	snap = e.doc.buf.Snapshot()
+	if s, en := snap.LineRange(26); snap.Slice(s, en) != "    line twenty-five" {
+		t.Fatalf("Tab left %q", snap.Slice(s, en))
+	}
+	// And undo takes the two back, one step each.
+	if !e.ed.undo() {
+		t.Fatal("no undo of the indent")
+	}
+	snap = e.doc.buf.Snapshot()
+	if s, en := snap.LineRange(26); snap.Slice(s, en) != "line twenty-five" {
+		t.Fatalf("undo left %q", snap.Slice(s, en))
+	}
+	changed = twoHunkFileChanged()
+	if !e.ed.undo() || e.doc.buf.Snapshot().String() != changed {
+		t.Fatalf("undo did not take the break back: %q", e.doc.buf.Snapshot().Slice(0, 40))
+	}
+}
+
+// twoHunkFileChanged is the text twoHunkFile's file has in the work tree.
+func twoHunkFileChanged() string {
+	var b strings.Builder
+	for i := range 30 {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	orig := b.String()
+	return strings.Replace(strings.Replace(orig, "line 2\n", "line two\n", 1), "line 25\n", "line twenty-five\n", 1)
+}

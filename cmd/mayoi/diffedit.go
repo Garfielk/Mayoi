@@ -214,9 +214,10 @@ func (a *app) diffEditKey(v *diffView, e *diffEdit, ev ui.InputEvent) bool {
 
 // diffEditArrow moves the caret of a diff's edit with the arrow keys,
 // extending the selection when shift is held, and reports whether the key
-// was one of its.
+// was one of its. With alt or cmd they are the editor's, as moving lines
+// and going to the ends of the line are.
 func (a *app) diffEditArrow(v *diffView, e *diffEdit, ev ui.InputEvent) bool {
-	if ev.Kind != ui.InputKeyDown || ev.Mods&^(ui.Shift|ui.Alt|ui.Cmd) != 0 {
+	if ev.Kind != ui.InputKeyDown || ev.Mods&^ui.Shift != 0 {
 		return false
 	}
 	extend := ev.Mods&ui.Shift != 0
