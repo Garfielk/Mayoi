@@ -1214,7 +1214,7 @@ func (hs *harness) settleDiff(v *diffView) {
 		hs.settle()
 		ok := len(v.files) > 0
 		for _, f := range v.files {
-			if !f.loaded || f.running || f.gitStale {
+			if !f.loaded || f.running || f.waiting || f.gitStale {
 				ok = false
 			}
 		}
@@ -2098,4 +2098,555 @@ func TestDiffButtons(t *testing.T) {
 		t.Errorf("the sides still scroll together")
 	}
 	a.setDiffSync(v, true)
+}
+
+// TestHunkArrowsFollowTheVersions: the arrows of a diff's blocks write
+// only the sides that can be written, named as the versions compared say.
+// The changes of the work tree go back as the index has them, which
+// reverts them; the index goes on by staging, and the versions Git keeps
+// are read only, so the changes staged and a commit's take no arrows —
+// nor does a file one side of the diff lacks whole, whose changes go in
+// or out with the file itself.
+func TestHunkArrowsFollowTheVersions(t *testing.T) {
+	file := func(base diffBase, oldOK, newOK bool) *diffFile {
+		f := &diffFile{path: "t.txt", base: base, loaded: true}
+		f.old.ok, f.new.ok = oldOK, newOK
+		return f
+	}
+	ars := hunkArrows(file(diffIndex, true, true))
+	if len(ars) != 1 || ars[0].dir != 1 || ars[0].label != "Revert" {
+		t.Fatalf("arrows of the changes not staged: %v", ars)
+	}
+	if !strings.Contains(ars[0].tip, "Index") || !strings.Contains(ars[0].tip, "Working Tree") {
+		t.Errorf("the arrow says %q, not both versions", ars[0].tip)
+	}
+	for _, base := range []diffBase{diffStaged, diffCommit} {
+		if ars := hunkArrows(file(base, true, true)); len(ars) != 0 {
+			t.Errorf("arrows of the changes of base %d: %v", base, ars)
+		}
+	}
+	if ars := hunkArrows(file(diffIndex, false, true)); len(ars) != 0 {
+		t.Errorf("arrows of a file the diff adds whole: %v", ars)
+	}
+	if ars := hunkArrows(file(diffIndex, true, false)); len(ars) != 0 {
+		t.Errorf("arrows of a file the diff deletes whole: %v", ars)
+	}
+	if ars := hunkArrows(&diffFile{path: "t.txt", base: diffIndex}); len(ars) != 0 {
+		t.Errorf("arrows of a file still being read: %v", ars)
+	}
+}
+
+// threeBlockFile makes t.txt of thirty lines, commits it, and changes it
+// in the work tree three ways at once: a line replaced, lines added, and
+// a line removed, returning the text as it was and as it is.
+func threeBlockFile(hs *harness, git func(args ...string) string) (orig, changed string) {
+	hs.t.Helper()
+	var b strings.Builder
+	for i := range 30 {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	orig = b.String()
+	os.WriteFile(hs.path("t.txt"), []byte(orig), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "t")
+	changed = strings.Replace(orig, "line 2\n", "line two\n", 1)
+	changed = strings.Replace(changed, "line 10\nline 11\n", "line 10\nline ten and a half\nline 11\n", 1)
+	changed = strings.Replace(changed, "line 25\n", "", 1)
+	os.WriteFile(hs.path("t.txt"), []byte(changed), 0o644)
+	return orig, changed
+}
+
+// TestRevertArrowAppliesOneBlock: the arrow of a block puts the lines the
+// index has in place of the block's own lines of the work tree, in the
+// document, as one step of undo, and the blocks beside it stay as they
+// are — lines replaced, added and removed alike.
+func TestRevertArrowAppliesOneBlock(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	orig, changed := threeBlockFile(hs, git)
+	a.openFile(hs.path("t.txt"), false)
+	hs.settle()
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	hh := hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(hh) != 3 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	blocks := func(k int) linediff.Hunk {
+		_, hks := v.hunksAt(hh[k])
+		if len(hks) != 1 {
+			t.Fatalf("the run at %d is %d hunks", hh[k], len(hks))
+		}
+		return hks[0]
+	}
+	replaced, added, removed := blocks(0), blocks(1), blocks(2)
+	if replaced.ALen != 1 || replaced.BLen != 1 || added.ALen != 0 || added.BLen != 1 || removed.ALen != 1 || removed.BLen != 0 {
+		t.Fatalf("hunks replaced %v added %v removed %v", replaced, added, removed)
+	}
+	f := v.files[v.rows[hh[0]].file]
+	ars := hunkArrows(f)
+	if len(ars) != 1 {
+		t.Fatalf("arrows %v", ars)
+	}
+	d := a.docs[a.docIndex(hs.path("t.txt"))]
+	// applyArrow does what a click on the arrow of one block does: it
+	// takes the hunk as the rows show it now, which the clicks of the
+	// arrows do too.
+	apply := func(pick func(h linediff.Hunk) bool, what string) {
+		a.errors = nil
+		runs := hunkRuns(v, hs.path("t.txt"), diffIndex)
+		var h linediff.Hunk
+		n := 0
+		for _, r := range runs {
+			_, hks := v.hunksAt(r)
+			for _, k := range hks {
+				if pick(k) {
+					h, n = k, n+1
+				}
+			}
+		}
+		if n != 1 {
+			t.Fatalf("%d blocks of the %s among %v", n, what, runs)
+		}
+		a.applyArrow(v, f, h, ars[0])
+		hs.settle()
+		if len(a.errors) > 0 {
+			t.Fatalf("the arrow of the %s failed: %v", what, a.errors)
+		}
+	}
+	// The arrow of the added block takes its line out, and the others stay.
+	apply(func(h linediff.Hunk) bool { return h.ALen == 0 }, "added block")
+	want := strings.Replace(strings.Replace(orig, "line 25\n", "", 1), "line 2\n", "line two\n", 1)
+	if d.buf.String() != want {
+		t.Fatalf("after the arrow of the added block:\n%s", d.buf.String())
+	}
+	ed := d.main()
+	if !ed.undo() || d.buf.String() != changed {
+		t.Fatalf("one undo did not take the block back:\n%s", d.buf.String())
+	}
+	if !ed.redo() || d.buf.String() != want {
+		t.Fatalf("redo:\n%s", d.buf.String())
+	}
+	hs.settle()
+	// The arrow of the replaced block, then of the removed one; the added
+	// block stays applied from the redo.
+	apply(func(h linediff.Hunk) bool { return h.A == 2 }, "replaced block")
+	if want := strings.Replace(orig, "line 25\n", "", 1); d.buf.String() != want {
+		t.Fatalf("after the arrow of the replaced block:\n%s", d.buf.String())
+	}
+	apply(func(h linediff.Hunk) bool { return h.BLen == 0 }, "removed block")
+	if d.buf.String() != orig {
+		t.Fatalf("after the arrow of the removed block:\n%s", d.buf.String())
+	}
+	if data, _ := os.ReadFile(hs.path("t.txt")); string(data) != changed {
+		t.Errorf("the file was written before the document was saved")
+	}
+}
+
+// TestRevertArrowOfUnopenedFileIsUndoable: the arrow of a block of a file
+// that no editor has asks once, opens the file, and puts the block back
+// in the document, as one step of undo, and the file is written as the
+// document is saved.
+func TestRevertArrowOfUnopenedFileIsUndoable(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	orig, changed := threeBlockFile(hs, git)
+	_ = orig
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	hh := hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(hh) != 3 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	f, hks := v.hunksAt(hh[1])
+	if len(hks) != 1 || hks[0].ALen != 0 {
+		t.Fatalf("hunks %v", hks)
+	}
+	a.errors = nil
+	a.applyArrow(v, f, hks[0], hunkArrows(f)[0])
+	if a.confirm == nil {
+		t.Fatal("no question")
+	}
+	if !strings.Contains(a.confirm.title, "Revert") || a.confirm.ok != "Revert" {
+		t.Errorf("the question says %q, ok %q", a.confirm.title, a.confirm.ok)
+	}
+	a.confirm.run()
+	a.confirm = nil
+	hs.settle()
+	want := strings.Replace(strings.Replace(orig, "line 25\n", "", 1), "line 2\n", "line two\n", 1)
+	i := a.docIndex(hs.path("t.txt"))
+	if i < 0 {
+		t.Fatal("the file was not opened to revert in")
+	}
+	d := a.docs[i]
+	if d.buf.String() != want {
+		t.Fatalf("in the document: %q", d.buf.String())
+	}
+	if !d.dirty() {
+		t.Error("the document does not show as changed")
+	}
+	if data, _ := os.ReadFile(hs.path("t.txt")); string(data) != changed {
+		t.Errorf("the file was written before the document was saved: %q", data)
+	}
+	a.saveDoc(d, nil)
+	if data, _ := os.ReadFile(hs.path("t.txt")); string(data) != want {
+		t.Errorf("after saving: %q", data)
+	}
+	ed := d.main()
+	if !ed.undo() || d.buf.String() != changed {
+		t.Errorf("undo: %q", d.buf.String())
+	}
+}
+
+// TestRevertArrowRefusesStaleContent: the arrow of a block of a diff that
+// is behind the document, or behind the files, does not put its lines
+// over what is there now: it says so, and the diff is read again.
+func TestRevertArrowRefusesStaleContent(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	orig, changed := threeBlockFile(hs, git)
+	a.openFile(hs.path("t.txt"), false)
+	hs.settle()
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	hh := hunkRuns(v, hs.path("t.txt"), diffIndex)
+	f, hks := v.hunksAt(hh[1])
+	if len(hks) != 1 {
+		t.Fatalf("hunks %v", hks)
+	}
+	d := a.docs[a.docIndex(hs.path("t.txt"))]
+	ed := d.main()
+	ed.edit(ed.sel, textEdit{0, 0, "// typed\n"})
+	a.applyArrow(v, f, hks[0], hunkArrows(f)[0])
+	if len(a.errors) == 0 {
+		t.Fatal("no word of the diff catching up")
+	}
+	a.errors = nil
+	if !strings.Contains(d.buf.String(), "ten and a half") || !strings.Contains(d.buf.String(), "// typed\n") {
+		t.Errorf("the document was changed by the refused arrow:\n%s", d.buf.String())
+	}
+	if len(d.hist.undo) != 1 {
+		t.Errorf("the refused arrow left %d steps of undo", len(d.hist.undo))
+	}
+	// A diff whose files Git keeps have changed says so too.
+	hs.settleDiff(a.changesTabAndShow())
+	v = a.activeTab().diff
+	hh = hunkRuns(v, hs.path("t.txt"), diffIndex)
+	f, hks = v.hunksAt(hh[1])
+	f.gitStale = true
+	a.applyArrow(v, f, hks[0], hunkArrows(f)[0])
+	if len(a.errors) == 0 {
+		t.Fatal("no word of the diff catching up with the files")
+	}
+	if !strings.Contains(d.buf.String(), "ten and a half") {
+		t.Errorf("the document was changed by the refused arrow:\n%s", d.buf.String())
+	}
+	_, _ = orig, changed
+}
+
+// TestRevertArrowKeepsLineEndingsAndFinalNewline: the arrow of a block of
+// a file with CRLF endings keeps them when the document is saved, and a
+// file that ends without a newline ends without one after its last block
+// goes back.
+func TestRevertArrowKeepsLineEndingsAndFinalNewline(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	// CRLF, with the last line changed in the work tree.
+	var b strings.Builder
+	for i := range 30 {
+		fmt.Fprintf(&b, "line %d\r\n", i)
+	}
+	orig := b.String()
+	os.WriteFile(hs.path("t.txt"), []byte(orig), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "t")
+	changed := strings.Replace(orig, "line 29\r\n", "line twenty-nine\r\n", 1)
+	os.WriteFile(hs.path("t.txt"), []byte(changed), 0o644)
+	a.openFile(hs.path("t.txt"), false)
+	hs.settle()
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	hh := hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(hh) != 1 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	f, hks := v.hunksAt(hh[0])
+	if len(hks) != 1 || hks[0].A != 29 || hks[0].BLen != 1 {
+		t.Fatalf("hunks %v", hks)
+	}
+	d := a.docs[a.docIndex(hs.path("t.txt"))]
+	if !d.crlf {
+		t.Fatal("the document does not keep the file's CRLF")
+	}
+	a.errors = nil
+	a.applyArrow(v, f, hks[0], hunkArrows(f)[0])
+	hs.settle()
+	if len(a.errors) > 0 {
+		t.Fatalf("the arrow failed: %v", a.errors)
+	}
+	if d.buf.String() != strings.ReplaceAll(orig, "\r\n", "\n") {
+		t.Fatalf("in the document:\n%q", d.buf.String())
+	}
+	a.saveDoc(d, nil)
+	if data, _ := os.ReadFile(hs.path("t.txt")); string(data) != orig {
+		t.Errorf("after saving: %q", data)
+	}
+
+	// No newline at the end, with the last line changed.
+	orig = strings.ReplaceAll(orig, "\r\n", "\n")
+	orig = strings.TrimSuffix(orig, "\n")
+	os.WriteFile(hs.path("t.txt"), []byte(orig), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "no newline")
+	changed = strings.Replace(orig, "line 29", "line twenty-nine", 1)
+	os.WriteFile(hs.path("t.txt"), []byte(changed), 0o644)
+	hs.settleGit()
+	a.changesTabAndShow()
+	hs.settleDiff(a.activeTab().diff)
+	v = a.activeTab().diff
+	hh = hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(hh) != 1 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	f, hks = v.hunksAt(hh[0])
+	if len(hks) != 1 {
+		t.Fatalf("hunks %v", hks)
+	}
+	a.errors = nil
+	a.applyArrow(v, f, hks[0], hunkArrows(f)[0])
+	hs.settle()
+	if len(a.errors) > 0 {
+		t.Fatalf("the arrow failed: %v", a.errors)
+	}
+	if d.buf.String() != orig {
+		t.Fatalf("in the document:\n%q", d.buf.String())
+	}
+	hs.settleDiff(a.changesTabAndShow())
+	if runs := hunkRuns(a.activeTab().diff, hs.path("t.txt"), diffIndex); len(runs) != 0 {
+		t.Errorf("the diff still shows %d runs", len(runs))
+	}
+}
+
+// TestRevertArrowsOfTheDiff: every block of the changes not staged has an
+// arrow, which applies its block alone when clicked, in either layout;
+// the view keeps its place as the diff is read again; and the undo of the
+// diff, from its keyboard, takes the block back.
+func TestRevertArrowsOfTheDiff(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	orig, changed := threeBlockFile(hs, git)
+	a.openFile(hs.path("t.txt"), false)
+	hs.settle()
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	d := a.docs[a.docIndex(hs.path("t.txt"))]
+	// arrowAt returns where the arrow of the kth run of the changes not
+	// staged shows, by the middle of the block's rows.
+	arrowAt := func(k int) (x, y float32) {
+		runs := hunkRuns(v, hs.path("t.txt"), diffIndex)
+		if k >= len(runs) {
+			t.Fatalf("run %d of %v", k, runs)
+		}
+		fl, hks := v.hunksAt(runs[k])
+		if len(hks) != 1 {
+			t.Fatalf("hunks %v", hks)
+		}
+		ki := slices.IndexFunc(fl.hunks, func(x linediff.Hunk) bool { return x == hks[0] })
+		fi := v.rows[runs[k]].file
+		from, to := -1, -1
+		for i, r := range v.rows {
+			if r.file == fi && r.hunk == ki && r.changed() {
+				if from < 0 {
+					from = i
+				}
+				to = i + 1
+			}
+		}
+		if from < 0 {
+			t.Fatalf("no rows of the hunk %d", ki)
+		}
+		mid := (float32(v.tops[from]) + float32(v.tops[to-1]+v.rows[to-1].h)) / 2
+		pane, ok := hs.tt.Find("Diff of the Changes")
+		if !ok {
+			t.Fatal("no diff pane")
+		}
+		l := a.diffGeometry(v, v.split, v.viewW)
+		if v.split {
+			x = pane.X + l.half
+		} else {
+			x = pane.X + diffRailW + 6
+		}
+		return x, pane.Y + editorPadY + mid*a.font.lineH - v.scroll.Y
+	}
+	apply := func(k int, what string) {
+		a.errors = nil
+		a.confirm = nil
+		x, y := arrowAt(k)
+		hs.tt.ClickAt(x, y)
+		hs.settle()
+		if len(a.errors) > 0 {
+			t.Fatalf("the arrow of the %s failed: %v", what, a.errors)
+		}
+		if a.confirm != nil {
+			t.Fatalf("the arrow of the %s asked", what)
+		}
+	}
+	// The diff opens in the one column at this width, with its arrows.
+	if v.split {
+		t.Log("the diff is side by side at this width")
+	}
+	if _, ok := hs.tt.Find("Revert"); !ok {
+		t.Fatal("no arrow of a block")
+	}
+	// The view stays near where it was as the diff is read again: with the
+	// removed block in view, the arrow of the added block goes back, and
+	// the removed one is still in view after the diff has been read again.
+	runs0 := hunkRuns(v, hs.path("t.txt"), diffIndex)
+	v.scroll.Y = editorPadY + float32(v.tops[runs0[2]])*a.font.lineH - 5*a.font.lineH
+	hs.settle()
+	apply(1, "added block")
+	want0 := strings.Replace(strings.Replace(orig, "line 25\n", "", 1), "line 2\n", "line two\n", 1)
+	if d.buf.String() != want0 {
+		t.Fatalf("after the arrow of the added block:\n%s", d.buf.String())
+	}
+	runs1 := hunkRuns(v, hs.path("t.txt"), diffIndex)
+	fl, hks := v.hunksAt(runs1[len(runs1)-1])
+	ki := slices.IndexFunc(fl.hunks, func(x linediff.Hunk) bool { return x == hks[0] })
+	fi := v.rows[runs1[len(runs1)-1]].file
+	from, to := -1, -1
+	for i, r := range v.rows {
+		if r.file == fi && r.hunk == ki && r.changed() {
+			if from < 0 {
+				from = i
+			}
+			to = i + 1
+		}
+	}
+	first, last := v.rowAt(v.scroll.Y, a.font.lineH), v.rowAt(v.scroll.Y+v.viewH, a.font.lineH)
+	if from > last || to-1 < first {
+		t.Errorf("the removed block went out of the view: rows %d..%d of %d..%d", from, to-1, first, last)
+	}
+	// Undo from the diff's keyboard takes it back, and redo makes it again.
+	v.pane.Focus()
+	hs.settle()
+	hs.key(ui.Cmd, ui.KeyZ)
+	if d.buf.String() != changed {
+		t.Fatalf("undo from the diff:\n%s", d.buf.String())
+	}
+	hs.key(ui.Cmd|ui.Shift, ui.KeyZ)
+	if d.buf.String() != want0 {
+		t.Fatalf("redo from the diff:\n%s", d.buf.String())
+	}
+	// Side by side, the arrows do the same: with the added block still
+	// applied, the arrow of the replaced block puts its line back.
+	a.setDiffLayout(v, layoutSplit)
+	hs.settleDiff(v)
+	apply(0, "replaced block")
+	if want := strings.Replace(orig, "line 25\n", "", 1); d.buf.String() != want {
+		t.Fatalf("after the arrow of the replaced block, side by side:\n%s", d.buf.String())
+	}
+	v.pane.Focus()
+	hs.settle()
+	hs.key(ui.Cmd, ui.KeyZ)
+	if d.buf.String() != want0 {
+		t.Fatalf("undo from the side by side diff:\n%s", d.buf.String())
+	}
+	hs.settleDiff(v)
+	// Two arrows in a row, as a quick pair of clicks: each block goes back
+	// by itself, or the second waits for the diff to catch up with the
+	// first, and nothing goes over what is not there.
+	x, y := arrowAt(0)
+	x1, y1 := arrowAt(1)
+	a.errors = nil
+	hs.tt.ClickAt(x, y)
+	hs.settle()
+	hs.tt.ClickAt(x1, y1)
+	hs.settleDiff(a.changesTabAndShow())
+	switch d.buf.String() {
+	case orig:
+	case strings.Replace(orig, "line 25\n", "", 1):
+		// The second click waited for the diff to catch up; its block goes
+		// back once it has.
+		a.errors = nil
+		apply(0, "removed block")
+		if d.buf.String() != orig {
+			t.Fatalf("after the arrow of the removed block:\n%s", d.buf.String())
+		}
+	default:
+		t.Errorf("after two arrows in a row:\n%s", d.buf.String())
+	}
+}
+
+// TestWholeFileDiffSaysArrowsDoNotApply: a file one side of the diff lacks
+// whole takes no arrows, and the diff says so under its lines, with what
+// the buttons of its header do instead.
+func TestWholeFileDiffSaysArrowsDoNotApply(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	os.WriteFile(hs.path("new.txt"), []byte("a new file\nwith lines\n"), 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("new.txt"), any: true}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	f := diffFileOf(v, hs.path("new.txt"), diffIndex)
+	if f == nil {
+		t.Fatal("the new file is not in the diff")
+	}
+	if len(hunkArrows(f)) != 0 {
+		t.Error("arrows on a file the diff adds whole")
+	}
+	if notes(v, "arrow") == 0 {
+		t.Errorf("no note of the whole file: rows %s", kinds(v))
+	}
+	// A file deleted from the work tree says so too.
+	os.WriteFile(hs.path("new.txt"), []byte("a new file\nwith lines\n"), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "new")
+	os.Remove(hs.path("new.txt"))
+	hs.settleGit()
+	a.changesTabAndShow()
+	hs.settleDiff(a.activeTab().diff)
+	v = a.activeTab().diff
+	f = diffFileOf(v, hs.path("new.txt"), diffIndex)
+	if f == nil {
+		t.Fatal("the deleted file is not in the diff")
+	}
+	if len(hunkArrows(f)) != 0 {
+		t.Error("arrows on a file the diff deletes whole")
+	}
+	if notes(v, "arrow") == 0 {
+		t.Errorf("no note of the whole file: rows %s", kinds(v))
+	}
+}
+
+// notes counts the note rows of a diff whose label has s in it.
+func notes(v *diffView, s string) int {
+	n := 0
+	for _, r := range v.rows {
+		if r.kind == rowNote && strings.Contains(r.label, s) {
+			n++
+		}
+	}
+	return n
 }

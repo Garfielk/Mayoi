@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,6 +23,41 @@ const (
 	hunkDiscard                   // out of the work tree, which has them as the index does
 )
 
+// hunkArrow is a direction the lines of a change of a diff can be
+// applied in: the side dir writes takes the lines of the other side in
+// place of the change's own lines, in a document of its text. Its label
+// is what the arrow says it does, as the versions compared name it, and
+// its tip tells which of them it reads and which it writes.
+type hunkArrow struct {
+	dir   int    // +1 writes the new side, -1 writes the old
+	label string // Revert, as the base's lines go into the local text
+	icon  *ui.SVG
+	tip   string
+}
+
+// hunkArrows returns the arrows of a file of a diff, one for each side
+// its changes can be written to. The work tree's text is the only side
+// written: the lines of the version it is compared against go over its
+// changes, which reverts them. The index is written by staging and
+// unstaging, which keep their own buttons, and the versions Git keeps
+// are read only, so they take no arrows — nor does a file one side of
+// the diff lacks whole, whose changes go in or out with the file itself.
+func hunkArrows(f *diffFile) []hunkArrow {
+	if !f.loaded || f.binary || !f.old.ok || !f.new.ok || f.entry.Submodule() {
+		return nil
+	}
+	if f.base != diffIndex {
+		return nil
+	}
+	old, new := f.base.sides()
+	return []hunkArrow{{
+		dir:   1,
+		label: "Revert",
+		icon:  iconArrowRight,
+		tip:   "Revert this change: the lines of " + old + ", into the " + new,
+	}}
+}
+
 // hunkActions returns what can be done to the changes of a file of a
 // diff, one change at a time: those of a file in both versions only, as
 // a file added or removed goes in or out whole, as a submodule does.
@@ -36,6 +72,17 @@ func hunkActions(f *diffFile) []hunkAction {
 		return []hunkAction{hunkUnstage}
 	}
 	return nil
+}
+
+// hunkRows returns the rows of the kth change of a diff, from its first
+// changed row to past its last, as they are laid out.
+func (v *diffView) hunkRows(k int) (from, to int) {
+	from = v.starts[k]
+	to = from + 1
+	for to < len(v.rows) && v.rows[to].changed() && v.rows[to].file == v.rows[from].file && v.rows[to].hunk == v.rows[from].hunk {
+		to++
+	}
+	return from, to
 }
 
 // hunkHead returns the header of the run of changes row i of a diff is
@@ -200,43 +247,127 @@ func (a *app) applyHunks(f *diffFile, hs []linediff.Hunk, act hunkAction) {
 }
 
 // discardHunks puts changes of a file back as the index has them, in the
-// file's document, as one step of undo: of an editor shown in its frame,
-// and of a file that is not open once it is asked about, opened, and
-// found to be what the diff compared. A diff that is behind the files is
-// read again first: its changes are not to go over what is there now.
+// file's document, as one step of undo.
 func (a *app) discardHunks(f *diffFile, hs []linediff.Hunk) {
+	a.revertInto(nil, f, hs, "Discard")
+}
+
+// hunkArrowW is the side of the round button of the arrow of a change of
+// a diff, which fits between the rail and the line numbers of the one
+// column, where they leave room.
+const hunkArrowW float32 = 13
+
+// hunkArrowUI is the arrow of the kth change of a diff, which puts the
+// lines of one of its sides in place of its lines of the other, at the
+// middle of the change's rows: on the divider of the sides side by side,
+// and between the rail and the line numbers of the one column, staying
+// by them as the lines scroll along. It returns where it is, or nothing
+// for a change that takes no arrow, or that is out of the view.
+func (a *app) hunkArrowUI(c *ui.Context, v *diffView, k, first, last int, l diffGeometry) ui.Rect {
+	from, to := v.hunkRows(k)
+	if from > last || to <= first || from >= len(v.rows) {
+		return ui.Rect{}
+	}
+	f := v.fileAt(k)
+	ars := hunkArrows(f)
+	if len(ars) == 0 {
+		return ui.Rect{}
+	}
+	h := f.hunks[v.rows[from].hunk]
+	ar := ars[0]
+	p := a.pal
+	mid := (float32(v.tops[from]) + float32(v.tops[to-1]+v.rows[to-1].h)) / 2
+	y := editorPadY + mid*a.font.lineH - hunkArrowW/2
+	x := v.scroll.X + diffRailW
+	if v.split {
+		x = v.scroll.X + l.half - hunkArrowW/2
+	}
+	btn := ui.ButtonBase(c.Key(fmt.Sprintf("arrow:%d", k))).Absolute().Left(x).Top(y).Size(hunkArrowW, hunkArrowW).
+		Radius(hunkArrowW/2).AlignItems(ui.Center).Justify(ui.Center).Label(ar.label).Tooltip(ar.tip).
+		Background(p.editor).Border(1, p.border)
+	col := p.muted
+	if btn.Hovered() {
+		btn.Background(p.hover.Over(p.editor))
+		col = p.text
+	}
+	btn.Children(func() {
+		ui.Icon(c, ar.icon).FontSize(hunkArrowW - 3).TextColor(col)
+	})
+	if btn.Clicked() {
+		a.post(func() {
+			v.pane.Focus()
+			a.applyArrow(v, f, h, ar)
+		})
+	}
+	return ui.Rect{X: x, Y: y, W: hunkArrowW, H: hunkArrowW}
+}
+
+// applyArrow does what the arrow of a change of a diff does: puts the
+// lines of the side it reads in place of the change's lines of the side
+// it writes, in a document of that side's text, as one step of undo. The
+// work tree's side is the one written, from the version it is compared
+// against, which reverts the change; the diff v keeps the document, as
+// the undo of its keyboard works in it.
+func (a *app) applyArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunkArrow) {
+	switch {
+	case ar.dir > 0:
+		a.revertInto(v, f, []linediff.Hunk{h}, ar.label)
+	default:
+		// No side these diffs compare is written from its new side: the
+		// index goes on by staging, and the versions Git keeps are read
+		// only, so no such arrow is offered.
+	}
+}
+
+// revertInto puts the changes hs of a file of a diff back as the old
+// side has them, in the file's document, as one step of undo: through an
+// editor shown, in its frame; through one out of sight, at once; or, for
+// a file no editor has, through one opened for it and found to be what
+// the diff compared, after asking about it as ok names the action. A
+// diff that is behind the files or the document is read again first: its
+// changes are not to go over what is there now.
+func (a *app) revertInto(v *diffView, f *diffFile, hs []linediff.Hunk, ok string) {
 	if f.running || f.gitStale {
 		a.fail("The diff is catching up with the files: try again in a moment.")
 		return
 	}
+	if doc := a.diffDoc(f); doc != nil && doc.buf.Version() != f.docVersion {
+		a.fail("The diff is catching up with your edits: try again in a moment.")
+		return
+	}
 	if d, shown := a.editorOf(a.diffDoc(f)); d != nil {
-		discard := func(d *editor) { a.discardInto(d, f, hs) }
+		into := func(d *editor) {
+			a.discardInto(d, f, hs)
+			if v != nil {
+				v.edited = d.document
+			}
+		}
 		// An editor shown takes edits in its frame, once its text area's
 		// selection is known; one out of sight has its own.
 		if shown {
-			a.queueEdit(d, discard)
+			a.queueEdit(d, into)
 		} else {
-			discard(d)
+			into(d)
 		}
 		return
 	}
-	path := f.path
-	title := "Discard this change to " + filepath.Base(path) + "?"
+	name := filepath.Base(f.path)
+	title := ok + " this change to " + name + "?"
 	if len(hs) > 1 {
-		title = "Discard these changes to " + filepath.Base(path) + "?"
+		title = ok + " these changes to " + name + "?"
 	}
 	a.confirm = &confirm{title: title, message: "The lines go back as the index has them, in the editor, where undo takes them back.",
-		ok: "Discard", danger: true, run: func() {
-			a.discardByOpening(f, hs)
+		ok: ok, danger: true, run: func() {
+			a.intoByOpening(v, f, hs)
 		}}
 }
 
-// discardByOpening opens a file that no editor has, checks that its text
+// intoByOpening opens a file that no editor has, checks that its text
 // is what the diff compared, and puts the changes of hunks hs back as
 // the index has them, as one step of undo. A file that changed since the
 // diff was drawn is left as it is and read again: its changes do not
 // fit, and are not to go over what it has now.
-func (a *app) discardByOpening(f *diffFile, hs []linediff.Hunk) {
+func (a *app) intoByOpening(v *diffView, f *diffFile, hs []linediff.Hunk) {
 	if f.running || f.gitStale {
 		a.fail("The diff is catching up with the files: try again in a moment.")
 		return
@@ -244,7 +375,7 @@ func (a *app) discardByOpening(f *diffFile, hs []linediff.Hunk) {
 	a.openFile(f.path, false)
 	d, _ := a.editorOf(a.diffDoc(f))
 	if d == nil || d.loadErr != nil || d.offline {
-		a.fail("Could not open %s to discard its changes.", filepath.Base(f.path))
+		a.fail("Could not open %s to revert its changes.", filepath.Base(f.path))
 		return
 	}
 	if d.loading {
@@ -258,6 +389,9 @@ func (a *app) discardByOpening(f *diffFile, hs []linediff.Hunk) {
 		return
 	}
 	a.discardInto(d, f, hs)
+	if v != nil {
+		v.edited = d.document
+	}
 }
 
 // discardInto puts the changes of hunks hs of a file of a diff back as
