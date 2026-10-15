@@ -1437,6 +1437,15 @@ func (a *app) toggleGap(v *diffView, i int) {
 // pager, as Hunk has them, and, while its writable side is edited, the
 // typing and the keys of an editor.
 func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
+	// A line of the diff copies as it is, of the side the chosen row
+	// shows, while the diff reads as a pager.
+	if ev.Kind == ui.InputCommand && ev.Text == "copy" && v.editing == nil {
+		if s := v.diffChosenText(); s != "" {
+			a.services.WriteClipboard(s)
+			a.tell(note{message: "Copied the line"})
+			return true
+		}
+	}
 	if v.editing != nil {
 		if a.diffEditInput(v, ev) {
 			return true
@@ -1556,8 +1565,12 @@ func (a *app) openFileAt(path string, line int, focus bool) {
 
 // diffStatus is what the status bar says of a diff: what the navigation
 // said where it stopped, or which change of all it is at, and how many
-// lines the diff adds and removes, once every file is read.
+// lines the diff adds and removes, once every file is read. While its
+// writable side is edited, it says so.
 func (v *diffView) diffStatus() string {
+	if e := v.editing; e != nil {
+		return "Editing " + filepath.Base(e.f.path) + " · Esc when done"
+	}
 	if v.boundary != nil {
 		return v.boundary.msg
 	}
@@ -1683,6 +1696,26 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 			a.post(func() { a.setDiffSync(v, !a.settings.DiffSyncScroll) })
 		}
 	})
+	// Editing the working tree side of the file of the chosen row, which
+	// the I key does too.
+	if f := a.diffEditTarget(v); f != nil {
+		editing := v.editing != nil && v.editing.f == f
+		label := "Edit"
+		if editing {
+			label = "Editing"
+		}
+		b = button(iconPencil, label, editing)
+		b.Tooltip("Edit the working tree side of this file (I) · Esc when done")
+		if b.Clicked() {
+			a.post(func() {
+				if e := v.editing; e != nil && e.f == f {
+					a.endDiffEdit(v)
+					return
+				}
+				a.beginDiffEdit(v, v.focusRow())
+			})
+		}
+	}
 	act(iconOpenFile, "Open File (E)", func() { a.openDiffFile(v) })
 }
 

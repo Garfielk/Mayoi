@@ -5,6 +5,17 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
+- The working tree side of a diff can be edited right in the diff: press
+  **I** on a change, or the **Edit** button, and the side takes typing,
+  selection, copy, cut, paste and the usual editing keys, with the caret
+  painted where it is. **Esc** goes back to reading. The edits go through
+  the file's document, so the editor tab shows the same text, the save
+  state is the document's (`Cmd+S` saves from the diff too, autosave
+  included), and undo and redo are the document's one history. The diff
+  reads the sides again as you type, keeping the scroll and the caret's
+  line; its block actions refuse to run while it is catching up. The
+  staged, HEAD and commit sides stay read-only, and a line of any side
+  copies with `Cmd+C` while the diff reads as a pager.
 - Discarding changes block by block in a diff now always goes through the
   file's document, also when the file was not open: the discard is one
   step of undo, the tab shows the file as changed until it is saved, and

@@ -497,3 +497,94 @@ func TestDiffEditKeepsWorkingAcrossLayouts(t *testing.T) {
 		t.Fatal("the edit changed files across the layouts")
 	}
 }
+
+// TestDiffEditPlacesTheCaretByClicking: the button edits the side, a click
+// on it puts the caret at the character clicked, and a drag selects.
+func TestDiffEditPlacesTheCaretByClicking(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	_, _ = twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	path := hs.path("t.txt")
+	a.setDiffLayout(v, layoutInline)
+	hs.settle()
+	// The button of the breadcrumbs begins the editing of the side.
+	if _, ok := hs.tt.Find("Edit"); !ok {
+		t.Fatal("no button to edit the side")
+	}
+	if err := hs.tt.Click("Edit"); err != nil {
+		t.Fatal(err)
+	}
+	hs.settle()
+	if v.editing == nil || v.editing.f.path != path {
+		t.Fatal("the button did not begin the editing")
+	}
+	e := v.editing
+	l := a.diffGeometry(v, v.split, v.viewW)
+	// A click at a character of line 25 puts the caret there.
+	row := diffEditRow(v, path, 25)
+	if row < 0 {
+		t.Fatal("no row of line 25")
+	}
+	v.scroll.Y = max(0, editorPadY+float32(v.tops[row])*a.font.lineH-300)
+	hs.settle()
+	y := titleBarH + tabStripH + crumbsH + editorPadY + float32(v.tops[row])*a.font.lineH - v.scroll.Y + a.font.lineH/2
+	x := a.window.SidebarWidth + l.textX + 3*a.font.charW
+	hs.tt.ClickAt(x, y)
+	hs.settle()
+	snap := e.doc.buf.Snapshot()
+	s, _ := snap.LineRange(25)
+	if e.ed.sel[1] != s+3 {
+		t.Fatalf("the caret is at %d, want %d", e.ed.sel[1], s+3)
+	}
+	// A drag from there down selects the lines between: the press puts the
+	// caret where it is, at the character the click had found.
+	y2 := y + 2*a.font.lineH
+	hs.tt.Press(x, y)
+	hs.tt.Move(x, y2)
+	hs.tt.Release(x, y2)
+	hs.settle()
+	if text := e.diffEditedText(); text != "e twenty-five\nline 26\nlin" {
+		t.Fatalf("the drag selected %q", text)
+	}
+	// The input methods get a place to put their candidates at.
+	if _, ok := a.diffCaretRect(v, e, l); !ok {
+		t.Error("the caret has no place for the input methods")
+	}
+}
+
+// TestDiffEditBeginsByTheKey: the I key of the pager begins the editing of
+// the working tree side of the chosen row, and a line of the diff copies
+// while it reads as a pager.
+func TestDiffEditBeginsByTheKey(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	_, _ = twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	// The change gone to is of the working tree: I edits its side.
+	v.stepHunk(1, crossAsk)
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyI}) {
+		t.Fatal("the pager did not take I")
+	}
+	if v.editing == nil || v.editing.f.path != hs.path("t.txt") {
+		t.Fatal("I did not begin the editing")
+	}
+	a.endDiffEdit(v)
+	// A line of a side that is read copies as it is.
+	v.setCursor(diffEditRow(v, hs.path("t.txt"), 25))
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputCommand, Text: "copy"}) {
+		t.Fatal("the diff did not copy the line")
+	}
+	if got := a.services.ReadClipboard(); got != "line twenty-five" {
+		t.Fatalf("copied %q", got)
+	}
+}

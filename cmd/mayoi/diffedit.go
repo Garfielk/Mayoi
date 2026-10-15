@@ -31,23 +31,14 @@ func (f *diffFile) writable() bool {
 }
 
 // editRow returns the row a diff begins to edit at: the line of the new
-// side the row shows, or, for a header, the first line of the new side
-// after it, -1 for none.
+// side the row shows, or the first one after it, -1 for none.
 func (v *diffView) editRow(i int) int {
 	if i < 0 || i >= len(v.rows) {
 		return -1
 	}
-	file := v.rows[i].file
-	switch v.rows[i].kind {
-	case rowLine:
-		if v.rows[i].new >= 0 {
-			return i
-		}
-	case rowHunk, rowFile:
-		for k := i + 1; k < len(v.rows) && v.rows[k].file == file; k++ {
-			if r := v.rows[k]; r.kind == rowLine && r.new >= 0 {
-				return k
-			}
+	for k := i; k < len(v.rows); k++ {
+		if r := v.rows[k]; r.kind == rowLine && r.new >= 0 {
+			return k
 		}
 	}
 	return -1
@@ -557,6 +548,9 @@ func (a *app) runDiffEdits(v *diffView, focused bool) {
 		if e.doc.hl == nil {
 			continue
 		}
+		if !a.settings.Vim {
+			vimReset(e.ed)
+		}
 		// The edit that has the keyboard types, as an editor's does.
 		if v.editing == e && focused {
 			e.doc.typist = e.ed
@@ -653,4 +647,164 @@ func (e *diffEdit) diffEditedText() string {
 	lo, hi := min(e.ed.sel[0], e.ed.sel[1]), max(e.ed.sel[0], e.ed.sel[1])
 	lo, hi = min(lo, snap.Len()), min(hi, snap.Len())
 	return snap.Slice(lo, hi)
+}
+
+// paintDiffEdit paints the selection and the caret of a diff's edited
+// side over its rows: what is selected, filled line by line, and a bar
+// where the caret is, as an editor shows them.
+func (a *app) paintDiffEdit(pt *ui.Painter, v *diffView, e *diffEdit, l diffGeometry, first, last int, r ui.Rect, focused bool) {
+	p, fnt := a.pal, a.font
+	file := slices.Index(v.files, e.f)
+	if file < 0 {
+		return
+	}
+	snap := e.doc.buf.Snapshot()
+	if snap.Len() == 0 {
+		return
+	}
+	lo, hi := min(e.ed.sel[0], e.ed.sel[1]), max(e.ed.sel[0], e.ed.sel[1])
+	lo, hi = min(lo, snap.Len()), min(hi, snap.Len())
+	lineLo, lineHi := snap.LineAt(lo), snap.LineAt(hi)
+	caret := min(e.ed.sel[1], snap.Len())
+	caretLine := snap.LineAt(caret)
+	lineH := fnt.lineH
+	cols := l.cols[btoi(v.split)]
+	selCol := p.selected
+	if !focused {
+		selCol = p.selectedDim
+	}
+	for i := first; i <= last; i++ {
+		row := &v.rows[i]
+		if row.file != file || row.kind != rowLine || row.new < 0 {
+			continue
+		}
+		if row.new < lineLo || row.new > lineHi {
+			continue
+		}
+		// Where the row's text starts, and where it shows: the working
+		// tree side of a split diff, which scrolls in its own when the
+		// sides do not scroll together.
+		x := r.X + l.textX
+		y := r.Y + editorPadY + float32(v.tops[i])*lineH
+		if v.split {
+			x += l.half
+			if !a.settings.DiffSyncScroll {
+				y += v.scroll.Y - v.sideY
+			}
+		}
+		if row.new < snap.LineCount() {
+			s0, s1 := snap.LineRange(row.new)
+			text := clipLine(snap.Slice(s0, s1))
+			from, to := 0, utf8.RuneCountInString(text)
+			if row.new == lineLo {
+				from = lo - s0
+			}
+			if row.new == lineHi {
+				to = hi - s0
+			}
+			for _, rc := range diffSelRects(fnt, text, from, to, x, y, cols, v.built.wrap) {
+				pt.Fill(rc, selCol, 0)
+			}
+		}
+		if row.new == caretLine && focused {
+			text := ""
+			if caretLine < len(e.f.new.lines) {
+				text = clipLine(e.f.new.lines[caretLine])
+			}
+			cs, _ := snap.LineRange(caretLine)
+			cx, k := diffCaretX(fnt, text, caret-cs, cols, v.built.wrap)
+			pt.Fill(ui.Rect{X: x + cx - 0.5, Y: y + float32(k)*lineH, W: 1.5, H: lineH}, p.cursor, 0)
+		}
+	}
+}
+
+// diffSelRects returns the rects of the runes from up to to of a line of a
+// diff, on the rows the line wraps to, at x where its text starts and y
+// where the row shows.
+func diffSelRects(fnt codeFont, text string, from, to int, x, y float32, cols int, wrap bool) []ui.Rect {
+	shown, at := expandTabs(text)
+	breaks := diffBreaks(shown, cols, wrap)
+	b0 := at(min(runeByte(text, from), len(text)))
+	b1 := at(min(runeByte(text, to), len(text)))
+	var out []ui.Rect
+	for k := 0; k+1 < len(breaks); k++ {
+		lo, hi := breaks[k], breaks[k+1]
+		s0, s1 := max(b0, lo), min(b1, hi)
+		if s1 <= s0 {
+			continue
+		}
+		out = append(out, ui.Rect{X: x + fnt.width(shown[lo:s0]), Y: y + float32(k)*fnt.lineH,
+			W: fnt.width(shown[s0:s1]), H: fnt.lineH})
+	}
+	return out
+}
+
+// runeByte returns the byte offset of the col-th rune of s, len(s) past
+// its end.
+func runeByte(s string, col int) int {
+	i := 0
+	for ; i < len(s) && col > 0; col-- {
+		_, n := utf8.DecodeRuneInString(s[i:])
+		i += n
+	}
+	return i
+}
+
+// diffCaretRect returns where the caret of a diff's edit shows, for the
+// input methods to put their candidates at.
+func (a *app) diffCaretRect(v *diffView, e *diffEdit, l diffGeometry) (ui.Rect, bool) {
+	row := v.caretRow(e)
+	if row < 0 || row >= len(v.tops) {
+		return ui.Rect{}, false
+	}
+	snap := e.doc.buf.Snapshot()
+	caret := min(e.ed.sel[1], snap.Len())
+	line := snap.LineAt(caret)
+	s, _ := snap.LineRange(line)
+	text := ""
+	if line < len(e.f.new.lines) {
+		text = clipLine(e.f.new.lines[line])
+	}
+	x, k := diffCaretX(a.font, text, caret-s, l.cols[btoi(v.split)], v.built.wrap)
+	y := editorPadY + float32(v.tops[row])*a.font.lineH + float32(k)*a.font.lineH
+	x += l.textX
+	if v.split {
+		x += l.half
+		if !a.settings.DiffSyncScroll {
+			y += v.scroll.Y - v.sideY
+		}
+	}
+	return ui.Rect{X: x - 1, Y: y, W: 3, H: a.font.lineH}, true
+}
+
+// diffChosenText returns the text of the line a diff has chosen, of the
+// side the row shows, "" for none: what copying a line of the diff takes,
+// of a side that is read as well as of one that edits.
+func (v *diffView) diffChosenText() string {
+	i := v.focusRow()
+	if i < 0 || i >= len(v.rows) || v.rows[i].kind != rowLine {
+		return ""
+	}
+	r := v.rows[i]
+	f := v.files[r.file]
+	if !f.loaded || f.binary {
+		return ""
+	}
+	if n, newSide := r.line(); n >= 0 && n < len(f.side(newSide).lines) {
+		return f.side(newSide).lines[n]
+	}
+	return ""
+}
+
+// diffEditTarget returns the file of the row a diff would begin to edit,
+// nil when none of it may be.
+func (a *app) diffEditTarget(v *diffView) *diffFile {
+	i := v.editRow(v.focusRow())
+	if i < 0 {
+		return nil
+	}
+	if f := v.files[v.rows[i].file]; f.writable() {
+		return f
+	}
+	return nil
 }

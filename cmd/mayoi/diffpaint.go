@@ -214,6 +214,13 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 	focused := v.pane.FocusWithin(c)
 	pane := ui.ScrollBoth(c.Key("diff")).TrackScroll(&v.scroll).Bind(&v.pane).Fill().Background(p.editor).
 		Focusable().FocusRing(false).Label("Diff of the Changes")
+	// While the working tree side is edited, the input methods type for
+	// the caret the diff paints.
+	if e := v.editing; e != nil {
+		if rc, ok := a.diffCaretRect(v, e, l); ok {
+			pane.TextCaret(rc)
+		}
+	}
 	a.takeKeys(pane, placeDiff, func(ev ui.InputEvent) bool {
 		if ev.Kind == ui.InputScroll && v.split && !a.settings.DiffSyncScroll && ev.X >= l.half {
 			// The right side scrolls on its own.
@@ -477,6 +484,10 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 					}
 					pt.Fill(ui.Rect{X: vx, Y: y, W: diffRailW, H: h}, p.accent, 0)
 				}
+			}
+			// The selection and the caret of the side being edited.
+			if e := v.editing; e != nil {
+				a.paintDiffEdit(pt, v, e, l, first, last, r, focused)
 			}
 			// The header of the file at the top, over its lines.
 			if sticky >= 0 {
