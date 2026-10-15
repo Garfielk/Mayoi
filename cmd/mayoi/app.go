@@ -460,6 +460,10 @@ func (a *app) saveDoc(d *document, then func()) {
 }
 
 func (a *app) saveActive() {
+	if t := a.activeTab(); t != nil && t.merge != nil {
+		a.saveMerge(t.merge)
+		return
+	}
 	if d := a.activeEditor(); d != nil {
 		a.saveDoc(d.document, nil)
 	}

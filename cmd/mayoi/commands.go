@@ -104,6 +104,7 @@ func (a *app) commands() []command {
 		{"git.amend", "Amend Last Commit", "", func() { a.showSourceControl(); a.startAmend() }},
 		{"git.openChanges", "Open Changes", "", a.openChanges},
 		{"git.openAllChanges", "Open All Changes", "", func() { a.openChangesTab(true) }},
+		{"git.solveConflicts", "Solve the Conflicts of the Active File", "", a.solveActiveConflicts},
 		{"git.nextChange", "Next Change", "Alt+F5", func() { a.stepChange(1) }},
 		{"git.prevChange", "Previous Change", "Shift+Alt+F5", func() { a.stepChange(-1) }},
 		{"git.nextFile", "Next File", "", func() { a.stepDiffFile(1) }},
@@ -158,6 +159,14 @@ func (a *app) commands() []command {
 		cmds = slices.DeleteFunc(cmds, func(c command) bool { return strings.HasPrefix(c.id, "remote.") })
 	}
 	return cmds
+}
+
+// solveActiveConflicts shows the three-way merge of the file of the tab
+// shown when it is in conflict.
+func (a *app) solveActiveConflicts() {
+	if t := a.activeTab(); t != nil && t.path() != "" {
+		a.openMerge(t.path(), true)
+	}
 }
 
 // recentCommand is the prefix of the commands that open a recent

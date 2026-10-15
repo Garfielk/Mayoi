@@ -731,6 +731,10 @@ func (a *app) scmFile(c *ui.Context, r scmRow, action *func()) {
 				if a.smallButton(c, iconMinus, "Unstage Changes") {
 					*action = func() { a.unstage(entryPaths(e, true)...) }
 				}
+			case groupMerge:
+				if a.smallButton(c, iconMerge, "Solve Conflicts…") {
+					*action = func() { a.openMerge(e.Path, true) }
+				}
 			default:
 				if r.group != groupMerge && !e.Submodule() && a.smallButton(c, iconUndo, "Discard Changes…") {
 					*action = func() { a.discard(e) }
@@ -1173,8 +1177,11 @@ func (a *app) scmFolder(c *ui.Context, r scmRow, action *func()) {
 // scmFileMenu is the menu of a changed file's row.
 func (a *app) scmFileMenu(m *ui.Menu, r scmRow, action *func()) {
 	e := r.e
-	if m.Item("Open Changes").Chosen() {
+	if m.Item("Open Changes").Disabled(r.group == groupMerge).Chosen() {
 		*action = func() { a.openChange(r, true) }
+	}
+	if r.group == groupMerge && m.Item("Solve Conflicts…").Chosen() {
+		*action = func() { a.openMerge(e.Path, true) }
 	}
 	if m.Item(openLabel(e)).Disabled(e.Letter() == 'D' && r.group != groupStaged).Chosen() {
 		*action = func() { a.openPath(e.Path, true) }
@@ -1315,11 +1322,11 @@ func (a *app) chooseScmFile(f *diffFile) {
 }
 
 // openChange shows the changes of a file of the view: those staged, or
-// those not, or the file itself while it is in conflict.
+// those not, or the three-way merge of one in conflict.
 func (a *app) openChange(r scmRow, focus bool) {
 	switch r.group {
 	case groupMerge:
-		a.openPath(r.e.Path, focus)
+		a.openMerge(r.e.Path, focus)
 	case groupStaged:
 		a.showChanges(diffTarget{path: r.e.Path, base: diffStaged}, focus)
 	default:
