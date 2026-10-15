@@ -64,6 +64,30 @@ func parseDiffLayout(s string) diffLayout {
 	return layoutAuto
 }
 
+// diffCross is how a diff's change navigation crosses into another file
+// at the first or last change of one: asking for one more step that way,
+// going at once, or never leaving the file.
+type diffCross uint8
+
+const (
+	crossAsk    diffCross = iota // say where it is, and cross on the next step
+	crossAlways                  // cross into the next or previous file at once
+	crossNever                   // stay in the file
+)
+
+// key is how the settings name a crossing.
+func (x diffCross) key() string { return [...]string{"", "always", "never"}[x] }
+
+func parseDiffCross(s string) diffCross {
+	switch s {
+	case "always":
+		return crossAlways
+	case "never":
+		return crossNever
+	}
+	return crossAsk
+}
+
 // diffSide is a version of the file a diff shows.
 type diffSide struct {
 	text  string
@@ -192,6 +216,17 @@ type diffView struct {
 	// generation summaryGen, plus one.
 	summary    string
 	summaryGen int
+	// boundary is what the change or file navigation said where it
+	// stopped, at an end of a file or of the diff, until one more step
+	// that way crosses into another file, nil for none.
+	boundary *diffBoundary
+}
+
+// diffBoundary is where the navigation of a diff stopped: the step that
+// reached it, and what it says.
+type diffBoundary struct {
+	step int
+	msg  string
 }
 
 // commitDiff is the commit a diff shows, and the files it changed, read
@@ -385,10 +420,14 @@ func (a *app) openChanges() {
 	}
 }
 
-// openDiffFile opens the file of a diff's chosen row, or of the row at the
-// top of its view, at its line.
+// openDiffFile opens the file of a diff's chosen row, or, when no row is
+// chosen, of the change gone to last, at its line.
 func (a *app) openDiffFile(v *diffView) {
-	if path, line := v.lineAt(v.focusRow()); path != "" {
+	row := v.focusRow()
+	if v.cursor < 0 && v.current >= 0 && v.current < len(v.starts) {
+		row = v.starts[v.current]
+	}
+	if path, line := v.lineAt(row); path != "" {
 		a.openFileAt(path, line, true)
 	}
 }
@@ -1055,6 +1094,21 @@ func (v *diffView) lineAt(i int) (string, int) {
 	}
 	file := v.rows[i].file
 	path := v.files[file].path
+	switch v.rows[i].kind {
+	case rowHunk:
+		// The header of a run of changes: the first line of the new side
+		// the run changes.
+		for k := i + 1; k < len(v.rows) && v.rows[k].kind == rowLine && v.rows[k].file == file; k++ {
+			if r := &v.rows[k]; r.changed() && r.new >= 0 {
+				return path, r.new
+			}
+		}
+	case rowFile:
+		// A file: the line of its first change, folded or not.
+		if f := v.files[file]; len(f.hunks) > 0 {
+			return path, f.hunks[0].B
+		}
+	}
 	for k := i; k >= 0 && v.rows[k].file == file; k-- {
 		if n := v.rows[k].new; n >= 0 {
 			if k < i {
@@ -1067,27 +1121,109 @@ func (v *diffView) lineAt(i int) (string, int) {
 }
 
 // stepHunk goes to the next hunk of a diff, or the previous one for a
-// step of -1, round the ends.
-func (v *diffView) stepHunk(step int) {
+// step of -1. At the first or last change of a file it says where it is,
+// and only one more step that way crosses into the next file with
+// changes, or the last of the previous, as cross says: asking for it,
+// going at once, or never leaving the file. At the ends of the diff it
+// says so, and stays.
+func (v *diffView) stepHunk(step int, cross diffCross) {
 	if len(v.starts) == 0 {
 		return
 	}
-	if v.current < 0 && step < 0 {
+	armed := v.boundary
+	v.boundary = nil
+	switch {
+	case v.current < 0:
+		// Nothing chosen yet: either way goes to the first change.
 		v.current = 0
+	case v.atEdge(v.current, step):
+		to := v.crossTarget(v.current, step)
+		if to < 0 {
+			// No other file has changes that way: it says so, and stays.
+			v.boundary = &diffBoundary{step, endOfDiffMessage(step)}
+			return
+		}
+		if cross != crossAlways && !(cross == crossAsk && armed != nil && armed.step == step) {
+			v.boundary = &diffBoundary{step, v.edgeMessage(v.fileAt(v.current).path, step, cross)}
+			return
+		}
+		v.current = to
+	default:
+		v.current += step
 	}
-	v.current = ((v.current+step)%len(v.starts) + len(v.starts)) % len(v.starts)
 	if v.cursor >= 0 {
 		v.cursor = v.starts[v.current]
 	}
 	v.jumpRow(v.starts[v.current], jumpThird)
 }
 
+// fileAt returns the file the kth change of a diff is in.
+func (v *diffView) fileAt(k int) *diffFile {
+	return v.files[v.rows[v.starts[k]].file]
+}
+
+// atEdge reports whether the kth change of a diff is the last of its
+// file for a step of 1, or the first for -1.
+func (v *diffView) atEdge(k, step int) bool {
+	n := k + step
+	return n < 0 || n >= len(v.starts) || v.rows[v.starts[n]].file != v.rows[v.starts[k]].file
+}
+
+// crossTarget returns the change a step across files goes to, from the
+// kth: the first of the next file with changes, or the last of the
+// previous, -1 when none that way has changes.
+func (v *diffView) crossTarget(k, step int) int {
+	f := v.rows[v.starts[k]].file
+	if step > 0 {
+		for i := k + 1; i < len(v.starts); i++ {
+			if v.rows[v.starts[i]].file != f {
+				return i
+			}
+		}
+	} else {
+		for i := k - 1; i >= 0; i-- {
+			if v.rows[v.starts[i]].file != f {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// edgeMessage is what a diff says when its change navigation reaches the
+// last, or first, change of a file, as cross has it: asking for one more
+// step to cross, or never crossing.
+func (v *diffView) edgeMessage(path string, step int, cross diffCross) string {
+	name := filepath.Base(path)
+	if step > 0 {
+		if cross == crossAsk {
+			return fmt.Sprintf("This is the last change of %s. Press again to go to the next file.", name)
+		}
+		return fmt.Sprintf("This is the last change of %s.", name)
+	}
+	if cross == crossAsk {
+		return fmt.Sprintf("This is the first change of %s. Press again to go to the previous file.", name)
+	}
+	return fmt.Sprintf("This is the first change of %s.", name)
+}
+
+// endOfDiffMessage is what a diff says when its change navigation
+// reaches the end, or the start, of all of it.
+func endOfDiffMessage(step int) string {
+	if step > 0 {
+		return "This is the last change of the diff."
+	}
+	return "This is the first change of the diff."
+}
+
 // stepFile goes to the header of the next file of a diff of every file,
-// or the previous one for a step of -1.
+// or the previous one for a step of -1. At the ends of its files it says
+// where it is, and jumps no further.
 func (v *diffView) stepFile(step int) {
 	if len(v.heads) == 0 {
 		return
 	}
+	v.boundary = nil
 	at := v.focusRowAt(v.focusRow())
 	k := -1
 	if step > 0 {
@@ -1106,6 +1242,11 @@ func (v *diffView) stepFile(step int) {
 		}
 	}
 	if k < 0 {
+		if step > 0 {
+			v.boundary = &diffBoundary{step, "This is the last file of the diff."}
+		} else {
+			v.boundary = &diffBoundary{step, "This is the first file of the diff."}
+		}
 		return
 	}
 	v.cursor = v.heads[k]
@@ -1145,9 +1286,11 @@ func (v *diffView) moveCursor(step int) {
 	v.jumpRow(i, jumpReveal)
 }
 
-// setCursor chooses a row, and its hunk as the current one.
+// setCursor chooses a row, and its hunk as the current one. Moving any
+// other way than by stepHunk clears what the navigation said at an end.
 func (v *diffView) setCursor(i int) {
 	v.cursor = i
+	v.boundary = nil
 	if i < 0 || i >= len(v.rows) || !v.rows[i].changed() {
 		return
 	}
@@ -1255,9 +1398,9 @@ func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
 	case ui.KeyEnd:
 		a.pageDiff(v, 1e9)
 	case ui.KeyBracketRight:
-		v.stepHunk(1)
+		v.stepHunk(1, a.crossesDiff())
 	case ui.KeyBracketLeft:
-		v.stepHunk(-1)
+		v.stepHunk(-1, a.crossesDiff())
 	case ui.KeyPeriod:
 		v.stepFile(1)
 	case ui.KeyComma:
@@ -1323,15 +1466,22 @@ func (a *app) openFileAt(path string, line int, focus bool) {
 	}
 }
 
-// diffStatus is what the status bar says of a diff: how many lines it
-// adds and removes, and in how many hunks and files, once every file is
-// read.
+// diffStatus is what the status bar says of a diff: what the navigation
+// said where it stopped, or which change of all it is at, and how many
+// lines the diff adds and removes, once every file is read.
 func (v *diffView) diffStatus() string {
+	if v.boundary != nil {
+		return v.boundary.msg
+	}
+	at := ""
+	if v.current >= 0 && v.current < len(v.starts) {
+		at = fmt.Sprintf("Change %d of %d · ", v.current+1, len(v.starts))
+	}
 	// Every change to what the files read calls changed.
 	if v.summaryGen != v.gen+1 {
 		v.summary, v.summaryGen = v.summarize(), v.gen+1
 	}
-	return v.summary
+	return at + v.summary
 }
 
 func (v *diffView) summarize() string {
@@ -1384,8 +1534,8 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 			a.post(fn)
 		}
 	}
-	act(iconArrowUp, "Previous Change ([)", func() { v.stepHunk(-1) })
-	act(iconArrowDown, "Next Change (])", func() { v.stepHunk(1) })
+	act(iconArrowUp, "Previous Change ([)", func() { v.stepHunk(-1, a.crossesDiff()) })
+	act(iconArrowDown, "Next Change (])", func() { v.stepHunk(1, a.crossesDiff()) })
 	act(iconChevronLeft, "Previous File (,)", func() { v.stepFile(-1) })
 	act(iconChevronRight, "Next File (.)", func() { v.stepFile(1) })
 	if button(iconColumns, "Side by Side", v.split).Clicked() {
@@ -1504,6 +1654,10 @@ func (a *app) diffsOnDisk(changed []string) {
 	}
 }
 
+// crossesDiff is how the settings have a diff's change navigation cross
+// into another file at the ends of one.
+func (a *app) crossesDiff() diffCross { return parseDiffCross(a.settings.DiffCrossFiles) }
+
 // stepChange goes to the next change of the tab shown, or the previous
 // one: a diff's hunk, or the lines of an editor changed since the last
 // commit.
@@ -1512,7 +1666,7 @@ func (a *app) stepChange(step int) {
 	switch {
 	case t == nil:
 	case t.diff != nil:
-		t.diff.stepHunk(step)
+		t.diff.stepHunk(step, a.crossesDiff())
 	case t.ed != nil:
 		a.queueEdit(t.ed, func(d *editor) { a.stepEditorHunk(d, step) })
 	}

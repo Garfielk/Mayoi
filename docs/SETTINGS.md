@@ -58,6 +58,7 @@ takes its default.
 | `vimCtrlKeys`          | `false`       | `true`, `false`                                             | Only this file                                 |
 | `blame`                | `true`        | `true`, `false`                                             | **Git → Inline Blame**                         |
 | `diffLayout`           | `""`          | `""` (side by side when wide enough), `"split"`, `"inline"` | A diff's **Layout** button                     |
+| `diffCrossFiles`       | `""`          | `""` (say it, and cross on one more step), `"always"`, `"never"` | Only this file                            |
 | `scmTree`              | `false`       | `true`, `false`                                             | **View as Tree** in Source Control's menu      |
 | `scmAllBranches`       | `false`       | `true`, `false`                                             | **Show All Branches** in Source Control's menu |
 

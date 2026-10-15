@@ -514,9 +514,9 @@ func TestDiffTab(t *testing.T) {
 		t.Errorf("open changes: %+v", tab)
 	}
 	v.current = -1
-	v.stepHunk(1)
-	v.stepHunk(1)
-	v.stepHunk(1)
+	v.stepHunk(1, crossAsk)
+	v.stepHunk(1, crossAsk)
+	v.stepHunk(1, crossAsk)
 	if v.current != 2 || v.jump != v.starts[2] {
 		t.Errorf("current %d jump %d", v.current, v.jump)
 	}

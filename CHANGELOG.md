@@ -13,6 +13,17 @@ needs a `## <version>` section here, or its build fails.
 - Diff tabs now expose **Previous File** and **Next File** controls alongside
   the existing change navigation, with matching commands in the Git menu, and
   a direct **Side by Side** toggle for the split viewer.
+- Change navigation in diffs no longer wraps round the ends without a word:
+  at the last, or first, change of a file it says so in the status bar, and one
+  more press goes to the next file with changes, or the last of the previous.
+  At the ends of the diff it says so, and stays. **diffCrossFiles** in
+  settings.json has it cross at once, or never leave the file. The status bar
+  says which change of how many the diff is on, and file navigation says where
+  it is at the first and last file instead of jumping nowhere.
+- Opening a file from a diff, with `e` or double-click, lands on the line of
+  the change you are on, also from the change's `@@` header, after the layout
+  changed, after its file folded and opened again, and after the sides were
+  read again.
 
 ## 0.9.1
 
