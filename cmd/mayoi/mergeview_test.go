@@ -492,6 +492,7 @@ func (hs *harness) mergeFilesRepo() func(args ...string) string {
 			"one.txt":   "a\nb\nc\nm\nz\n",
 			"two.txt":   "a\nb\nc\nm\nz\n",
 			"three.txt": "a\nb\nc\nd\ne\n",
+			"four.txt":  "k\nl\np\nq\nr\n",
 		} {
 			if s, ok := files[name]; ok {
 				body = s
@@ -507,12 +508,14 @@ func (hs *harness) mergeFilesRepo() func(args ...string) string {
 		"one.txt":   "a\nb\nside\nm\nside2\n",
 		"two.txt":   "a\nb\nside\nm\nz\n",
 		"three.txt": "a\nb\nc\nD\ne\n",
+		"four.txt":  "k\nl\nside\nq\nS\n",
 	})
 	git("checkout", "-q", "main")
 	commit(map[string]string{
 		"one.txt":   "ours\nb\nours2\nm\nz\n",
 		"two.txt":   "a\nb\nours\nm\nz\n",
 		"three.txt": "A\nb\nc\nd\ne\n",
+		"four.txt":  "K\nl\nours\nq\nr\n",
 	})
 	cmd := exec.Command("git", "-C", hs.root, "merge", "side")
 	if out, err := cmd.CombinedOutput(); err == nil {
@@ -580,5 +583,95 @@ func TestMergeApplyNonConflicts(t *testing.T) {
 	}
 	if len(v2.ed.hist.undo) != 0 {
 		t.Error("applying nothing made a step of undo")
+	}
+}
+
+func TestMergeApplyNonConflictSafety(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	a := hs.a
+	v := hs.mergeOfRel("one.txt")
+	// A line the hand changed, neither the base's nor a side's, the batch
+	// leaves as it is, and takes what it knows around it.
+	v.replaceLines(0, 1, []string{"junk"})
+	a.applyNonConflicts(v, applyAll)
+	if got := v.resultLines(); !slices.Equal(got, []string{"junk", "b", "c", "m", "side2"}) {
+		t.Fatalf("after applying over a line of the hand's: %q", got)
+	}
+	// The conflict keeps standing, however much the batch takes: it takes
+	// no line the hand must judge.
+	if v.unresolved() != 1 {
+		t.Errorf("%d unresolved, want 1", v.unresolved())
+	}
+	if st := v.stateOf(v.regions[0]); st != regionUndecided {
+		t.Errorf("the conflict stands %v, want undecided", st)
+	}
+	// The conflict taken theirs': the batch takes the sides' changes
+	// alone, and leaves the conflict's lines as theirs' has them.
+	hs = newHarness(t, true)
+	hs.mergeFilesRepo()
+	v = hs.mergeOfRel("one.txt")
+	a.takeMergeSide(v, 0, false)
+	a.applyNonConflicts(v, applyAll)
+	if got := v.resultLines(); !slices.Equal(got, []string{"ours", "b", "side", "m", "side2"}) {
+		t.Errorf("after applying over the conflict taken: %q", got)
+	}
+	if st := v.stateOf(v.regions[0]); st != regionRight {
+		t.Errorf("the conflict stands %v, want theirs", st)
+	}
+}
+
+func TestMergeAutoApply(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	// The setting on, as it is: a conflict seen the first time has the
+	// changes that no conflict holds already in the result, and the
+	// conflicts still to the hand.
+	v := hs.mergeOfRel("one.txt")
+	if got := v.resultLines(); !slices.Equal(got, []string{"ours", "b", "c", "m", "side2"}) {
+		t.Fatalf("the changes of no conflict are not in: %q", got)
+	}
+	if v.unresolved() != 1 {
+		t.Errorf("%d unresolved, want 1", v.unresolved())
+	}
+	// Taking it back out is one step of undo, to the base.
+	if !v.ed.undo() {
+		t.Fatal("no step of undo")
+	}
+	hs.a.invalidate()
+	hs.settle()
+	if got := v.resultLines(); !slices.Equal(got, []string{"a", "b", "c", "m", "z"}) {
+		t.Errorf("after undo: %q", got)
+	}
+	// The setting off: the result starts as the base.
+	hs.a.settings.MergeAutoApply = false
+	v2 := hs.mergeOfRel("four.txt")
+	if got := v2.resultLines(); !slices.Equal(got, []string{"k", "l", "p", "q", "r"}) {
+		t.Errorf("the result is not the base: %q", got)
+	}
+}
+
+func TestMergeAutoApplyKept(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	v := hs.mergeOfRel("one.txt")
+	// The changes applied, taken back out and saved: the file opens again
+	// on the result as it was, and takes nothing in again.
+	if !v.ed.undo() {
+		t.Fatal("no step of undo")
+	}
+	hs.a.saveMerge(v)
+	hs.settleGit()
+	a := hs.a
+	a.closeTab(a.activeTab(), nil)
+	hs.settle()
+	a.openMerge(hs.path("one.txt"), true)
+	hs.settle()
+	v2 := a.activeTab().merge
+	if v2 == nil || v2.doc == nil {
+		t.Fatal("no merge tab back")
+	}
+	if got := v2.resultLines(); !slices.Equal(got, []string{"a", "b", "c", "m", "z"}) {
+		t.Errorf("the saved result did not go on: %q", got)
 	}
 }

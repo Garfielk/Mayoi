@@ -526,6 +526,7 @@ func (a *app) refreshMerge(v *mergeView) {
 // result of the merge saved before, without the markers of a conflict.
 func (a *app) makeMergeResult(v *mergeView) {
 	text := v.base
+	fresh := true
 	if data, err := vfs.ReadFile(v.path); err == nil && !isBinary(data) {
 		work := string(data)
 		crlf := bytes.Contains(data, []byte("\r\n"))
@@ -535,6 +536,7 @@ func (a *app) makeMergeResult(v *mergeView) {
 		if !hasConflictMarkers(work) {
 			text = work
 			v.crlf = crlf
+			fresh = false
 		}
 	}
 	if i := a.docIndex(v.path); i >= 0 {
@@ -553,6 +555,12 @@ func (a *app) makeMergeResult(v *mergeView) {
 	}
 	v.ed = newEditor(v.doc)
 	v.syncRegions()
+	// A result that starts from the base takes the changes that no
+	// conflict holds at once, when the settings have it: the conflicts
+	// stand, for the hand to decide.
+	if fresh && a.settings.MergeAutoApply {
+		a.applyNonConflicts(v, applyAll)
+	}
 	// The first conflict stands chosen, for its actions to be at hand.
 	if v.chosen < 0 && len(v.regions) > 0 {
 		v.chosen, v.current = 0, 0
@@ -823,11 +831,26 @@ func (a *app) resetMerge(v *mergeView) {
 	v.syncRegions()
 }
 
-// saveMerge saves the result in the file.
+// saveMerge saves the result in the file, also when the result stands as
+// it started, for the file on disk may still have the conflict's markers,
+// which the result never shows.
 func (a *app) saveMerge(v *mergeView) {
-	if v.doc != nil && v.doc.dirty() {
+	if v.doc == nil {
+		return
+	}
+	if v.doc.dirty() || mergeOnDiskDiffers(v) {
 		a.saveDoc(v.doc, nil)
 	}
+}
+
+// mergeOnDiskDiffers reports whether the file on disk is not what the
+// result is, as it is while the file still has the conflict's markers.
+func mergeOnDiskDiffers(v *mergeView) bool {
+	data, err := vfs.ReadFile(v.path)
+	if err != nil {
+		return true
+	}
+	return v.doc.buf.String() != strings.ReplaceAll(string(data), "\r\n", "\n")
 }
 
 // completeMerge saves the result and stages the file, which ends its
