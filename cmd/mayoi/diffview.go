@@ -1386,6 +1386,15 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 	}
 	act(iconArrowUp, "Previous Change ([)", func() { v.stepHunk(-1) })
 	act(iconArrowDown, "Next Change (])", func() { v.stepHunk(1) })
+	act(iconChevronLeft, "Previous File (,)", func() { v.stepFile(-1) })
+	act(iconChevronRight, "Next File (.)", func() { v.stepFile(1) })
+	if button(iconColumns, "Side by Side", v.split).Clicked() {
+		next := layoutSplit
+		if v.split {
+			next = layoutInline
+		}
+		a.post(func() { a.setDiffLayout(v, next) })
+	}
 	if button(iconUnfold, "Show Full Files", v.full).Clicked() {
 		a.post(func() { a.setDiffFull(v, !v.full) })
 	}
@@ -1506,6 +1515,13 @@ func (a *app) stepChange(step int) {
 		t.diff.stepHunk(step)
 	case t.ed != nil:
 		a.queueEdit(t.ed, func(d *editor) { a.stepEditorHunk(d, step) })
+	}
+}
+
+// stepDiffFile goes to the next or previous file in the active diff tab.
+func (a *app) stepDiffFile(step int) {
+	if t := a.activeTab(); t != nil && t.diff != nil {
+		t.diff.stepFile(step)
 	}
 }
 

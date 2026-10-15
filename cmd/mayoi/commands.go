@@ -106,6 +106,8 @@ func (a *app) commands() []command {
 		{"git.openAllChanges", "Open All Changes", "", func() { a.openChangesTab(true) }},
 		{"git.nextChange", "Next Change", "Alt+F5", func() { a.stepChange(1) }},
 		{"git.prevChange", "Previous Change", "Shift+Alt+F5", func() { a.stepChange(-1) }},
+		{"git.nextFile", "Next File", "", func() { a.stepDiffFile(1) }},
+		{"git.prevFile", "Previous File", "", func() { a.stepDiffFile(-1) }},
 		{"git.showChange", "Show Change", "", a.editActive(func(d *editor) { d.peekHunk(caretLine(d)) })},
 		{"git.revertChange", "Revert Change", "", a.editActive(func(d *editor) { a.onCaretHunk(d, a.revertHunk) })},
 		{"git.stageChange", "Stage Change", "", a.editActive(func(d *editor) { a.onCaretHunk(d, a.stageHunk) })},
@@ -416,7 +418,7 @@ func (a *app) menu(cli bool, run func(id string, win *mygo.Window)) *mygo.Menu {
 		}},
 		{Label: "Git", Submenu: []*mygo.MenuItem{
 			item("git.commit"), item("git.commitPush"), item("git.amend"), item("git.undoCommit"), mygo.Separator(),
-			item("git.openChanges"), item("git.openAllChanges"), item("git.nextChange"), item("git.prevChange"), mygo.Separator(),
+			item("git.openChanges"), item("git.openAllChanges"), item("git.nextChange"), item("git.prevChange"), item("git.nextFile"), item("git.prevFile"), mygo.Separator(),
 			item("git.showChange"), item("git.revertChange"), item("git.stageChange"), mygo.Separator(),
 			item("git.stageFile"), item("git.unstageFile"), item("git.stageAll"), mygo.Separator(),
 			item("git.switchBranch"), item("git.createBranch"), item("git.fetch"), item("git.pull"), item("git.push"), mygo.Separator(),

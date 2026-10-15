@@ -3,6 +3,12 @@
 The update window shows the section of the version it offers. Every release
 needs a `## <version>` section here, or its build fails.
 
+## Unreleased
+
+- Diff tabs now expose **Previous File** and **Next File** controls alongside
+  the existing change navigation, with matching commands in the Git menu, and
+  a direct **Side by Side** toggle for the split viewer.
+
 ## 0.9.1
 
 - ⇧⌘E gives the Explorer the keyboard, as in VS Code, so that the arrows

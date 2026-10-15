@@ -771,12 +771,26 @@ func TestDiffOfEveryFile(t *testing.T) {
 	if !hs.tt.HasText("Changes") {
 		t.Errorf("no name: %q", hs.tt.Texts())
 	}
+	if _, ok := hs.tt.Find("Side by Side"); !ok {
+		t.Errorf("no side-by-side diff toggle")
+	}
 	hs.shot("git-diff-all")
 	v.cursor = -1
 	v.scroll.Y = 0
 	v.stepFile(1)
 	if v.cursor != v.heads[1] {
 		t.Errorf("next file: cursor %d", v.cursor)
+	}
+	// The toolbar and Git menu use the same navigation command.
+	v.cursor = -1
+	v.scroll.Y = 0
+	a.run("git.nextFile")
+	if v.cursor != v.heads[1] {
+		t.Errorf("git.nextFile: cursor %d", v.cursor)
+	}
+	a.run("git.prevFile")
+	if v.cursor != v.heads[0] {
+		t.Errorf("git.prevFile: cursor %d", v.cursor)
 	}
 	// A click on a header folds its file.
 	pane, ok := hs.tt.Find("Diff of the Changes")
