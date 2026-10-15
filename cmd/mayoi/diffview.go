@@ -96,7 +96,9 @@ func (a *app) diffHighlightOf() diffHighlight { return parseDiffHighlight(a.sett
 
 // diffContextOf is how many unchanged lines the diffs show around a
 // change, as the settings say.
-func (a *app) diffContextOf() int { return min(max(a.settings.DiffContext, 0), settings.MaxDiffContext) }
+func (a *app) diffContextOf() int {
+	return min(max(a.settings.DiffContext, 0), settings.MaxDiffContext)
+}
 
 // diffSide is a version of the file a diff shows.
 type diffSide struct {
@@ -265,12 +267,12 @@ func (t *diffTarget) matches(f *diffFile) bool {
 
 // diffBuild is what the rows of a diff were laid out for.
 type diffBuild struct {
-	gen                  int
-	split, wrap, full    bool
-	context              int
-	cols                 [2]int
-	card                 int // how many lines tall the card of a commit is
-	font                 codeFont
+	gen               int
+	split, wrap, full bool
+	context           int
+	cols              [2]int
+	card              int // how many lines tall the card of a commit is
+	font              codeFont
 }
 
 // jumpPlace is where a row jumped to shows.
