@@ -422,6 +422,17 @@ func TestRenamesAndDiscardingOpenFiles(t *testing.T) {
 	}
 }
 
+// changesTabAndShow shows the tab of the changes again and returns its
+// diff: discarding in a file that is not open shows that file's tab.
+func (a *app) changesTabAndShow() *diffView {
+	col, i := a.changesTab()
+	if col == nil {
+		return nil
+	}
+	a.activate(col, i, true)
+	return col.tabs[i].diff
+}
+
 // diffFile returns the file of the tab of the changes compared against
 // base, nil when it has none.
 func diffFileOf(v *diffView, path string, base diffBase) *diffFile {
@@ -1114,7 +1125,9 @@ func TestDiffHunkActions(t *testing.T) {
 	}
 	git("reset", "-q")
 	hs.settleGit()
-	// Discarding the first run on disk asks, then puts its line back.
+	// Discarding the first run asks, opens the file, and puts its line
+	// back in the document, where undo takes it back.
+	a.settings.AutoSave = false
 	hs.settle()
 	hh = heads(diffIndex)
 	f, hks = v.hunksAt(hh[0])
@@ -1124,10 +1137,20 @@ func TestDiffHunkActions(t *testing.T) {
 	}
 	a.confirm.run()
 	a.confirm = nil
-	hs.settleGit()
-	data, _ := os.ReadFile(hs.path("t.txt"))
-	if want := strings.Replace(orig, "line 25\n", "line twenty-five\n", 1); string(data) != want {
-		t.Fatalf("after discarding:\n%s", data)
+	hs.settle()
+	dd := a.docs[a.docIndex(hs.path("t.txt"))]
+	if dd == nil {
+		t.Fatal("the file was not opened to discard in")
+	}
+	if want := strings.Replace(orig, "line 25\n", "line twenty-five\n", 1); dd.buf.String() != want {
+		t.Fatalf("in the document:\n%s", dd.buf.String())
+	}
+	if data, _ := os.ReadFile(hs.path("t.txt")); !strings.Contains(string(data), "line two\n") {
+		t.Fatalf("the file was written before the document was saved:\n%s", data)
+	}
+	a.saveDoc(dd, nil)
+	if data, _ := os.ReadFile(hs.path("t.txt")); strings.Contains(string(data), "line two\n") {
+		t.Fatalf("after saving:\n%s", data)
 	}
 	// In an open file, discarding is a step of undo.
 	a.openFile(hs.path("t.txt"), false)
@@ -1150,6 +1173,306 @@ func TestDiffHunkActions(t *testing.T) {
 	d.undo()
 	if !strings.Contains(d.buf.String(), "twenty-five") {
 		t.Errorf("undo: %q", d.buf.String())
+	}
+}
+
+// twoHunkFile makes t.txt of thirty lines, commits it, and changes its
+// lines 2 and 25 in the work tree, returning the text as it was and as
+// it is.
+func twoHunkFile(hs *harness, git func(args ...string) string) (orig, changed string) {
+	hs.t.Helper()
+	var b strings.Builder
+	for i := range 30 {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	orig = b.String()
+	os.WriteFile(hs.path("t.txt"), []byte(orig), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "t")
+	changed = strings.Replace(strings.Replace(orig, "line 2\n", "line two\n", 1), "line 25\n", "line twenty-five\n", 1)
+	os.WriteFile(hs.path("t.txt"), []byte(changed), 0o644)
+	return orig, changed
+}
+
+// hunkRuns returns the rows that head the runs of changes of a file of
+// the tab of the changes, against base.
+func hunkRuns(v *diffView, path string, base diffBase) []int {
+	var out []int
+	for i, r := range v.rows {
+		if r.kind == rowHunk && v.files[r.file].path == path && v.files[r.file].base == base {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// settleDiff pumps frames until every file of a diff has read what it
+// shows again.
+func (hs *harness) settleDiff(v *diffView) {
+	hs.t.Helper()
+	for range 200 {
+		hs.settle()
+		ok := len(v.files) > 0
+		for _, f := range v.files {
+			if !f.loaded || f.running || f.gitStale {
+				ok = false
+			}
+		}
+		if ok {
+			return
+		}
+	}
+	hs.t.Fatal("the diff never settled")
+}
+
+// TestDiscardOfUnopenedFileIsUndoable: the changes of a file that is not
+// open go back as the index has them in the document, as one step of
+// undo, and the file is written as the document is saved.
+func TestDiscardOfUnopenedFileIsUndoable(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	orig, changed := twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	hh := hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(hh) != 2 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	f, hks := v.hunksAt(hh[0])
+	a.applyHunks(f, hks, hunkDiscard)
+	if a.confirm == nil {
+		t.Fatal("no question")
+	}
+	a.confirm.run()
+	a.confirm = nil
+	hs.settle()
+	want := strings.Replace(orig, "line 25\n", "line twenty-five\n", 1)
+	i := a.docIndex(hs.path("t.txt"))
+	if i < 0 {
+		t.Fatal("the file was not opened to discard in")
+	}
+	d := a.docs[i]
+	if d.buf.String() != want || strings.Contains(d.buf.String(), "line two\n") {
+		t.Fatalf("in the document: %q", d.buf.String())
+	}
+	if !d.dirty() {
+		t.Error("the document does not show as changed")
+	}
+	if data, _ := os.ReadFile(hs.path("t.txt")); string(data) != changed {
+		t.Errorf("the file was written before the document was saved: %q", data)
+	}
+	a.saveDoc(d, nil)
+	if data, _ := os.ReadFile(hs.path("t.txt")); string(data) != want {
+		t.Errorf("after saving: %q", data)
+	}
+	ed := d.main()
+	ed.undo()
+	if d.buf.String() != changed {
+		t.Errorf("undo: %q", d.buf.String())
+	}
+	ed.redo()
+	if d.buf.String() != want {
+		t.Errorf("redo: %q", d.buf.String())
+	}
+}
+
+// TestDiscardOfEveryHunkIsOneUndoStep: the changes of a whole run go
+// back as one step of undo, and what is staged stays staged, through the
+// discard, its undo and its redo.
+func TestDiscardOfEveryHunkIsOneUndoStep(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	orig, changed := twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	hh := hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(hh) != 2 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	f, hks := v.hunksAt(hh[0])
+	_, more := v.hunksAt(hh[1])
+	hks = append(hks, more...)
+	if len(hks) != 2 {
+		t.Fatalf("hunks %v", hks)
+	}
+	a.applyHunks(f, hks, hunkDiscard)
+	a.confirm.run()
+	a.confirm = nil
+	hs.settle()
+	i := a.docIndex(hs.path("t.txt"))
+	if i < 0 {
+		t.Fatal("the file was not opened to discard in")
+	}
+	d := a.docs[i]
+	if d.buf.String() != orig {
+		t.Fatalf("in the document: %q", d.buf.String())
+	}
+	ed := d.main()
+	if !ed.undo() || d.buf.String() != changed {
+		t.Fatalf("one undo took: %q", d.buf.String())
+	}
+	// The diff catches up with the text as undo made it, and one of the
+	// changes is staged, the other is not.
+	hs.settleDiff(a.changesTabAndShow())
+	v = a.activeTab().diff
+	hh = hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(hh) != 2 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	f, hks = v.hunksAt(hh[1])
+	a.applyHunks(f, hks, hunkStage)
+	hs.settleGit()
+	staged := func() string { return strings.TrimSpace(git("diff", "--cached")) }
+	if want := staged(); !strings.Contains(want, "line twenty-five") || strings.Contains(want, "line two\n") {
+		t.Fatalf("staged %q", want)
+	}
+	// Discarding what is left, through the document, leaves what is
+	// staged alone, as do its undo and redo.
+	hs.settleDiff(v)
+	hh = hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(hh) != 1 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	f, hks = v.hunksAt(hh[0])
+	a.applyHunks(f, hks, hunkDiscard)
+	hs.settle()
+	if want := strings.Replace(changed, "line two\n", "line 2\n", 1); d.buf.String() != want {
+		t.Fatalf("in the document: %q", d.buf.String())
+	}
+	if st := staged(); !strings.Contains(st, "line twenty-five") {
+		t.Errorf("staged after discarding: %q", st)
+	}
+	if !ed.undo() || d.buf.String() != changed {
+		t.Fatalf("undo: %q", d.buf.String())
+	}
+	if st := staged(); !strings.Contains(st, "line twenty-five") {
+		t.Errorf("staged after undo: %q", st)
+	}
+	if !ed.redo() || d.buf.String() != strings.Replace(changed, "line two\n", "line 2\n", 1) {
+		t.Fatalf("redo: %q", d.buf.String())
+	}
+	if st := staged(); !strings.Contains(st, "line twenty-five") {
+		t.Errorf("staged after redo: %q", st)
+	}
+}
+
+// TestDiscardRefusesStaleContent: the changes of a diff that is behind
+// the file, on disk or in the document, are not put over what is there
+// now: the diff is read again, and the discard asked for once more.
+func TestDiscardRefusesStaleContent(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	orig, changed := twoHunkFile(hs, git)
+	_ = orig
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	hh := hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(hh) != 2 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	// The file changes on disk after the diff was drawn.
+	fresh := strings.Replace(changed, "line twenty-five\n", "line 25th\n", 1)
+	os.WriteFile(hs.path("t.txt"), []byte(fresh), 0o644)
+	f, hks := v.hunksAt(hh[0])
+	a.applyHunks(f, hks, hunkDiscard)
+	a.confirm.run()
+	a.confirm = nil
+	if len(a.errors) == 0 {
+		t.Fatal("no word of the file having changed")
+	}
+	a.errors = nil
+	hs.settle()
+	i := a.docIndex(hs.path("t.txt"))
+	if i < 0 {
+		t.Fatal("the file was not opened")
+	}
+	d := a.docs[i]
+	if d.buf.String() != fresh {
+		t.Errorf("the document has %q, not what the file has", d.buf.String())
+	}
+	if data, _ := os.ReadFile(hs.path("t.txt")); string(data) != fresh {
+		t.Errorf("the file was written over: %q", data)
+	}
+	// Read again, the change goes back, keeping what the file has now.
+	a.changesTabAndShow()
+	hs.settleDiff(a.activeTab().diff)
+	v = a.activeTab().diff
+	hh = hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(hh) != 2 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	f, hks = v.hunksAt(hh[0])
+	a.applyHunks(f, hks, hunkDiscard)
+	if a.confirm != nil {
+		t.Fatal("asked about a file that is open now")
+	}
+	hs.settle()
+	if want := strings.Replace(fresh, "line two\n", "line 2\n", 1); d.buf.String() != want {
+		t.Errorf("in the document: %q", d.buf.String())
+	}
+
+	// A document with changes of its own is told of first, that the diff
+	// may catch up with them.
+	long := "module example\n\ngo 1.27\n\n// one\n// two\n// three\n// four\n// five\n// six\n// seven\n// eight\n// nine\n// ten\n// eleven\n// twelve\n// thirteen\n// fourteen\n// fifteen\n"
+	os.WriteFile(hs.path("notes.txt"), []byte(long), 0o644)
+	git("add", "notes.txt")
+	git("commit", "-qm", "notes")
+	os.WriteFile(hs.path("notes.txt"), []byte(long+"// noted\n"), 0o644)
+	a.openFile(hs.path("notes.txt"), true)
+	hs.settleGit()
+	a.changesTabAndShow()
+	hs.settleDiff(a.activeTab().diff)
+	v = a.activeTab().diff
+	hh = hunkRuns(v, hs.path("notes.txt"), diffIndex)
+	if len(hh) != 1 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	d = a.docs[a.docIndex(hs.path("notes.txt"))]
+	ed := d.main()
+	ed.edit(ed.sel, textEdit{0, 0, "// typed\n"})
+	f, hks = v.hunksAt(hh[0])
+	a.applyHunks(f, hks, hunkDiscard)
+	if len(a.errors) == 0 {
+		t.Fatal("no word of the diff catching up")
+	}
+	a.errors = nil
+	if want := "// typed\n" + long + "// noted\n"; d.buf.String() != want {
+		t.Errorf("the document has %q", d.buf.String())
+	}
+	if len(d.hist.undo) != 1 {
+		t.Errorf("the refused discard left %d steps of undo", len(d.hist.undo))
+	}
+	// Caught up, the change goes back, and what was typed stays.
+	a.changesTabAndShow()
+	hs.settleDiff(a.activeTab().diff)
+	v = a.activeTab().diff
+	hh = hunkRuns(v, hs.path("notes.txt"), diffIndex)
+	if len(hh) != 2 {
+		t.Fatalf("runs %v: %s", hh, kinds(v))
+	}
+	// The run that ends at the noted line, which the diff found again
+	// after the text was typed in.
+	for _, i := range hh {
+		if ff, hks2 := v.hunksAt(i); len(hks2) > 0 && hks2[0].B+hks2[0].BLen == 21 {
+			f, hks = ff, hks2
+		}
+	}
+	a.applyHunks(f, hks, hunkDiscard)
+	hs.settle()
+	if want := "// typed\n" + long; d.buf.String() != want {
+		t.Errorf("in the document: %q", d.buf.String())
 	}
 }
 

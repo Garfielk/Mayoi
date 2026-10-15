@@ -199,19 +199,18 @@ func (a *app) applyHunks(f *diffFile, hs []linediff.Hunk, act hunkAction) {
 	}
 }
 
-// discardHunks puts changes of a file back as the index has them: in its
-// editor, as a step of undo, or else on disk, once asked.
+// discardHunks puts changes of a file back as the index has them, in the
+// file's document, as one step of undo: of an editor shown in its frame,
+// and of a file that is not open once it is asked about, opened, and
+// found to be what the diff compared. A diff that is behind the files is
+// read again first: its changes are not to go over what is there now.
 func (a *app) discardHunks(f *diffFile, hs []linediff.Hunk) {
+	if f.running || f.gitStale {
+		a.fail("The diff is catching up with the files: try again in a moment.")
+		return
+	}
 	if d, shown := a.editorOf(a.diffDoc(f)); d != nil {
-		old := f.old.lines
-		discard := func(d *editor) {
-			// From the last up, so that the lines of those above stay put.
-			for _, h := range slices.Backward(hs) {
-				if h.A+h.ALen <= len(old) {
-					replaceHunk(d, h, old[h.A:h.A+h.ALen])
-				}
-			}
-		}
+		discard := func(d *editor) { a.discardInto(d, f, hs) }
 		// An editor shown takes edits in its frame, once its text area's
 		// selection is known; one out of sight has its own.
 		if shown {
@@ -226,26 +225,69 @@ func (a *app) discardHunks(f *diffFile, hs []linediff.Hunk) {
 	if len(hs) > 1 {
 		title = "Discard these changes to " + filepath.Base(path) + "?"
 	}
-	a.confirm = &confirm{title: title, message: "The lines go back as the index has them. This cannot be undone.",
+	a.confirm = &confirm{title: title, message: "The lines go back as the index has them, in the editor, where undo takes them back.",
 		ok: "Discard", danger: true, run: func() {
-			a.gitDo("", func(r *git.Repo) error {
-				work, crlf, err := readWork(path)
-				if err != nil {
-					return err
-				}
-				text, _, err := r.Show("", path)
-				if err != nil {
-					return err
-				}
-				index, lines := strings.Split(text, "\n"), strings.Split(work, "\n")
-				picked := overlapping(linediff.Hunks(index, lines), hs)
-				if len(picked) == 0 {
-					return nil
-				}
-				_, err = vfs.WriteFile(path, []byte(joinLines(linediff.Apply(lines, index, inverted(picked)), crlf)), 0o644)
-				return err
-			}, nil)
+			a.discardByOpening(f, hs)
 		}}
+}
+
+// discardByOpening opens a file that no editor has, checks that its text
+// is what the diff compared, and puts the changes of hunks hs back as
+// the index has them, as one step of undo. A file that changed since the
+// diff was drawn is left as it is and read again: its changes do not
+// fit, and are not to go over what it has now.
+func (a *app) discardByOpening(f *diffFile, hs []linediff.Hunk) {
+	if f.running || f.gitStale {
+		a.fail("The diff is catching up with the files: try again in a moment.")
+		return
+	}
+	a.openFile(f.path, false)
+	d, _ := a.editorOf(a.diffDoc(f))
+	if d == nil || d.loadErr != nil || d.offline {
+		a.fail("Could not open %s to discard its changes.", filepath.Base(f.path))
+		return
+	}
+	if d.loading {
+		a.fail("The file is still being read: try again in a moment.")
+		return
+	}
+	if d.buf.Snapshot().String() != f.new.text {
+		// The file is not the text the changes were found among.
+		f.gitStale = true
+		a.fail("%s has changed since the diff was drawn. It is read again: try again.", filepath.Base(f.path))
+		return
+	}
+	a.discardInto(d, f, hs)
+}
+
+// discardInto puts the changes of hunks hs of a file of a diff back as
+// the index has them, in an editor of the text the diff compared them
+// in, as one step of undo: the edits made together, so that undo takes
+// the whole discard back, and redo makes it again.
+func (a *app) discardInto(d *editor, f *diffFile, hs []linediff.Hunk) {
+	old := f.old.lines
+	snap := d.buf.Snapshot()
+	var edits []textEdit
+	at := -1
+	// From the last up, so that the lines of those above stay put.
+	for _, h := range slices.Backward(hs) {
+		if h.A+h.ALen > len(old) {
+			continue
+		}
+		e, ok := hunkEdit(snap, h, old[h.A:h.A+h.ALen])
+		if !ok {
+			continue
+		}
+		if at < 0 || e.start < at {
+			at = e.start
+		}
+		edits = append(edits, e)
+	}
+	if len(edits) == 0 {
+		return
+	}
+	d.peek = -1
+	d.edit([2]int{at, at}, edits...)
 }
 
 // editorOf returns an editor of an open document, nil for none: one a
