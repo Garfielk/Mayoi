@@ -7,9 +7,14 @@ scripts/dev.sh                                              # run Mayoi Dev with
 go test ./...                                               # headless UI tests
 go test -short ./...                                        # skip the tests that start a shell
 go test -short -run XXX -bench Frame ./cmd/mayoi            # benchmark an editor frame
-SHOTS=$PWD/docs go test -run TestShotReadme ./cmd/mayoi     # redraw the README screenshots
+scripts/screenshots/shoot.sh                                # redraw the README screenshots
 go run ./tools/icongen                                      # redraw resources/icon.png
 ```
+
+`scripts/screenshots/shoot.sh` takes every feature, in dark and light, into `build/screenshots/raw`, frames them on
+gradients in `build/screenshots/framed`, and puts the README's, 1600 pixels wide, in `docs/screenshots`. It needs
+macOS, Python with Pillow and `pngquant`. To take one feature's shots, run
+`FSHOTS=<dir> go test -run TestFeatColumns ./cmd/mayoi`.
 
 ## Releasing
 

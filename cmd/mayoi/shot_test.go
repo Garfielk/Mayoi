@@ -1,13 +1,9 @@
 package main
 
 import (
-	"mayoi/internal/settings"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/egoist/mygo/ui"
 )
 
 func TestShotDecorations(t *testing.T) {
@@ -138,45 +134,6 @@ func TestShotSelectionShape(t *testing.T) {
 		name := "selection-shape-light"
 		if dark {
 			name = "selection-shape-dark"
-		}
-		hs.shot(name)
-	}
-}
-
-// The picture at the top of the README: Mayoi's own source, in two columns.
-func TestShotReadme(t *testing.T) {
-	if os.Getenv("SHOTS") == "" {
-		t.Skip()
-	}
-	for _, dark := range []bool{true, false} {
-		root := filepath.Join(t.TempDir(), "mayoi")
-		for _, name := range []string{"internal/highlight", "internal/linediff", "internal/workspace", "resources", "tools"} {
-			os.MkdirAll(filepath.Join(root, name), 0o755)
-		}
-		for _, name := range []string{"README.md", "app.go", "columns.go", "editor.go", "go.mod", "main.go", "view.go", "wrap.go"} {
-			from := name
-			if !strings.HasSuffix(name, ".go") {
-				from = filepath.Join("..", "..", name) // the repository's own
-			}
-			src, _ := os.ReadFile(from)
-			os.WriteFile(filepath.Join(root, name), src, 0o644)
-		}
-		s := settings.Default()
-		w := s.NewWindow()
-		w.Folder = root
-		a := newApp(&fakeHost{folder: root}, s, w)
-		tt := ui.NewTester(a.view, 1200, 760)
-		tt.SetDark(dark)
-		hs := &harness{t: t, a: a, h: &fakeHost{}, tt: tt, root: root}
-		hs.settle()
-		a.openFile(hs.path("editor.go"), true)
-		hs.settle()
-		a.run("view.splitRight")
-		a.openFile(hs.path("wrap.go"), true)
-		hs.settle()
-		name := "screenshot-light"
-		if dark {
-			name = "screenshot-dark"
 		}
 		hs.shot(name)
 	}
