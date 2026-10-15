@@ -5,6 +5,11 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
+- Discarding changes block by block in a diff now always goes through the
+  file's document, also when the file was not open: the discard is one
+  step of undo, the tab shows the file as changed until it is saved, and
+  a diff that is behind the file on disk is read again rather than
+  writing over what changed.
 - Diff tabs now expose **Previous File** and **Next File** controls alongside
   the existing change navigation, with matching commands in the Git menu, and
   a direct **Side by Side** toggle for the split viewer.
