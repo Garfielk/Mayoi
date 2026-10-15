@@ -429,6 +429,8 @@ func (a *app) columnView(c *ui.Context, col *column) {
 					a.viewerView(c, shown.view, shown.name())
 				case shown.diff != nil:
 					a.diffViewUI(c, shown.diff)
+				case shown.merge != nil:
+					a.mergeViewUI(c, shown.merge)
 				case shown.ed.loading || shown.ed.loadErr != nil:
 					a.hideEditor(shown.ed)
 					a.loadingView(c, shown.ed)

@@ -5,6 +5,16 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
+- Conflicted files open in a **three-way merge view**: the two sides read
+  only beside an editable result that starts as the base, with the conflicts
+  marked in all three panes. Each conflict takes **Accept Left/Right** or
+  **Ignore Left/Right**, and **Resolve using Left/Right** decides every
+  conflict of the file at once. The result edits, undoes and redoes like any
+  document — undo brings the sides a conflict took back with it — and its
+  unresolved count, Save and **Mark Resolved** (which stages the file) close
+  the loop with the merge, rebase, cherry-pick or revert it belongs to. A
+  resolved file goes back in conflict with **Restore Conflict…**, and a
+  merge left and reopened goes on where its saved result stood.
 - Diff tabs now expose **Previous File** and **Next File** controls alongside
   the existing change navigation, with matching commands in the Git menu, and
   a direct **Side by Side** toggle for the split viewer.
