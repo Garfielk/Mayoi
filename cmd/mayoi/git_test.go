@@ -1382,6 +1382,18 @@ func TestCommitCardWraps(t *testing.T) {
 	}
 }
 
+// chooseButtonMenu opens the menu of a button and chooses an item of it.
+func (hs *harness) chooseButtonMenu(button string, item string) error {
+	r, ok := hs.tt.Find(button)
+	if !ok {
+		return fmt.Errorf("no button %q", button)
+	}
+	hs.tt.Press(r.X+r.W/2, r.Y+r.H/2)
+	hs.tt.Release(r.X+r.W/2, r.Y+r.H/2)
+	hs.settle()
+	return hs.tt.ChooseMenuItem(item)
+}
+
 // diffSpansOf spells the runs of a line of a diff that its highlight
 // shows as changed.
 func diffSpansOf(s string, spans []linediff.Span) []string {
@@ -1709,4 +1721,58 @@ func TestDiffKeepsItsPlace(t *testing.T) {
 	if got := at(); got != was {
 		t.Errorf("unfolded: %+v → %+v", was, got)
 	}
+}
+
+// A diff's buttons offer what its lines highlight, how much shows around
+// a change, and whether the sides scroll together.
+func TestDiffButtons(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	os.WriteFile(hs.path("main.go"), []byte("package main\n\nfunc main() {\n\tfmt.Println(\"hi, mayoi\")\n}\n"), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "main")
+	os.WriteFile(hs.path("main.go"), []byte("package main\n\nfunc main() {\n\tfmt.Println(\"hello, mayoi\")\n}\n"), 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("main.go"), any: true}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	if _, ok := hs.tt.Find("Highlight"); !ok {
+		t.Fatal("no highlight button")
+	}
+	if _, ok := hs.tt.Find("Context"); !ok {
+		t.Fatal("no context button")
+	}
+	// The highlight menu chooses the characters.
+	if err := hs.chooseButtonMenu("Highlight", "Highlight Characters"); err != nil {
+		t.Fatal(err)
+	}
+	hs.settle()
+	if a.diffHighlightOf() != highlightChar {
+		t.Errorf("highlight %d, want the characters", a.diffHighlightOf())
+	}
+	if a.settings.DiffHighlight != "char" {
+		t.Errorf("settings keep %q", a.settings.DiffHighlight)
+	}
+	// The context menu chooses no unchanged lines.
+	if err := hs.chooseButtonMenu("Context", "No Lines"); err != nil {
+		t.Fatal(err)
+	}
+	hs.settle()
+	if a.diffContextOf() != 0 {
+		t.Errorf("context %d, want none", a.diffContextOf())
+	}
+	// The last unchanged line, on its own, does not fold.
+	if got := kinds(v); got != "SFGHLLL" {
+		t.Errorf("rows %s", got)
+	}
+	// The layout menu has the sides scrolling together, and lets them go.
+	if err := hs.chooseButtonMenu("Layout", "Synchronized Scrolling"); err != nil {
+		t.Fatal(err)
+	}
+	hs.settle()
+	if a.settings.DiffSyncScroll {
+		t.Errorf("the sides still scroll together")
+	}
+	a.setDiffSync(v, true)
 }

@@ -1463,11 +1463,37 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 	if button(iconWrap, a.withKey("Toggle Word Wrap", "view.wordWrapTab"), a.wrapsDiff(v)).Clicked() {
 		a.post(func() { a.toggleDiffWrap(v) })
 	}
+	// What a line that changed shows of itself: the words, the characters
+	// within them, or no more than the line.
+	b := button(iconHighlight, "Highlight", false)
+	b.Menu(func(m *ui.Menu) {
+		for _, h := range []struct {
+			mode  diffHighlight
+			label string
+		}{{highlightLine, "Highlight Lines"}, {highlightWord, "Highlight Words"}, {highlightChar, "Highlight Characters"}} {
+			if m.Item(h.label).Checked(a.diffHighlightOf() == h.mode).Chosen() {
+				a.post(func() { a.setDiffHighlight(h.mode) })
+			}
+		}
+	})
+	// The unchanged lines around a change, which the rest folds down to.
+	b = button(iconRows, "Context", false)
+	b.Menu(func(m *ui.Menu) {
+		for _, n := range []int{0, 1, 2, 3, 5, 10} {
+			label := "No Lines"
+			if n > 0 {
+				label = plural(n, "Line")
+			}
+			if m.Item(label).Checked(a.diffContextOf() == n).Chosen() {
+				a.post(func() { a.setDiffContext(n) })
+			}
+		}
+	})
 	icon := iconRows
 	if v.split {
 		icon = iconColumns
 	}
-	b := button(icon, "Layout", false)
+	b = button(icon, "Layout", false)
 	b.Menu(func(m *ui.Menu) {
 		for _, l := range []struct {
 			layout diffLayout
@@ -1476,6 +1502,9 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 			if m.Item(l.label).Checked(v.layout == l.layout).Chosen() {
 				a.post(func() { a.setDiffLayout(v, l.layout) })
 			}
+		}
+		if m.Item("Synchronized Scrolling").Checked(a.settings.DiffSyncScroll).Chosen() {
+			a.post(func() { a.setDiffSync(v, !a.settings.DiffSyncScroll) })
 		}
 	})
 	act(iconOpenFile, "Open File (E)", func() { a.openDiffFile(v) })
