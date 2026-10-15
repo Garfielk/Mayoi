@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -673,5 +674,83 @@ func TestMergeAutoApplyKept(t *testing.T) {
 	}
 	if got := v2.resultLines(); !slices.Equal(got, []string{"a", "b", "c", "m", "z"}) {
 		t.Errorf("the saved result did not go on: %q", got)
+	}
+}
+
+func TestMergeFilesList(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	a := hs.a
+	// The files of the merge: those in conflict, not the one that merged
+	// clean.
+	files := a.mergeFiles()
+	if len(files) != 3 {
+		t.Fatalf("got %d files, want 3: %+v", len(files), files)
+	}
+	for i, name := range []string{"four.txt", "one.txt", "two.txt"} {
+		if base := filepath.Base(files[i].path); base != name || files[i].resolved {
+			t.Errorf("file %d is %s, want %s in conflict", i, base, name)
+		}
+	}
+	// The list shows them, and how many of the files stand.
+	a.openConflicts()
+	hs.settle()
+	for _, text := range []string{"four.txt", "one.txt", "two.txt", "0 of 3 files resolved"} {
+		if !hs.tt.HasText(text) {
+			t.Errorf("no %q: %q", text, hs.tt.Texts())
+		}
+	}
+	// A file of the list chosen opens its merge.
+	a.chooseMergeFile(files[0])
+	hs.settle()
+	if v := a.activeTab().merge; v == nil || v.path != files[0].path {
+		t.Fatalf("the merge of the file chosen is not open: %+v", a.activeTab())
+	}
+	if a.conflicts.open {
+		t.Error("the list is open still")
+	}
+	// One file resolved: the list has it, and the merge does not go on
+	// while the others stand in conflict.
+	a.takeMergeSide(a.activeTab().merge, 0, false)
+	a.completeMerge(a.activeTab().merge)
+	hs.settleGit()
+	files = a.mergeFiles()
+	if len(files) != 3 || !files[2].resolved || filepath.Base(files[2].path) != "four.txt" {
+		t.Fatalf("the file resolved is not last of three: %+v", files)
+	}
+	for i, name := range []string{"one.txt", "two.txt"} {
+		if filepath.Base(files[i].path) != name || files[i].resolved {
+			t.Errorf("file %d does not stand in conflict: %+v", i, files[i])
+		}
+	}
+	a.continueOp()
+	hs.settleGit()
+	if st := a.git.status; st == nil || st.Op != gitpkg.OpMerge {
+		t.Errorf("the merge went on with a conflict unresolved: %+v", st)
+	}
+	if a.fails == 0 {
+		t.Error("the app does not say why the merge did not go on")
+	}
+	// The list says one file stands, of the three.
+	a.openConflicts()
+	hs.settle()
+	if !hs.tt.HasText("1 of 3 files resolved") {
+		t.Errorf("no progress: %q", hs.tt.Texts())
+	}
+	// The last files resolved, the merge goes on.
+	a.closeConflicts()
+	for _, rel := range []string{"one.txt", "two.txt"} {
+		v := hs.mergeOfRel(rel)
+		a.takeMergeSide(v, 0, false)
+		a.completeMerge(v)
+		hs.settleGit()
+	}
+	a.continueOp()
+	hs.settleGit()
+	if st := a.git.status; st == nil || st.Op != "" {
+		t.Errorf("the merge does not end: %+v", st)
+	}
+	if files := a.mergeFiles(); len(files) != 0 {
+		t.Errorf("the files of the merge stand still: %+v", files)
 	}
 }

@@ -861,21 +861,33 @@ func (a *app) completeMerge(v *mergeView) {
 	}
 	path := v.path
 	a.saveDoc(v.doc, func() {
-		a.stage(path)
-		a.tell(note{message: "Marked " + filepath.Base(path) + " resolved"})
+		a.gitDo("", func(r *git.Repo) error { return r.Stage(path) }, func() {
+			a.noteMergeResolved(path)
+			a.tell(note{message: "Marked " + filepath.Base(path) + " resolved"})
+		})
 	})
 }
 
 // restoreMerge puts a file back in conflict, once asked, that the
 // command stopped for has staged as resolved.
 func (a *app) restoreMerge(v *mergeView) {
-	path := v.path
+	a.revertMergeConflict(v.path)
+}
+
+// revertMergeConflict puts a file back in conflict, once asked: the
+// result saved goes, and the two sides of the conflict come back, as the
+// command stopped for them has them. A merge view of the file starts its
+// result over at the base.
+func (a *app) revertMergeConflict(path string) {
 	a.confirm = &confirm{title: "Put " + filepath.Base(path) + " back in conflict?", ok: "Restore", danger: true,
 		message: "The result saved goes, and the two sides of the conflict come back, as the command stopped for them has them.",
 		run: func() {
 			a.gitDo("", func(r *git.Repo) error { return r.RestoreConflict(path) }, func() {
 				if t := a.mergeTab(path); t != nil {
 					a.resetMerge(t.merge)
+					if a.settings.MergeAutoApply {
+						a.applyNonConflicts(t.merge, applyAll)
+					}
 				}
 			})
 		}}

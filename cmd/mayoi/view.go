@@ -132,6 +132,7 @@ func (a *app) view(c *ui.Context) {
 	a.branchPickerView(c)
 	a.recentPickerView(c)
 	a.remotePickerView(c)
+	a.conflictsView(c)
 	a.promptView(c)
 	a.confirmView(c)
 	if !a.dialogBuilt {
