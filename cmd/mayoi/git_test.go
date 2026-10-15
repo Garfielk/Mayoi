@@ -1487,3 +1487,74 @@ func TestDiffContext(t *testing.T) {
 		t.Errorf("settings keep %d", a.settings.DiffContext)
 	}
 }
+
+// The sides of a side-by-side diff scroll together, or each on its own,
+// and together again from where the right one was.
+func TestDiffSyncScroll(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	long := hs.path("long.go")
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc long() {\n")
+	for i := range 100 {
+		fmt.Fprintf(&b, "\tprintln(%d)\n", i)
+	}
+	b.WriteString("}\n")
+	os.WriteFile(long, []byte(b.String()), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "long")
+	data, _ := os.ReadFile(long)
+	os.WriteFile(long, []byte(strings.Replace(string(data), "println(5)", "println(\"five\")", 1)), 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: long, any: true}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	a.setDiffLayout(v, layoutSplit)
+	hs.settle()
+	if !v.split || !a.settings.DiffSyncScroll {
+		t.Fatalf("split %v, synced %v", v.split, a.settings.DiffSyncScroll)
+	}
+	// Whole files, so there is enough to scroll.
+	a.setDiffFull(v, true)
+	hs.settle()
+	lineH := a.font.lineH
+	v.scroll.Y = 5 * lineH
+	hs.settle()
+	// Each side on its own, from where they showed together.
+	a.setDiffSync(v, false)
+	hs.settle()
+	if v.sideY != 5*lineH {
+		t.Fatalf("the right side starts at %v, not where they showed", v.sideY)
+	}
+	scrollY := v.scroll.Y
+	pane, ok := hs.tt.Find("Diff of the Changes")
+	if !ok {
+		t.Fatal("no diff pane")
+	}
+	// A wheel over the right half scrolls it alone.
+	hs.tt.Scroll(pane.X+pane.W*3/4, pane.Y+pane.H/2, 0, 4*lineH)
+	hs.settle()
+	if v.sideY == scrollY {
+		t.Errorf("the right side does not scroll on its own")
+	}
+	if v.scroll.Y != scrollY {
+		t.Errorf("the left side moved with it: %v", v.scroll.Y)
+	}
+	// A wheel over the left half scrolls what they share.
+	hs.tt.Scroll(pane.X+pane.W/4, pane.Y+pane.H/2, 0, 4*lineH)
+	hs.settle()
+	if v.scroll.Y == scrollY {
+		t.Errorf("the left side does not scroll")
+	}
+	// Together again, from the line the right side was at.
+	rightTop := v.rowAt(v.sideY+lineH/2, lineH)
+	a.setDiffSync(v, true)
+	hs.settle()
+	if top := v.rowAt(v.scroll.Y+lineH/2, lineH); top != rightTop {
+		t.Errorf("back together at row %d, the right side was at %d", top, rightTop)
+	}
+	if !a.settings.DiffSyncScroll {
+		t.Errorf("the settings do not keep it")
+	}
+}

@@ -214,6 +214,9 @@ type diffView struct {
 
 	scroll ui.ScrollState
 	pane   ui.Handle
+	// sideY is how far the right side of a split diff whose sides do not
+	// scroll together is scrolled, in its own.
+	sideY float32
 	// current is the hunk gone to last, of starts, and cursor the row
 	// chosen, -1 for none. jump is a row to scroll to in the next frame,
 	// -1 for none, as jumpTo says.
@@ -1467,6 +1470,10 @@ func (a *app) setDiffLayout(v *diffView, l diffLayout) {
 	a.settings.Changed()
 	a.rememberTabs()
 	a.keepTopRow(v, func() { v.split = a.splits(v, v.viewW) })
+	if !a.settings.DiffSyncScroll {
+		// The right side starts where the sides showed together.
+		v.sideY = v.scroll.Y
+	}
 }
 
 // setDiffFull shows every unchanged line of a diff, or folds them again.
@@ -1485,6 +1492,45 @@ func (a *app) setDiffContext(n int) {
 	a.settings.DiffContext = n
 	a.settings.Changed()
 	a.invalidate()
+}
+
+// setDiffSync has the sides of a side-by-side diff scroll together, or
+// each on its own, as the next diffs opened will. Together again, the
+// line the right side was at shows across from its counterpart, as the
+// sides line up.
+func (a *app) setDiffSync(v *diffView, on bool) {
+	if a.settings.DiffSyncScroll == on {
+		return
+	}
+	a.settings.DiffSyncScroll = on
+	a.settings.Changed()
+	for _, col := range a.cols {
+		for _, t := range col.tabs {
+			if t.diff != nil {
+				a.resyncDiff(t.diff, on)
+			}
+		}
+	}
+	a.invalidate()
+}
+
+// resyncDiff starts or stops the sides of a diff scrolling on their own.
+func (a *app) resyncDiff(v *diffView, on bool) {
+	if !v.split {
+		return
+	}
+	if !on {
+		// The sides start where they showed together.
+		v.sideY = v.scroll.Y
+		return
+	}
+	// The row at the top of the right side comes to the top, across from
+	// its counterpart.
+	if len(v.rows) > 0 {
+		if i := v.rowAt(v.sideY+a.font.lineH/2, a.font.lineH); i >= 0 {
+			v.jumpRow(i, jumpTop)
+		}
+	}
 }
 
 // toggleDiffWrap wraps the lines of a diff, or stops, until the settings'
