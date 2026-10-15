@@ -833,3 +833,54 @@ func TestMergeSaveClose(t *testing.T) {
 		t.Errorf("the result did not go on: %v", st)
 	}
 }
+
+func TestMergeReopenResolved(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	a := hs.a
+	// one.txt resolved, its merge closed: the list has it resolved, with
+	// its resolution to take back.
+	v := hs.mergeOfRel("one.txt")
+	a.takeMergeSide(v, 0, false)
+	a.completeMerge(v)
+	hs.settleGit()
+	a.saveCloseMerge(v)
+	hs.settle()
+	if !a.conflicts.open {
+		t.Fatal("the list does not show")
+	}
+	var resolved mergeFile
+	for _, f := range a.mergeFiles() {
+		if f.resolved {
+			resolved = f
+		}
+	}
+	if resolved.path == "" || filepath.Base(resolved.path) != "one.txt" {
+		t.Fatalf("one.txt does not stand resolved: %+v", a.mergeFiles())
+	}
+	// Its resolution taken back, the file stands in conflict again, and
+	// its merge opens on the result at the base, with the changes that no
+	// conflict holds in.
+	a.revertMergeConflict(resolved.path)
+	if a.confirm == nil {
+		t.Fatal("no confirm")
+	}
+	a.confirm.run()
+	a.confirm = nil
+	hs.settleGit()
+	if e := a.git.entries[resolved.path]; !e.Conflicted() {
+		t.Fatalf("one.txt does not stand in conflict again: %+v", e)
+	}
+	a.openMerge(resolved.path, true)
+	hs.settle()
+	v2 := a.activeTab().merge
+	if v2 == nil || v2.path != resolved.path {
+		t.Fatalf("the merge did not open again: %+v", a.activeTab())
+	}
+	if got := v2.resultLines(); !slices.Equal(got, []string{"ours", "b", "c", "m", "side2"}) {
+		t.Errorf("the result is not the base with the changes of no conflict: %q", got)
+	}
+	if v2.unresolved() != 1 {
+		t.Errorf("%d unresolved, want 1", v2.unresolved())
+	}
+}
