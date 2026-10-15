@@ -211,6 +211,9 @@ type diffView struct {
 	// told is at the top.
 	reveal *diffTarget
 	synced *diffFile
+	// place is where the view was when a file of the diff folded under
+	// it, to go back to when the file unfolds.
+	place *diffAnchor
 
 	scroll ui.ScrollState
 	pane   ui.Handle
@@ -854,6 +857,7 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 				a.fail("%s has no changes.", filepath.Base(t.path))
 			} else {
 				target.folded = false
+				v.place = nil
 			}
 		}
 	}
@@ -958,6 +962,16 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 				if a == chosen {
 					break
 				}
+			}
+		}
+	}
+	// A file that folded under the view unfolds where the view was.
+	if p := v.place; p != nil {
+		for i := range v.rows {
+			if v.anchorOf(i) == *p {
+				v.place = nil
+				v.jumpRow(i, jumpTop)
+				break
 			}
 		}
 	}
@@ -1220,6 +1234,14 @@ func (a *app) activateRow(v *diffView, i int, open bool) {
 	case rowGap:
 		a.toggleGap(v, i)
 	case rowFile:
+		if !f.folded {
+			// The lines fold away under the view: it comes back to them
+			// when the file unfolds.
+			if at := v.focusRowAt(v.topRow(a.font.lineH)); at >= 0 && v.tops != nil && v.rows[at].file == r.file {
+				p := v.anchorOf(at)
+				v.place = &p
+			}
+		}
 		f.folded = !f.folded
 		v.changed()
 	case rowLine, rowHunk:
@@ -1490,6 +1512,19 @@ func (a *app) setDiffContext(n int) {
 		return
 	}
 	a.settings.DiffContext = n
+	a.settings.Changed()
+	a.invalidate()
+}
+
+// setDiffHighlight shows what changed within a line of a diff by word,
+// by character, or no more than the lines, as the next diffs opened will.
+// What it shows is only so: the changes a diff acts on are its hunks of
+// lines.
+func (a *app) setDiffHighlight(h diffHighlight) {
+	if a.diffHighlightOf() == h {
+		return
+	}
+	a.settings.DiffHighlight = h.key()
 	a.settings.Changed()
 	a.invalidate()
 }

@@ -1558,3 +1558,155 @@ func TestDiffSyncScroll(t *testing.T) {
 		t.Errorf("the settings do not keep it")
 	}
 }
+
+// Whatever a diff highlights within a line, its block actions are for the
+// hunk the line is in, never only for what the highlight shows.
+func TestDiffHighlightKeepsBlockActions(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	p := hs.path("main.go")
+	os.WriteFile(p, []byte("package main\n\nfunc main() {\n\tprintln(1)\n\tprintln(2)\n\tprintln(3)\n}\n"), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "main")
+	os.WriteFile(p, []byte("package main\n\nfunc main() {\n\tprintln(11)\n\tprintln(2)\n\tprintln(33)\n}\n"), 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: p, any: true}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	f := diffFileOf(v, p, diffIndex)
+	if f == nil || len(f.hunks) != 2 {
+		t.Fatalf("hunks %v", f.hunks)
+	}
+	i := v.starts[0]
+	for _, h := range []diffHighlight{highlightChar, highlightWord, highlightLine} {
+		a.setDiffHighlight(h)
+		hs.settle()
+		// The line stands for its whole hunk, and the actions are of it.
+		fl, hs2 := v.hunksAt(i)
+		if fl != f || !slices.Equal(hs2, f.hunks[:1]) {
+			t.Errorf("highlight %d: the changes of the line are %v", h, hs2)
+		}
+		if acts := hunkActions(fl); !slices.Equal(acts, []hunkAction{hunkDiscard, hunkStage}) {
+			t.Errorf("highlight %d: actions %v", h, acts)
+		}
+		// The header of the run stands for all of the hunks it heads.
+		hdr := v.hunkHead(i)
+		if _, hs2 := v.hunksAt(hdr); !slices.Equal(hs2, f.hunks) {
+			t.Errorf("highlight %d: the changes of the header are %v", h, hs2)
+		}
+	}
+}
+
+// Folding a gap or a file, wrapping and a wider window keep the line at
+// the top of a diff's view the same line of the file, and a layout chosen
+// stays chosen whatever the width.
+func TestDiffKeepsItsPlace(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	long := hs.path("long.go")
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc long() {\n")
+	for i := range 100 {
+		if i == 50 {
+			// A line that wraps, once the diff wraps its lines.
+			b.WriteString("\tprintln(\"" + strings.Repeat("fifty ", 60) + "\")\n")
+			continue
+		}
+		fmt.Fprintf(&b, "\tprintln(%d)\n", i)
+	}
+	b.WriteString("}\n")
+	os.WriteFile(long, []byte(b.String()), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "long")
+	data, _ := os.ReadFile(long)
+	for i := range 100 {
+		if i != 50 && i%10 == 0 {
+			data = []byte(strings.Replace(string(data), fmt.Sprintf("println(%d)", i), fmt.Sprintf("println(%d thousand)", i), 1))
+		}
+	}
+	os.WriteFile(long, data, 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: long, any: true}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	a.setDiffLayout(v, layoutSplit)
+	hs.settle()
+	lineH := a.font.lineH
+	at := func() diffAnchor { return v.anchorOf(v.focusRowAt(v.topRow(lineH))) }
+	// At the line that wraps.
+	a.setDiffFull(v, true)
+	hs.settle()
+	wrapped := -1
+	for i, r := range v.rows {
+		if r.kind == rowLine && r.new == 53 {
+			wrapped = i
+		}
+	}
+	if wrapped < 0 {
+		t.Fatal("no long line")
+	}
+	v.scroll.Y = float32(v.tops[wrapped]) * lineH
+	hs.settle()
+	was := at()
+	// Wrapped, the line is more rows tall, and still the line at the top.
+	a.toggleDiffWrap(v)
+	hs.settle()
+	if got := at(); got != was {
+		t.Errorf("wrapped: %+v → %+v", was, got)
+	}
+	if r := v.rows[v.focusRowAt(v.topRow(lineH))]; r.kind != rowLine || r.h < 2 {
+		t.Errorf("the long line is %d rows tall", r.h)
+	}
+	// Narrower, the rows lay out again; the line stays at the top, and
+	// the layout chosen stays chosen.
+	hs.tt.SetSize(800, 760)
+	hs.settle()
+	if got := at(); got != was {
+		t.Errorf("narrower: %+v → %+v", was, got)
+	}
+	if !v.split {
+		t.Errorf("the layout chosen gave way to the width")
+	}
+	hs.tt.SetSize(1200, 760)
+	a.toggleDiffWrap(v)
+	hs.settle()
+	// A gap above the view folds and opens, and the line stays put.
+	a.setDiffFull(v, false)
+	hs.settle()
+	var gaps []int
+	for i, r := range v.rows {
+		if r.kind == rowGap {
+			gaps = append(gaps, i)
+		}
+	}
+	if len(gaps) < 6 {
+		t.Fatalf("%d gaps", len(gaps))
+	}
+	v.scroll.Y = float32(v.tops[gaps[4]+6]) * lineH
+	hs.settle()
+	was = at()
+	a.activateRow(v, gaps[4], false)
+	hs.settle()
+	if got := at(); got != was {
+		t.Errorf("opened a gap: %+v → %+v", was, got)
+	}
+	a.toggleGap(v, gaps[4]+1)
+	hs.settle()
+	if got := at(); got != was {
+		t.Errorf("folded a gap: %+v → %+v", was, got)
+	}
+	// The file folds under its header, and unfolds where it was.
+	was = at()
+	a.activateRow(v, 1, false)
+	hs.settle()
+	if got := kinds(v); got != "SF" {
+		t.Fatalf("folded: %s", got)
+	}
+	a.activateRow(v, 1, false)
+	hs.settle()
+	if got := at(); got != was {
+		t.Errorf("unfolded: %+v → %+v", was, got)
+	}
+}
