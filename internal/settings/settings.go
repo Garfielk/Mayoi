@@ -107,6 +107,11 @@ type Prefs struct {
 	// DiffLayout is how diffs show: "split" side by side, "inline" in
 	// one column, or "" side by side when they are wide enough to.
 	DiffLayout string `json:"diffLayout,omitempty"`
+	// DiffCrossFiles is how a diff's change navigation crosses into
+	// another file at the first or last change of one: "" says where it
+	// is and crosses on one more step that way, "always" crosses at once,
+	// and "never" stays in the file.
+	DiffCrossFiles string `json:"diffCrossFiles,omitempty"`
 	// ScmTree lists the changes in source control in a tree of their
 	// folders, rather than by path.
 	ScmTree bool `json:"scmTree,omitempty"`

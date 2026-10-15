@@ -169,8 +169,11 @@ columns, which is the default. Words that changed within a line are tinted,
 and a bar along the left is brightest for the change you are on. Long lines wrap as the editor's do: **Word Wrap**
 sets them all, and ⌥Z or the wrap button just the tab.
 
-Double-click a line to open the file there. The arrows go from change to change, and the status bar counts the lines
-added and removed. With the diff focused, keys work as in a pager:
+Double-click a line to open the file there. The arrows go from change to change, and the status bar says which change
+of how many you are on, with the lines added and removed. At the last, or first, change of a file the navigation says
+so, and one more press that way goes to the next file with changes, or the last of the previous; **diffCrossFiles** in
+the settings has it cross at once, or never leave the file. At the first or last file it says so, and stops. With the
+diff focused, keys work as in a pager:
 
 | Key | Does |
 | --- | --- |
