@@ -56,6 +56,9 @@ needs a `## <version>` section here, or its build fails.
   shows each project's favicon or logo on the rail, from its well-known
   icon files, `favicon.ico` included, or the icon its sources declare,
   rather than its initials. A project without one keeps its initials.
+- Project Icons also finds a mygo app's icon (the one `mygo.json` names,
+  or `resources/icon.png`), the favicon a `site/` or `docs/` page
+  declares beside it, and a macOS app's `.icns` or Xcode AppIcon.
 
 ## 0.9.0
 

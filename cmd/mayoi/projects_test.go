@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -419,15 +420,16 @@ func TestFindProjectLogo(t *testing.T) {
 // attribute order, or icon metadata, skipping data URIs and remote URLs.
 func TestExtractIconHref(t *testing.T) {
 	for source, want := range map[string]string{
-		`<link rel="icon" href="/brand/mark.svg">`:                             "brand/mark.svg",
+		`<link rel="icon" href="/brand/mark.svg">`:                             "/brand/mark.svg",
 		`<link href="icons/a.png?v=2" rel="shortcut icon">`:                    "icons/a.png",
-		`<link REL='APPLE-TOUCH-ICON' HREF='/apple.png'>`:                      "apple.png",
+		`<link REL='APPLE-TOUCH-ICON' HREF='/apple.png'>`:                      "/apple.png",
 		`<link rel="stylesheet" href="app.css"><link rel="icon" href="f.svg">`: "f.svg",
-		`{ rel: "icon", href: "/icons/root.png" }`:                             "icons/root.png",
-		`{ rel: "icon", url: "/images/icons/favicon-v2.ico" }`:                 "images/icons/favicon-v2.ico",
-		`icons: { icon: "/icon.png", apple: "/apple.png" }`:                    "icon.png",
-		`export const m = { apple: "/ap.png" }`:                                "ap.png",
-		`<link data-href="/wrong.png" href="/r.png" rel="icon">`:               "r.png",
+		`{ rel: "icon", href: "/icons/root.png" }`:                             "/icons/root.png",
+		`{ rel: "icon", url: "/images/icons/favicon-v2.ico" }`:                 "/images/icons/favicon-v2.ico",
+		`icons: { icon: "/icon.png", apple: "/apple.png" }`:                    "/icon.png",
+		`export const m = { apple: "/ap.png" }`:                                "/ap.png",
+		`<link data-href="/wrong.png" href="/r.png" rel="icon">`:               "/r.png",
+		`<link rel="icon" href="./site.png">`:                                  "site.png",
 		`<link rel="mask-icon" href="m.svg">`:                                  "",
 		`<link rel="icon" href="../up.png">`:                                   "",
 		`<link rel="icon" href="//host/x.png">`:                                "",
@@ -442,15 +444,207 @@ func TestExtractIconHref(t *testing.T) {
 	}
 }
 
-// resolveIconHref looks in public/ first, as a leading slash names the
-// static folder.
+// resolveIconHref looks in public/ first for a leading slash, as it names
+// the static folder, and beside the source first for a relative href.
 func TestResolveIconHref(t *testing.T) {
-	if got, want := resolveIconHref("/brand/mark.svg"), []string{"public/brand/mark.svg", "brand/mark.svg"}; !slices.Equal(got, want) {
-		t.Errorf("got %q, want %q", got, want)
+	for _, c := range []struct {
+		href, base string
+		want       []string
+	}{
+		{"/brand/mark.svg", "", []string{"public/brand/mark.svg", "brand/mark.svg"}},
+		{"/brand/mark.svg", "site", []string{"public/brand/mark.svg", "brand/mark.svg", "site/brand/mark.svg"}},
+		{"icon.png", "", []string{"icon.png", "public/icon.png"}},
+		{"icon.png", "site", []string{"site/icon.png", "public/icon.png", "icon.png"}},
+		{"./icon.png", "public", []string{"public/icon.png", "icon.png"}},
+	} {
+		if got := resolveIconHref(c.href, c.base); !slices.Equal(got, c.want) {
+			t.Errorf("%q in %q: got %q, want %q", c.href, c.base, got, c.want)
+		}
 	}
-	if resolveIconHref("data:image/png,xxx") != nil {
+	if resolveIconHref("data:image/png,xxx", "") != nil {
 		t.Error("a data URI resolves")
 	}
+}
+
+// A site of its own in site/ declares its icon beside its page, as
+// Tiller's does.
+func TestLoadProjectLogoFromSite(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "site", "index.html"), []byte(`<link rel="icon" type="image/png" href="icon.png">`))
+	if loadProjectLogo(dir) != nil {
+		t.Fatal("a logo without its file")
+	}
+	writeFile(t, filepath.Join(dir, "site", "icon.png"), pngBytes(t, 16, 16))
+	if got := findIconFromSource(dir); got != filepath.Join(dir, "site", "icon.png") {
+		t.Errorf("got %q, want site/icon.png", got)
+	}
+	if loadProjectLogo(dir) == nil {
+		t.Error("no logo from the icon site/index.html declares")
+	}
+}
+
+// A mygo app's icon is the one its configuration names, else
+// resources/icon.png, as mygo takes it.
+func TestFindMygoIcon(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "resources", "icon.png"), pngBytes(t, 16, 16))
+	if findMygoIcon(dir) != "" {
+		t.Error("an icon of a folder that is not a mygo app")
+	}
+	writeFile(t, filepath.Join(dir, "mygo.json"), []byte(`{"name": "App"}`))
+	if got, want := findMygoIcon(dir), filepath.Join(dir, "resources", "icon.png"); got != want {
+		t.Errorf("default: got %q, want %q", got, want)
+	}
+	if loadProjectLogo(dir) == nil {
+		t.Error("no logo from resources/icon.png")
+	}
+	writeFile(t, filepath.Join(dir, "art", "app.png"), pngBytes(t, 16, 16))
+	writeFile(t, filepath.Join(dir, "mygo.json"), []byte(`{"name": "App", "icon": "art/app.png"}`))
+	if got, want := findMygoIcon(dir), filepath.Join(dir, "art", "app.png"); got != want {
+		t.Errorf("named: got %q, want %q", got, want)
+	}
+	writeFile(t, filepath.Join(dir, "mygo.json"), []byte(`{"icon": "../outside.png"}`))
+	if got, want := findMygoIcon(dir), filepath.Join(dir, "resources", "icon.png"); got != want {
+		t.Errorf("outside the project: got %q, want %q", got, want)
+	}
+	ts := t.TempDir()
+	writeFile(t, filepath.Join(ts, "brand", "icon.png"), pngBytes(t, 16, 16))
+	writeFile(t, filepath.Join(ts, "mygo.config.ts"), []byte("export default defineConfig({\n  name: \"App\",\n  icon: \"brand/icon.png\",\n})\n"))
+	if got, want := findMygoIcon(ts), filepath.Join(ts, "brand", "icon.png"); got != want {
+		t.Errorf("mygo.config.ts: got %q, want %q", got, want)
+	}
+}
+
+// A macOS app's .icns in its resources decodes, at its PNG entry nearest
+// the rail's size.
+func TestLoadProjectLogoICNS(t *testing.T) {
+	dir := t.TempDir()
+	icns := filepath.Join(dir, "app", "Resources", "App.icns")
+	writeFile(t, icns, icnsBytes(t, map[string][]byte{
+		"ic04": []byte("ARGB not a png"),
+		"ic11": pngBytes(t, 32, 32),
+		"ic07": pngBytes(t, 128, 128),
+		"ic10": pngBytes(t, 1024, 1024),
+	}))
+	if got := findNativeIcons(dir); !slices.Equal(got, []string{icns}) {
+		t.Errorf("got %q, want %q", got, icns)
+	}
+	bm, ok := loadProjectLogo(dir).(*ui.Bitmap)
+	if !ok {
+		t.Fatal("no logo from the .icns")
+	}
+	if w, h := bm.Size(); w != logoSide || h != logoSide {
+		t.Errorf("logo is %dx%d, want %dx%d", w, h, logoSide, logoSide)
+	}
+	img, err := decodeICNS(icnsBytes(t, map[string][]byte{"ic11": pngBytes(t, 32, 32), "ic12": pngBytes(t, 64, 64)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := img.Bounds().Dx(); w != 64 {
+		t.Errorf("small entries: took %d, want the largest, 64", w)
+	}
+	for _, data := range [][]byte{
+		[]byte("not an icns"),
+		icnsBytes(t, map[string][]byte{"ic04": []byte("ARGB")}),
+		append([]byte("icns\x00\x00\x00\x10ic07\xff\xff\xff\xff"), pngBytes(t, 8, 8)...),
+	} {
+		if _, err := decodeICNS(data); err == nil {
+			t.Errorf("%q decoded", data[:min(len(data), 16)])
+		}
+	}
+}
+
+// An Xcode project's AppIcon set is found in a top-level folder's asset
+// catalog, its picture nearest the rail's size first.
+func TestFindNativeIconsAppIconSet(t *testing.T) {
+	dir := t.TempDir()
+	set := filepath.Join(dir, "MyApp", "Assets.xcassets", "AppIcon.appiconset")
+	writeFile(t, filepath.Join(set, "Contents.json"), []byte(`{"images": [
+		{"filename": "16.png", "idiom": "mac", "scale": "1x", "size": "16x16"},
+		{"filename": "32@2x.png", "idiom": "mac", "scale": "2x", "size": "32x32"},
+		{"filename": "128.png", "idiom": "mac", "scale": "1x", "size": "128x128"},
+		{"filename": "512@2x.png", "idiom": "mac", "scale": "2x", "size": "512x512"},
+		{"filename": "../escape.png", "idiom": "mac", "scale": "1x", "size": "1024x1024"},
+		{"idiom": "mac", "scale": "1x", "size": "256x256"}
+	]}`))
+	for _, name := range []string{"16.png", "32@2x.png", "128.png", "512@2x.png"} {
+		writeFile(t, filepath.Join(set, name), pngBytes(t, 16, 16))
+	}
+	other := filepath.Join(dir, "MyApp", "Assets.xcassets", "AccentColor.colorset")
+	writeFile(t, filepath.Join(other, "Contents.json"), []byte(`{}`))
+	// Dependencies are not looked in.
+	writeFile(t, filepath.Join(dir, "node_modules", "x", "Assets.xcassets", "AppIcon.appiconset", "Contents.json"), []byte(`{}`))
+	want := []string{"128.png", "512@2x.png", "32@2x.png", "16.png"}
+	for i, name := range want {
+		want[i] = filepath.Join(set, name)
+	}
+	if got := findNativeIcons(dir); !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if loadProjectLogo(dir) == nil {
+		t.Error("no logo from the AppIcon set")
+	}
+}
+
+// The well-known files come before a mygo app's icon, which comes before
+// the icon a source declares, which comes before a native one.
+func TestLoadProjectLogoOrder(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Resources", "App.icns"), icnsBytes(t, map[string][]byte{"ic07": pngBytes(t, 128, 128)}))
+	writeFile(t, filepath.Join(dir, "site", "index.html"), []byte(`<link rel="icon" href="icon.png">`))
+	writeFile(t, filepath.Join(dir, "site", "icon.png"), pngBytes(t, 20, 20))
+	writeFile(t, filepath.Join(dir, "mygo.json"), []byte(`{}`))
+	writeFile(t, filepath.Join(dir, "resources", "icon.png"), pngBytes(t, 30, 30))
+	writeFile(t, filepath.Join(dir, "logo.png"), pngBytes(t, 40, 40))
+	side := func() int {
+		bm, ok := loadProjectLogo(dir).(*ui.Bitmap)
+		if !ok {
+			t.Fatal("no logo")
+		}
+		w, _ := bm.Size()
+		return w
+	}
+	for _, c := range []struct {
+		remove string
+		want   int
+	}{{"", 40}, {"logo.png", 30}, {"mygo.json", 20}, {"site", logoSide}} {
+		if c.remove != "" {
+			if err := os.RemoveAll(filepath.Join(dir, c.remove)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := side(); got != c.want {
+			t.Errorf("without %q: a logo %d wide, want %d", c.remove, got, c.want)
+		}
+	}
+}
+
+// writeFile writes data at path, making its folders.
+func writeFile(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// icnsBytes encodes an icns of entries, by type, in the order of their
+// types.
+func icnsBytes(t *testing.T, entries map[string][]byte) []byte {
+	t.Helper()
+	var body bytes.Buffer
+	for _, typ := range slices.Sorted(maps.Keys(entries)) {
+		body.WriteString(typ)
+		binary.Write(&body, binary.BigEndian, uint32(8+len(entries[typ])))
+		body.Write(entries[typ])
+	}
+	var b bytes.Buffer
+	b.WriteString("icns")
+	binary.Write(&b, binary.BigEndian, uint32(8+body.Len()))
+	b.Write(body.Bytes())
+	return b.Bytes()
 }
 
 // An icon no candidate names is found through the sources declaring it.

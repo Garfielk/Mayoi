@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -14,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -673,7 +676,7 @@ func projectWords(name string) string {
 
 // logoCandidates are a project's favicon or logo files, in order: the
 // root and public/ first, then app/, src/ and the asset folders. A gif
-// would animate on the rail, and an icns has no decoder here.
+// would animate on the rail.
 var logoCandidates = []string{
 	"favicon.svg", "favicon.ico", "favicon.png", "favicon.webp",
 	"logo.svg", "logo.png", "logo.webp",
@@ -700,6 +703,8 @@ var iconSourceFiles = []string{
 	"index.html",
 	"public/index.html",
 	"src/index.html",
+	"site/index.html",
+	"docs/index.html",
 	"app/layout.tsx",
 	"src/app/layout.tsx",
 	"app/routes/__root.tsx",
@@ -719,7 +724,8 @@ var (
 	iconAppRe  = regexp.MustCompile(`(?:[{,\s])apple\s*:\s*["']([^"'?#]+)["']`)
 )
 
-// extractIconHref is the icon an HTML or TSX source declares, or "".
+// extractIconHref is the icon an HTML or TSX source declares, or "": its
+// path, with the leading slash of one from the site's root.
 func extractIconHref(source string) string {
 	for _, tag := range linkTagRe.FindAllString(source, -1) {
 		rel := relAttrRe.FindStringSubmatch(tag)
@@ -730,7 +736,7 @@ func extractIconHref(source string) string {
 		if href == nil {
 			continue
 		}
-		if clean := cleanIconHref(href[1]); clean != "" {
+		if clean := declaredIconHref(href[1]); clean != "" {
 			return clean
 		}
 	}
@@ -739,12 +745,12 @@ func extractIconHref(source string) string {
 	for _, run := range strings.Split(source, "}") {
 		if rel := iconRelRe.FindStringSubmatch(run); rel != nil && hasIconRel(rel[1]) {
 			if href := iconHrefRe.FindStringSubmatch(run); href != nil {
-				if clean := cleanIconHref(href[1]); clean != "" {
+				if clean := declaredIconHref(href[1]); clean != "" {
 					return clean
 				}
 			}
 			if url := iconURLRe.FindStringSubmatch(run); url != nil {
-				if clean := cleanIconHref(url[1]); clean != "" {
+				if clean := declaredIconHref(url[1]); clean != "" {
 					return clean
 				}
 			}
@@ -752,7 +758,7 @@ func extractIconHref(source string) string {
 		}
 		for _, re := range []*regexp.Regexp{iconStrRe, iconAppRe} {
 			if m := re.FindStringSubmatch(run); m != nil {
-				if clean := cleanIconHref(m[1]); clean != "" {
+				if clean := declaredIconHref(m[1]); clean != "" {
 					return clean
 				}
 			}
@@ -795,14 +801,41 @@ func cleanIconHref(href string) string {
 	return href
 }
 
-// resolveIconHref maps an icon href to the files it may be: public/ first,
-// as a leading slash names the static folder.
-func resolveIconHref(href string) []string {
+// declaredIconHref is cleanIconHref of href, keeping the leading slash of
+// a path from the site's root.
+func declaredIconHref(href string) string {
+	clean := cleanIconHref(href)
+	if clean != "" && strings.HasPrefix(strings.TrimSpace(href), "/") {
+		return "/" + clean
+	}
+	return clean
+}
+
+// resolveIconHref maps an icon href, declared by a source in base, a slash
+// folder of the project or "" for its root, to the files it may be. A
+// relative href is of base first. A leading slash names the static
+// folder, public/, then the root, then base as the root of a site of its
+// own, such as site/.
+func resolveIconHref(href, base string) []string {
 	clean := cleanIconHref(href)
 	if clean == "" {
 		return nil
 	}
-	return []string{"public/" + clean, clean}
+	inBase := clean
+	if base != "" {
+		inBase = base + "/" + clean
+	}
+	paths := []string{inBase, "public/" + clean, clean}
+	if strings.HasPrefix(strings.TrimSpace(href), "/") {
+		paths = []string{"public/" + clean, clean, inBase}
+	}
+	var out []string
+	for _, p := range paths {
+		if !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // inDir is the path of rel, a slash path, in dir: a folder of this
@@ -886,8 +919,9 @@ func findIconFromSource(dir string) string {
 		if href == "" {
 			continue
 		}
+		base := pathDir(iconSourceFiles[slices.Index(paths, path)])
 		var cands []string
-		for _, cand := range resolveIconHref(href) {
+		for _, cand := range resolveIconHref(href, base) {
 			cands = append(cands, inDir(dir, cand))
 		}
 		if files := regularFiles(cands); len(files) > 0 {
@@ -897,16 +931,243 @@ func findIconFromSource(dir string) string {
 	return ""
 }
 
+// pathDir is the folder of rel, a slash path, or "" for the root.
+func pathDir(rel string) string {
+	if d := path.Dir(rel); d != "." {
+		return d
+	}
+	return ""
+}
+
+// mygoConfigFiles are the configurations of a mygo app, which may name
+// its icon.
+var mygoConfigFiles = []string{"mygo.json", "mygo.config.ts"}
+
+// mygoIconDefault is the icon of a mygo app whose configuration names none.
+const mygoIconDefault = "resources/icon.png"
+
+// findMygoIcon is the icon of the mygo app in dir, or "" when it is not
+// one or its icon is missing.
+func findMygoIcon(dir string) string {
+	paths := make([]string, len(mygoConfigFiles))
+	for i, rel := range mygoConfigFiles {
+		paths[i] = inDir(dir, rel)
+	}
+	for _, p := range regularFiles(paths) {
+		data, err := readIconSource(p)
+		if err != nil {
+			continue
+		}
+		icon := mygoConfigIcon(p, data)
+		if icon == "" {
+			icon = mygoIconDefault
+		}
+		if files := regularFiles([]string{inDir(dir, icon)}); len(files) > 0 {
+			return files[0]
+		}
+	}
+	return ""
+}
+
+// mygoConfigIcon is the icon a mygo configuration names, a slash path of
+// the project, or "".
+func mygoConfigIcon(path string, data []byte) string {
+	if strings.HasSuffix(path, ".json") {
+		var cfg struct {
+			Icon string `json:"icon"`
+		}
+		if json.Unmarshal(data, &cfg) != nil {
+			return ""
+		}
+		return cleanIconHref(cfg.Icon)
+	}
+	if m := iconStrRe.FindSubmatch(data); m != nil {
+		return cleanIconHref(string(m[1]))
+	}
+	return ""
+}
+
+// nativeIconDirs may hold a macOS app's .icns: an app's Resources, a Tauri
+// app's icons, an Electron app's build resources, or the root.
+var nativeIconDirs = []string{
+	"Resources", "app/Resources", "macos/Resources", "src-tauri/icons", "build", "",
+}
+
+// skipIconDirs are top-level folders not looked in for an asset catalog:
+// dependencies and builds.
+var skipIconDirs = map[string]bool{
+	"node_modules": true, "vendor": true, "build": true, "dist": true, "out": true,
+	"target": true, "Pods": true, "DerivedData": true,
+}
+
+// maxIconDirs is how many top-level folders are looked in for an asset
+// catalog.
+const maxIconDirs = 32
+
+// findNativeIcons are a macOS app's icon files in dir, in order of
+// preference: the .icns of its resources, then the pictures of the app
+// icon sets of the asset catalogs in the root or a top-level folder,
+// nearest the rail's size first. A folder of a host costs a round trip
+// for each step: the folders, the top-level ones, the catalogs, and each
+// icon set.
+func findNativeIcons(dir string) []string {
+	dirs := make([]string, len(nativeIconDirs))
+	for i, rel := range nativeIconDirs {
+		dirs[i] = dir
+		if rel != "" {
+			dirs[i] = inDir(dir, rel)
+		}
+	}
+	lists, _, err := vfs.ReadDirs(dirs)
+	if err != nil {
+		return nil
+	}
+	var icons []string
+	for _, d := range dirs {
+		for _, e := range sortedEntries(lists[d]) {
+			if !e.Dir && strings.EqualFold(path.Ext(e.Name), ".icns") {
+				icons = append(icons, inDir(d, e.Name))
+			}
+		}
+	}
+	var catalogs, subs []string
+	for _, e := range sortedEntries(lists[dir]) {
+		switch {
+		case !e.Dir:
+		case strings.HasSuffix(e.Name, ".xcassets"):
+			catalogs = append(catalogs, inDir(dir, e.Name))
+		case !strings.HasPrefix(e.Name, ".") && !skipIconDirs[e.Name] && len(subs) < maxIconDirs:
+			subs = append(subs, inDir(dir, e.Name))
+		}
+	}
+	if len(subs) > 0 {
+		sublists, _, err := vfs.ReadDirs(subs)
+		if err != nil {
+			return icons
+		}
+		for _, d := range subs {
+			for _, e := range sortedEntries(sublists[d]) {
+				if e.Dir && strings.HasSuffix(e.Name, ".xcassets") {
+					catalogs = append(catalogs, inDir(d, e.Name))
+				}
+			}
+		}
+	}
+	if len(catalogs) == 0 {
+		return icons
+	}
+	catlists, _, err := vfs.ReadDirs(catalogs)
+	if err != nil {
+		return icons
+	}
+	for _, c := range catalogs {
+		var sets []string
+		for _, e := range sortedEntries(catlists[c]) {
+			if e.Dir && strings.HasSuffix(e.Name, ".appiconset") {
+				sets = append(sets, e.Name)
+			}
+		}
+		// AppIcon is the app's, before another set such as one of a beta.
+		if i := slices.Index(sets, "AppIcon.appiconset"); i > 0 {
+			sets = slices.Insert(slices.Delete(sets, i, i+1), 0, "AppIcon.appiconset")
+		}
+		for _, set := range sets {
+			setDir := inDir(c, set)
+			data, err := readIconSource(inDir(setDir, "Contents.json"))
+			if err != nil {
+				continue
+			}
+			for _, name := range appIconFiles(data) {
+				icons = append(icons, inDir(setDir, name))
+			}
+		}
+	}
+	return regularFiles(icons)
+}
+
+// sortedEntries are es by name: a host need not list a folder in order.
+func sortedEntries(es []vfs.Entry) []vfs.Entry {
+	es = slices.Clone(es)
+	slices.SortFunc(es, func(a, b vfs.Entry) int { return cmp.Compare(a.Name, b.Name) })
+	return es
+}
+
+// appIconFiles are the png pictures an app icon set's Contents.json lists,
+// nearest the rail's size first.
+func appIconFiles(contents []byte) []string {
+	var set struct {
+		Images []struct {
+			Filename string `json:"filename"`
+			Size     string `json:"size"`
+			Scale    string `json:"scale"`
+		} `json:"images"`
+	}
+	if json.Unmarshal(contents, &set) != nil {
+		return nil
+	}
+	type pic struct {
+		name string
+		side int
+	}
+	var pics []pic
+	for _, im := range set.Images {
+		// A picture is beside Contents.json, never in a folder of it.
+		if !strings.EqualFold(path.Ext(im.Filename), ".png") || strings.ContainsAny(im.Filename, `/\`) ||
+			slices.ContainsFunc(pics, func(p pic) bool { return p.name == im.Filename }) {
+			continue
+		}
+		w, _, _ := strings.Cut(im.Size, "x")
+		side, _ := strconv.ParseFloat(w, 64)
+		scale := 1.0
+		if s, err := strconv.ParseFloat(strings.TrimSuffix(im.Scale, "x"), 64); err == nil && s > 0 {
+			scale = s
+		}
+		pics = append(pics, pic{im.Filename, int(side * scale)})
+	}
+	slices.SortStableFunc(pics, func(a, b pic) int { return nearestSide(a.side, b.side) })
+	names := make([]string, len(pics))
+	for i, p := range pics {
+		names[i] = p.name
+	}
+	return names
+}
+
+// nearestSide orders sides nearest the rail's first: the smallest no
+// smaller than logoSide, the larger ones after it, then the smaller ones,
+// largest first.
+func nearestSide(a, b int) int {
+	if big := a >= logoSide; big != (b >= logoSide) {
+		if big {
+			return -1
+		}
+		return 1
+	}
+	if a >= logoSide {
+		return cmp.Compare(a, b)
+	}
+	return cmp.Compare(b, a)
+}
+
 // loadProjectLogo decodes the project's favicon or logo, or nil when it
-// has none or what it has does not decode.
+// has none or what it has does not decode: its well-known files, a mygo
+// app's icon, the icon its sources declare, then a macOS app's icon.
 func loadProjectLogo(dir string) ui.ImageSource {
 	for _, path := range logoFiles(dir) {
 		if src := decodeProjectLogo(path); src != nil {
 			return src
 		}
 	}
-	if path := findIconFromSource(dir); path != "" {
-		return decodeProjectLogo(path)
+	for _, find := range []func(string) string{findMygoIcon, findIconFromSource} {
+		if path := find(dir); path != "" {
+			if src := decodeProjectLogo(path); src != nil {
+				return src
+			}
+		}
+	}
+	for _, path := range findNativeIcons(dir) {
+		if src := decodeProjectLogo(path); src != nil {
+			return src
+		}
 	}
 	return nil
 }
@@ -933,6 +1194,16 @@ func decodeProjectLogo(path string) ui.ImageSource {
 			return nil
 		}
 		img, err := decodeICO(data)
+		if err != nil {
+			return nil
+		}
+		return logoBitmap(img)
+	case ".icns":
+		data, err := readImage(path)
+		if err != nil {
+			return nil
+		}
+		img, err := decodeICNS(data)
 		if err != nil {
 			return nil
 		}
@@ -1027,6 +1298,47 @@ func decodeICO(data []byte) (image.Image, error) {
 			continue
 		}
 		if img, err := decodeDIB(entry); err == nil {
+			return img, nil
+		}
+	}
+	return nil, errors.New("the icon has no picture")
+}
+
+// decodeICNS decodes a macOS app's .icns: its PNG entries nearest the
+// rail's size first, taking the first that decodes. The older entries,
+// run-length coded or JPEG 2000, are skipped: an icns of today has PNG
+// ones too.
+func decodeICNS(data []byte) (image.Image, error) {
+	if len(data) < 8 || string(data[:4]) != "icns" {
+		return nil, errors.New("not an icns file")
+	}
+	type entry struct {
+		data []byte
+		side int
+	}
+	var entries []entry
+	for at := 8; at+8 <= len(data); {
+		n := int(binary.BigEndian.Uint32(data[at+4:]))
+		if n < 8 || n > len(data)-at {
+			break
+		}
+		body := data[at+8 : at+n]
+		at += n
+		if !isPNG(body) {
+			continue
+		}
+		// The entry's own dimensions: a lying header must not allocate
+		// without bound.
+		cfg, err := png.DecodeConfig(bytes.NewReader(body))
+		if err != nil || cfg.Width <= 0 || cfg.Height <= 0 ||
+			int64(cfg.Width) > maxIconPixels/int64(cfg.Height) {
+			continue
+		}
+		entries = append(entries, entry{body, max(cfg.Width, cfg.Height)})
+	}
+	slices.SortStableFunc(entries, func(a, b entry) int { return nearestSide(a.side, b.side) })
+	for _, e := range entries {
+		if img, err := png.Decode(bytes.NewReader(e.data)); err == nil {
 			return img, nil
 		}
 	}

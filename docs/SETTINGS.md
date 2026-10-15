@@ -82,7 +82,8 @@ differ in width lines them up only roughly.
 - **`terminalCopyOnSelect`** copies what you select in a terminal to the clipboard as you let go of the pointer,
   and what Select All selects. Changing it applies to the terminals already open.
 - **`projectIcons`** shows each project's favicon or logo on the rail, from its well-known icon files, `favicon.ico`
-  included, or the icon its sources declare, rather than its initials. A project without one keeps its initials.
+  included, a mygo app's icon, the icon its sources declare, or a macOS app's `.icns` or Xcode AppIcon, rather than
+  its initials. A project without one keeps its initials.
 - **`autoSave`** saves a changed file a moment after you stop typing, and when you leave it.
 - **`wordWrap`** wraps long lines at the edge of the editor. **⌥Z** wraps or unwraps one tab only, until this
   setting changes.

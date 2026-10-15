@@ -354,6 +354,18 @@ func TestRemoteProjectLogo(t *testing.T) {
 	if loadProjectLogo(remoteDeclared) == nil {
 		t.Error("no logo from the icon a host's source declares")
 	}
+	// A mygo app's icon, and a macOS app's .icns, are found on a host too.
+	mygoApp := t.TempDir()
+	writeFile(t, filepath.Join(mygoApp, "mygo.json"), []byte(`{"name": "App"}`))
+	writeFile(t, filepath.Join(mygoApp, "resources", "icon.png"), pngBytes(t, 16, 16))
+	if loadProjectLogo(remote.Path("fake.invalid", mygoApp)) == nil {
+		t.Error("no logo from a mygo app's icon on a host")
+	}
+	native := t.TempDir()
+	writeFile(t, filepath.Join(native, "app", "Resources", "App.icns"), icnsBytes(t, map[string][]byte{"ic07": pngBytes(t, 128, 128)}))
+	if loadProjectLogo(remote.Path("fake.invalid", native)) == nil {
+		t.Error("no logo from a macOS app's .icns on a host")
+	}
 	// A host not connected has none, and is not scanned.
 	off := remote.Path("offline.invalid", "/srv/app")
 	if loadProjectLogo(off) != nil {
