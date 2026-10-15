@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -232,5 +233,267 @@ func TestDiffEditTypesIntoTheDocument(t *testing.T) {
 	hs.settle()
 	if !strings.Contains(e.doc.buf.String(), "Zline two") {
 		t.Fatalf("typed through the pane: %q", e.doc.buf.String())
+	}
+}
+
+// diffEditOf begins editing a diff's file at line and returns its edit.
+func diffEditOf(t *testing.T, hs *harness, v *diffView, path string, line int) *diffEdit {
+	t.Helper()
+	row := diffEditRow(v, path, line)
+	if row < 0 {
+		t.Fatalf("no row of line %d of %s", line, path)
+	}
+	if !a_of(hs).beginDiffEdit(v, row) {
+		t.Fatalf("the writable side of %s did not begin to edit", path)
+	}
+	return v.editing
+}
+
+func a_of(hs *harness) *app { return hs.a }
+
+// TestDiffEditMovesTheCaret: the arrow keys move the caret over the rows
+// the diff shows, keeping the column, and extend the selection with shift.
+func TestDiffEditMovesTheCaret(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	_, changed := twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	path := hs.path("t.txt")
+	e := diffEditOf(t, hs, v, path, 2)
+	snap := e.doc.buf.Snapshot()
+	lineAt := func() int { return snap.LineAt(min(e.ed.sel[1], snap.Len())) }
+	// Right goes a rune along, and left comes back.
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyRight})
+	if n := e.ed.sel[1] - 14; n != 1 {
+		t.Fatalf("right: %d", n)
+	}
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyLeft})
+	if e.ed.sel[1] != 14 {
+		t.Fatalf("left: %d", e.ed.sel[1])
+	}
+	// Down goes to the row below, keeping the column.
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyDown})
+	if lineAt() != 3 || e.ed.sel[1] != 14+9 {
+		t.Fatalf("down: line %d, sel %v", lineAt(), e.ed.sel)
+	}
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyUp})
+	if lineAt() != 2 {
+		t.Fatalf("up: line %d", lineAt())
+	}
+	// With shift, the selection grows, and copy takes its text.
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyDown, Mods: ui.Shift})
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyRight, Mods: ui.Shift})
+	if text := e.diffEditedText(); text != "line two\nl" { // line 2 and a rune of line 3
+		t.Fatalf("selected %q", text)
+	}
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputCommand, Text: "copy"})
+	if got := a.services.ReadClipboard(); got != "line two\nl" {
+		t.Fatalf("copied %q", got)
+	}
+	// Paste puts what was copied in at the caret, which the left key
+	// brings to the start of the selection.
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyLeft})
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputCommand, Text: "paste"})
+	if text := e.diffEditedText(); text != "" || !strings.Contains(e.doc.buf.Snapshot().String(), "line two\nlline two\nline 3") {
+		t.Fatalf("pasted: %q", e.diffEditedText())
+	}
+	// Cut takes the selection away and holds it.
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyRight, Mods: ui.Shift})
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputCommand, Text: "cut"})
+	if text := e.diffEditedText(); text != "" || !strings.Contains(e.doc.buf.Snapshot().String(), "ine 3") {
+		t.Fatalf("cut: %q", e.diffEditedText())
+	}
+	if got := a.services.ReadClipboard(); got != "l" {
+		t.Fatalf("cut holds %q", got)
+	}
+	// Select all takes the document.
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputCommand, Text: "selectAll"})
+	if text := e.diffEditedText(); text != e.doc.buf.Snapshot().String() {
+		t.Fatal("select all missed the document")
+	}
+	// Backspace takes the selection away.
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyBackspace})
+	if e.doc.buf.Snapshot().String() != "" {
+		t.Fatalf("backspace: %q", e.doc.buf.Snapshot().String())
+	}
+	// And undo, from the diff, takes the editing back.
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputCommand, Text: "undo"})
+	if e.doc.buf.Snapshot().String() != changed {
+		t.Fatalf("undo: %q", e.doc.buf.Snapshot().Slice(0, 40))
+	}
+	// Escape goes back to the pager.
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyEscape})
+	if v.editing != nil {
+		t.Fatal("still editing after escape")
+	}
+	// The pager's keys are the pager's again.
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyJ}) {
+		t.Error("the pager did not take j")
+	}
+}
+
+// TestDiffEditTakesKeysFromThePager: while the side is edited the pager's
+// keys type, and paging stays with the page keys.
+func TestDiffEditTakesKeysFromThePager(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	_, _ = twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	path := hs.path("t.txt")
+	e := diffEditOf(t, hs, v, path, 2)
+	// A pager key types while the side is edited.
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputText, Text: "j"}) {
+		t.Fatal("the edit did not take j")
+	}
+	if !strings.Contains(e.doc.buf.Snapshot().String(), "jline two") {
+		t.Fatalf("typed: %q", e.doc.buf.Snapshot().Slice(0, 30))
+	}
+	// The caret did not move by a row.
+	if line := snapLineOf(e); line != 2 {
+		t.Fatalf("j moved to line %d", line)
+	}
+	// The page keys page on.
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyPageDown}) {
+		t.Fatal("the pager did not page")
+	}
+}
+
+func snapLineOf(e *diffEdit) int {
+	snap := e.doc.buf.Snapshot()
+	return snap.LineAt(min(e.ed.sel[1], snap.Len()))
+}
+
+// TestDiffEditSavesTheFile: saving from the diff writes the document as it
+// is, and the document shows as saved, as the editor's does.
+func TestDiffEditSavesTheFile(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	_, changed := twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	e := diffEditOf(t, hs, v, hs.path("t.txt"), 2)
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputText, Text: "X"})
+	// Saving, by the key the editor saves with.
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyS, Mods: ui.Cmd}) {
+		t.Fatal("the edit did not save")
+	}
+	want := strings.Replace(changed, "line two\n", "Xline two\n", 1)
+	if data, _ := os.ReadFile(hs.path("t.txt")); string(data) != want {
+		t.Fatalf("on disk:\n%s", data)
+	}
+	if e.doc.dirty() {
+		t.Error("the document shows as changed after saving")
+	}
+}
+
+// TestDiffEditKeepsItsPlaceAsTheDiffCatchesUp: while the diff reads what
+// the typing made again, the scroll holds, and the caret stays on its line
+// when the rows come back; and the changes of a stale diff are not applied.
+func TestDiffEditKeepsItsPlaceAsTheDiffCatchesUp(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	// A file tall enough to scroll: a change in every tenth line keeps
+	// the unchanged lines from folding away.
+	var b strings.Builder
+	for i := range 60 {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	orig := b.String()
+	os.WriteFile(hs.path("t.txt"), []byte(orig), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "tall")
+	changed := orig
+	for i := 10; i < 60; i += 10 {
+		changed = strings.Replace(changed, fmt.Sprintf("line %d\n", i), fmt.Sprintf("line ten %d\n", i), 1)
+	}
+	os.WriteFile(hs.path("t.txt"), []byte(changed), 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	e := diffEditOf(t, hs, v, hs.path("t.txt"), 10)
+	// The caret's row, and the scroll, before the typing.
+	row := v.caretRow(e)
+	if row < 0 {
+		t.Fatal("the caret has no row")
+	}
+	line := snapLineOf(e)
+	// Scroll away, and type a rune: no line was added or taken.
+	v.scroll.Y = 100
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputText, Text: "X"})
+	// The diff is behind: its changes are not applied over the typing.
+	f, hks := v.hunksAt(v.starts[0])
+	a.applyHunks(f, hks, hunkDiscard)
+	if len(a.errors) == 0 {
+		t.Error("no word of the diff catching up")
+	}
+	a.errors = nil
+	// Caught up, the scroll is where it was, and the caret on its line.
+	hs.settleDiff(v)
+	if v.scroll.Y != 100 {
+		t.Errorf("the scroll moved to %v", v.scroll.Y)
+	}
+	if snapLineOf(e) != line {
+		t.Errorf("the caret moved to line %d", snapLineOf(e))
+	}
+	if row := v.caretRow(e); row < 0 {
+		t.Error("the caret has no row after the diff caught up")
+	}
+	if got := v.editing.f.new.text; got != e.doc.buf.Snapshot().String() {
+		t.Fatal("the diff did not catch up with the document")
+	}
+}
+
+// TestDiffEditKeepsWorkingAcrossLayouts: side by side or in one column,
+// the edit keeps its file and its caret's line, and undo keeps working.
+func TestDiffEditKeepsWorkingAcrossLayouts(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	_, _ = twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	e := diffEditOf(t, hs, v, hs.path("t.txt"), 2)
+	line := snapLineOf(e)
+	// Side by side, the caret keeps its line, and typing goes in.
+	a.setDiffLayout(v, layoutSplit)
+	if got := snapLineOf(e); got != line {
+		t.Fatalf("side by side: the caret is on line %d", got)
+	}
+	if row := v.caretRow(e); row < 0 {
+		t.Fatal("side by side: the caret has no row")
+	}
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputText, Text: "S"})
+	if !strings.Contains(e.doc.buf.Snapshot().String(), "Sline two") {
+		t.Fatalf("side by side: typed %q", e.doc.buf.Snapshot().Slice(0, 30))
+	}
+	// Back in one column, undo takes it back, and typing goes in again,
+	// from the start of the line it began on.
+	a.setDiffLayout(v, layoutInline)
+	if !e.ed.undo() || strings.Contains(e.doc.buf.Snapshot().String(), "Sline two") {
+		t.Fatal("undo did not take the typing back")
+	}
+	a.beginDiffEdit(v, diffEditRow(v, hs.path("t.txt"), 2))
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputText, Text: "T"})
+	if !strings.Contains(e.doc.buf.Snapshot().String(), "Tline two") {
+		t.Fatalf("inline: typed %q", e.doc.buf.Snapshot().Slice(0, 30))
+	}
+	if v.editing.f != e.f {
+		t.Fatal("the edit changed files across the layouts")
 	}
 }
