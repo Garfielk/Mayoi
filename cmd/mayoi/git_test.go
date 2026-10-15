@@ -1423,3 +1423,67 @@ func TestDiffHighlightSpans(t *testing.T) {
 		t.Errorf("past the lines %v", got)
 	}
 }
+
+// The unchanged lines a diff shows around a change are as the settings
+// keep: none, a few, or every one the file has.
+func TestDiffContext(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	long := hs.path("long.go")
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc long() {\n")
+	for i := range 100 {
+		fmt.Fprintf(&b, "\tprintln(%d)\n", i)
+	}
+	b.WriteString("}\n")
+	os.WriteFile(long, []byte(b.String()), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "long")
+	data, _ := os.ReadFile(long)
+	os.WriteFile(long, []byte(strings.Replace(string(data), "println(50)", "println(\"fifty\")", 1)), 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: long, any: true}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	if got := kinds(v); got != "SFGHLLLLLLLLG" {
+		t.Fatalf("rows %s", got)
+	}
+	// One unchanged line on each side of the change.
+	a.setDiffContext(1)
+	hs.settle()
+	if got := kinds(v); got != "SFGHLLLLG" {
+		t.Errorf("one line: %s", got)
+	}
+	// None: the change and its header, between the gaps.
+	a.setDiffContext(0)
+	hs.settle()
+	if got := kinds(v); got != "SFGHLLG" {
+		t.Errorf("no lines: %s", got)
+	}
+	if g := v.rows[2]; g.kind != rowGap || g.n != 53 {
+		t.Errorf("the gap above folds %d", g.n)
+	}
+	// Five around it.
+	a.setDiffContext(5)
+	hs.settle()
+	if got := kinds(v); got != "SFGH"+strings.Repeat("L", 12)+"G" {
+		t.Errorf("five lines: %s", got)
+	}
+	// More than the file has: every line, header and all.
+	a.setDiffContext(100)
+	hs.settle()
+	if got := kinds(v); got != "SFH"+strings.Repeat("L", 105) {
+		t.Errorf("all of them: %s", got)
+	}
+	// Back as it was.
+	a.setDiffContext(3)
+	hs.settle()
+	if got := kinds(v); got != "SFGHLLLLLLLLG" {
+		t.Errorf("three again: %s", got)
+	}
+	// The settings keep it for the next diffs.
+	if a.settings.DiffContext != 3 {
+		t.Errorf("settings keep %d", a.settings.DiffContext)
+	}
+}

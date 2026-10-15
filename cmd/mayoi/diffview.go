@@ -259,11 +259,12 @@ func (t *diffTarget) matches(f *diffFile) bool {
 
 // diffBuild is what the rows of a diff were laid out for.
 type diffBuild struct {
-	gen               int
-	split, wrap, full bool
-	cols              [2]int
-	card              int // how many lines tall the card of a commit is
-	font              codeFont
+	gen                  int
+	split, wrap, full    bool
+	context              int
+	cols                 [2]int
+	card                 int // how many lines tall the card of a commit is
+	font                 codeFont
 }
 
 // jumpPlace is where a row jumped to shows.
@@ -808,7 +809,7 @@ func (a *app) splits(v *diffView, viewW float32) bool {
 // how, changed, keeping the row at the top of the view where it was, or
 // scrolling to the file to reveal once it is listed.
 func (a *app) layoutRows(v *diffView, l diffGeometry) {
-	b := diffBuild{gen: v.gen, split: v.split, wrap: a.wrapsDiff(v), full: v.full, font: a.font}
+	b := diffBuild{gen: v.gen, split: v.split, wrap: a.wrapsDiff(v), full: v.full, context: a.diffContextOf(), font: a.font}
 	if v.commit != nil {
 		b.card = v.commit.lines
 	}
@@ -911,7 +912,7 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 		if v.split {
 			all = f.pairs
 		}
-		v.rows = foldRows(v.rows, f, i, all, v.full)
+		v.rows = foldRows(v.rows, f, i, all, v.full, b.context)
 	}
 	for i := range v.rows {
 		r := &v.rows[i]
@@ -1471,6 +1472,19 @@ func (a *app) setDiffLayout(v *diffView, l diffLayout) {
 // setDiffFull shows every unchanged line of a diff, or folds them again.
 func (a *app) setDiffFull(v *diffView, full bool) {
 	a.keepTopRow(v, func() { v.full = full })
+}
+
+// setDiffContext shows n unchanged lines of a diff around each change,
+// as the next diffs opened will. The diffs lay their rows out again with
+// the line at the top of the view where it was.
+func (a *app) setDiffContext(n int) {
+	n = min(max(n, 0), settings.MaxDiffContext)
+	if a.settings.DiffContext == n {
+		return
+	}
+	a.settings.DiffContext = n
+	a.settings.Changed()
+	a.invalidate()
 }
 
 // toggleDiffWrap wraps the lines of a diff, or stops, until the settings'
