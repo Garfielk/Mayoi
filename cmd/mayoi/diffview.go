@@ -264,6 +264,11 @@ type diffView struct {
 	// stopped, at an end of a file or of the diff, until one more step
 	// that way crosses into another file, nil for none.
 	boundary *diffBoundary
+	// edits are the editors the diff made to edit the working tree sides
+	// of its files, and editing the one whose side the caret is in, nil
+	// while the diff reads as a pager.
+	edits   []*diffEdit
+	editing *diffEdit
 }
 
 // diffBoundary is where the navigation of a diff stopped: the step that
@@ -350,11 +355,15 @@ func (v *diffView) same(o *diffView) bool {
 	return v.commit.hash == o.commit.hash
 }
 
-// stop lets go of the highlighters.
+// stop lets go of the highlighters and the editors of the sides edited.
 func (v *diffView) stop() {
 	for _, f := range v.files {
 		f.stop()
 	}
+	for _, e := range v.edits {
+		e.ed.release()
+	}
+	v.edits, v.editing = nil, nil
 }
 
 // stop lets go of a file's highlighters.
@@ -1425,8 +1434,20 @@ func (a *app) toggleGap(v *diffView, i int) {
 }
 
 // diffInput takes the keys of a diff that has the keyboard: those of a
-// pager, as Hunk has them.
+// pager, as Hunk has them, and, while its writable side is edited, the
+// typing and the keys of an editor.
 func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
+	if v.editing != nil {
+		if a.diffEditInput(v, ev) {
+			return true
+		}
+		// A key that types, or moves the caret, is not the pager's: the
+		// pager pages on, and the shortcuts of the file take their keys.
+		if ev.Kind == ui.InputKeyDown && ev.Mods&^(ui.Shift|ui.Cmd) == 0 &&
+			ev.Key != ui.KeyPageDown && ev.Key != ui.KeyPageUp {
+			return true
+		}
+	}
 	if ev.Kind != ui.InputKeyDown || ev.Mods&^ui.Shift != 0 {
 		return false
 	}
@@ -1477,6 +1498,9 @@ func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
 		a.openDiffFile(v)
 	case ui.KeyS:
 		a.stageAtCursor(v)
+	case ui.KeyI:
+		// The working tree side of the chosen row takes the keys.
+		a.beginDiffEdit(v, v.focusRow())
 	default:
 		return false
 	}

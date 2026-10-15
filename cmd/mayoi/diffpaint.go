@@ -69,9 +69,12 @@ func (a *app) rowUnder(v *diffView, x, y float32, l diffGeometry) int {
 
 // diffViewUI shows a diff: its rows painted in a pane that scrolls both
 // ways, keeping the line numbers in place, or down only as its lines wrap.
+// While its writable side is edited, the edits run first, as a frame is
+// built.
 func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 	p, f := a.pal, a.font
 	a.refreshDiff(v)
+	a.runDiffEdits(v, v.pane.FocusWithin(c))
 	message := func(msg string) {
 		ui.Column(c).Fill().Background(p.editor).Center().Children(func() {
 			ui.Text(c, msg).FontSize(13).TextColor(p.muted)
