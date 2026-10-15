@@ -217,13 +217,12 @@ func (a *app) mergeFileRow(c *ui.Context, f mergeFile, i int) {
 	cl := &a.conflicts
 	p := a.pal
 	name, dir := filepath.Base(f.path), filepath.Dir(f.path)
-	row := ui.ButtonBase(c.Key("conflict:" + f.path)).Padding(5, 10).Gap(10).Radius(6).Justify(ui.Start).AlignItems(ui.Center).
-		Label(name).Tooltip(func() string {
-			if f.resolved {
-				return "The file stands resolved: open it as it is, or take its resolution back"
-			}
-			return "Open the merge of the file"
-		}())
+	label, tip := "Open the merge of "+name, "Open the merge of the file"
+	if f.resolved {
+		label, tip = "Show "+name, "The file stands resolved: open it as it is, or take its resolution back"
+	}
+	row := ui.ButtonBase(c.Key("conflict:"+f.path)).Padding(5, 10).Gap(10).Radius(6).Justify(ui.Start).AlignItems(ui.Center).
+		Label(label).Tooltip(tip)
 	switch {
 	case i == cl.sel:
 		row.Background(p.active)

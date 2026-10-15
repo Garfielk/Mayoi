@@ -598,6 +598,7 @@ func (a *app) runOp(op git.Op, busy, done string, fn func(r *git.Repo) error) {
 			g.message, g.amend = msg, false
 		}
 		a.showSourceControl()
+		a.openConflicts()
 		a.tell(note{message: op.Title() + " stopped for conflicts: resolve and stage them, then continue",
 			label: "Abort", action: func() { a.abortOpOf(op) }})
 	})

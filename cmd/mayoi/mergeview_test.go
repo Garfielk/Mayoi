@@ -884,3 +884,50 @@ func TestMergeReopenResolved(t *testing.T) {
 		t.Errorf("%d unresolved, want 1", v2.unresolved())
 	}
 }
+
+func TestMergeViewFilesBar(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	a := hs.a
+	v := hs.mergeOfRel("one.txt")
+	// The head of the merge says how many of the files stand resolved,
+	// and has the actions of the file and the list of them.
+	for _, text := range []string{"0 of 3 files resolved", "Apply Changes", "Save and Close", "Conflicts…"} {
+		if !hs.tt.HasText(text) {
+			t.Errorf("no %q: %q", text, hs.tt.Texts())
+		}
+	}
+	// The files in conflict show, and a row of them opens its file's
+	// merge.
+	if err := hs.tt.Click("Conflicts…"); err != nil {
+		t.Fatal(err)
+	}
+	hs.settle()
+	if !a.conflicts.open {
+		t.Error("the list does not show")
+	}
+	if err := hs.tt.Click("Open the merge of two.txt"); err != nil {
+		t.Fatal(err)
+	}
+	hs.settle()
+	if v2 := a.activeTab().merge; v2 == nil || v2.path != hs.path("two.txt") {
+		t.Fatalf("the merge of the file chosen is not open: %+v", a.activeTab())
+	}
+	if a.conflicts.open {
+		t.Error("the list is open still")
+	}
+	// Apply Changes saves the result, stages the file and opens the next
+	// file in conflict, round the end of the list back up.
+	a.takeMergeSide(a.activeTab().merge, 0, false)
+	if err := hs.tt.Click("Apply Changes"); err != nil {
+		t.Fatal(err)
+	}
+	hs.settleGit()
+	if e := a.git.entries[hs.path("two.txt")]; e.Conflicted() {
+		t.Errorf("two.txt does not stand resolved: %+v", e)
+	}
+	if v3 := a.activeTab().merge; v3 == nil || v3.path != hs.path("four.txt") {
+		t.Errorf("the next file in conflict is not open: %+v", a.activeTab())
+	}
+	_ = v
+}

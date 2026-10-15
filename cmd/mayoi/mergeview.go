@@ -818,6 +818,18 @@ func (a *app) applyNonConflicts(v *mergeView, side applySide) {
 	v.syncRegions()
 }
 
+// setMergeAutoApply has a result that starts from the base take the
+// changes that no conflict holds as it opens, or not, as the settings
+// keep it.
+func (a *app) setMergeAutoApply(on bool) {
+	if a.settings.MergeAutoApply == on {
+		return
+	}
+	a.settings.MergeAutoApply = on
+	a.settings.Changed()
+	a.invalidate()
+}
+
 // resetMerge puts the base's text in the result, which takes back what
 // every region took, as one step of undo.
 func (a *app) resetMerge(v *mergeView) {
