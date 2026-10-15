@@ -18,6 +18,7 @@ import (
 	"mayoi/internal/highlight"
 	"mayoi/internal/linediff"
 	"mayoi/internal/remote"
+	"mayoi/internal/settings"
 )
 
 // diffBase is what a diff compares: which version of a file with which.
@@ -88,6 +89,41 @@ func parseDiffCross(s string) diffCross {
 	return crossAsk
 }
 
+// diffHighlight is how a diff shows what changed within a line: the
+// words that changed, the characters within them, or nothing more than
+// the lines changed. What it shows is only so: the changes a diff acts
+// on are its hunks of lines, whatever it highlights.
+type diffHighlight uint8
+
+const (
+	highlightWord diffHighlight = iota
+	highlightLine
+	highlightChar
+)
+
+// key is how the settings name the highlight.
+func (h diffHighlight) key() string { return [...]string{"", "line", "char"}[h] }
+
+func parseDiffHighlight(s string) diffHighlight {
+	switch s {
+	case "line":
+		return highlightLine
+	case "char":
+		return highlightChar
+	}
+	return highlightWord
+}
+
+// diffHighlightOf is how the diffs show what changed within a line, as
+// the settings say.
+func (a *app) diffHighlightOf() diffHighlight { return parseDiffHighlight(a.settings.DiffHighlight) }
+
+// diffContextOf is how many unchanged lines the diffs show around a
+// change, as the settings say.
+func (a *app) diffContextOf() int {
+	return min(max(a.settings.DiffContext, 0), settings.MaxDiffContext)
+}
+
 // diffSide is a version of the file a diff shows.
 type diffSide struct {
 	text  string
@@ -125,7 +161,9 @@ type diffFile struct {
 	running, waiting    bool
 	started             time.Time
 
-	words map[[2]int][2][]linediff.Span
+	// spans are the runs of a pair of lines that changed, as the diff
+	// showed them last, by the words or by the characters.
+	spans map[diffSpanKey][2][]linediff.Span
 	// open are the gaps of unchanged lines opened, by their keys, and
 	// folded is set for a file whose lines are hidden under its header.
 	open   map[int]bool
@@ -199,9 +237,15 @@ type diffView struct {
 	// told is at the top.
 	reveal *diffTarget
 	synced *diffFile
+	// place is where the view was when a file of the diff folded under
+	// it, to go back to when the file unfolds.
+	place *diffAnchor
 
 	scroll ui.ScrollState
 	pane   ui.Handle
+	// sideY is how far the right side of a split diff whose sides do not
+	// scroll together is scrolled, in its own.
+	sideY float32
 	// current is the hunk gone to last, of starts, and cursor the row
 	// chosen, -1 for none. jump is a row to scroll to in the next frame,
 	// -1 for none, as jumpTo says.
@@ -260,6 +304,7 @@ func (t *diffTarget) matches(f *diffFile) bool {
 type diffBuild struct {
 	gen               int
 	split, wrap, full bool
+	context           int
 	cols              [2]int
 	card              int // how many lines tall the card of a commit is
 	font              codeFont
@@ -739,7 +784,7 @@ func (a *app) refreshDiffFile(v *diffView, f *diffFile) bool {
 			first := !f.loaded
 			f.loaded, f.binary, f.hunks, f.widest = true, binary, hunks, widest
 			f.unified, f.pairs = unified, pairs
-			f.words = nil
+			f.spans = nil
 			setDiffSide(&f.old, old, oldLines)
 			setDiffSide(&f.new, new, newLines)
 			if add, del := f.counts(); first && add+del > foldedLines {
@@ -811,7 +856,7 @@ func (a *app) splits(v *diffView, viewW float32) bool {
 // how, changed, keeping the row at the top of the view where it was, or
 // scrolling to the file to reveal once it is listed.
 func (a *app) layoutRows(v *diffView, l diffGeometry) {
-	b := diffBuild{gen: v.gen, split: v.split, wrap: a.wrapsDiff(v), full: v.full, font: a.font}
+	b := diffBuild{gen: v.gen, split: v.split, wrap: a.wrapsDiff(v), full: v.full, context: a.diffContextOf(), font: a.font}
 	if v.commit != nil {
 		b.card = v.commit.lines
 	}
@@ -853,6 +898,7 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 				a.fail("%s has no changes.", filepath.Base(t.path))
 			} else {
 				target.folded = false
+				v.place = nil
 			}
 		}
 	}
@@ -914,7 +960,7 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 		if v.split {
 			all = f.pairs
 		}
-		v.rows = foldRows(v.rows, f, i, all, v.full)
+		v.rows = foldRows(v.rows, f, i, all, v.full, b.context)
 	}
 	for i := range v.rows {
 		r := &v.rows[i]
@@ -957,6 +1003,16 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 				if a == chosen {
 					break
 				}
+			}
+		}
+	}
+	// A file that folded under the view unfolds where the view was.
+	if p := v.place; p != nil {
+		for i := range v.rows {
+			if v.anchorOf(i) == *p {
+				v.place = nil
+				v.jumpRow(i, jumpTop)
+				break
 			}
 		}
 	}
@@ -1323,6 +1379,14 @@ func (a *app) activateRow(v *diffView, i int, open bool) {
 	case rowGap:
 		a.toggleGap(v, i)
 	case rowFile:
+		if !f.folded {
+			// The lines fold away under the view: it comes back to them
+			// when the file unfolds.
+			if at := v.focusRowAt(v.topRow(a.font.lineH)); at >= 0 && v.tops != nil && v.rows[at].file == r.file {
+				p := v.anchorOf(at)
+				v.place = &p
+			}
+		}
 		f.folded = !f.folded
 		v.changed()
 	case rowLine, rowHunk:
@@ -1551,11 +1615,37 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 	if button(iconWrap, a.withKey("Toggle Word Wrap", "view.wordWrapTab"), a.wrapsDiff(v)).Clicked() {
 		a.post(func() { a.toggleDiffWrap(v) })
 	}
+	// What a line that changed shows of itself: the words, the characters
+	// within them, or no more than the line.
+	b := button(iconHighlight, "Highlight", false)
+	b.Menu(func(m *ui.Menu) {
+		for _, h := range []struct {
+			mode  diffHighlight
+			label string
+		}{{highlightLine, "Highlight Lines"}, {highlightWord, "Highlight Words"}, {highlightChar, "Highlight Characters"}} {
+			if m.Item(h.label).Checked(a.diffHighlightOf() == h.mode).Chosen() {
+				a.post(func() { a.setDiffHighlight(h.mode) })
+			}
+		}
+	})
+	// The unchanged lines around a change, which the rest folds down to.
+	b = button(iconRows, "Context", false)
+	b.Menu(func(m *ui.Menu) {
+		for _, n := range []int{0, 1, 2, 3, 5, 10} {
+			label := "No Lines"
+			if n > 0 {
+				label = plural(n, "Line")
+			}
+			if m.Item(label).Checked(a.diffContextOf() == n).Chosen() {
+				a.post(func() { a.setDiffContext(n) })
+			}
+		}
+	})
 	icon := iconRows
 	if v.split {
 		icon = iconColumns
 	}
-	b := button(icon, "Layout", false)
+	b = button(icon, "Layout", false)
 	b.Menu(func(m *ui.Menu) {
 		for _, l := range []struct {
 			layout diffLayout
@@ -1564,6 +1654,9 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 			if m.Item(l.label).Checked(v.layout == l.layout).Chosen() {
 				a.post(func() { a.setDiffLayout(v, l.layout) })
 			}
+		}
+		if m.Item("Synchronized Scrolling").Checked(a.settings.DiffSyncScroll).Chosen() {
+			a.post(func() { a.setDiffSync(v, !a.settings.DiffSyncScroll) })
 		}
 	})
 	act(iconOpenFile, "Open File (E)", func() { a.openDiffFile(v) })
@@ -1580,11 +1673,80 @@ func (a *app) setDiffLayout(v *diffView, l diffLayout) {
 	a.settings.Changed()
 	a.rememberTabs()
 	a.keepTopRow(v, func() { v.split = a.splits(v, v.viewW) })
+	if !a.settings.DiffSyncScroll {
+		// The right side starts where the sides showed together.
+		v.sideY = v.scroll.Y
+	}
 }
 
 // setDiffFull shows every unchanged line of a diff, or folds them again.
 func (a *app) setDiffFull(v *diffView, full bool) {
 	a.keepTopRow(v, func() { v.full = full })
+}
+
+// setDiffContext shows n unchanged lines of a diff around each change,
+// as the next diffs opened will. The diffs lay their rows out again with
+// the line at the top of the view where it was.
+func (a *app) setDiffContext(n int) {
+	n = min(max(n, 0), settings.MaxDiffContext)
+	if a.settings.DiffContext == n {
+		return
+	}
+	a.settings.DiffContext = n
+	a.settings.Changed()
+	a.invalidate()
+}
+
+// setDiffHighlight shows what changed within a line of a diff by word,
+// by character, or no more than the lines, as the next diffs opened will.
+// What it shows is only so: the changes a diff acts on are its hunks of
+// lines.
+func (a *app) setDiffHighlight(h diffHighlight) {
+	if a.diffHighlightOf() == h {
+		return
+	}
+	a.settings.DiffHighlight = h.key()
+	a.settings.Changed()
+	a.invalidate()
+}
+
+// setDiffSync has the sides of a side-by-side diff scroll together, or
+// each on its own, as the next diffs opened will. Together again, the
+// line the right side was at shows across from its counterpart, as the
+// sides line up.
+func (a *app) setDiffSync(v *diffView, on bool) {
+	if a.settings.DiffSyncScroll == on {
+		return
+	}
+	a.settings.DiffSyncScroll = on
+	a.settings.Changed()
+	for _, col := range a.cols {
+		for _, t := range col.tabs {
+			if t.diff != nil {
+				a.resyncDiff(t.diff, on)
+			}
+		}
+	}
+	a.invalidate()
+}
+
+// resyncDiff starts or stops the sides of a diff scrolling on their own.
+func (a *app) resyncDiff(v *diffView, on bool) {
+	if !v.split {
+		return
+	}
+	if !on {
+		// The sides start where they showed together.
+		v.sideY = v.scroll.Y
+		return
+	}
+	// The row at the top of the right side comes to the top, across from
+	// its counterpart.
+	if len(v.rows) > 0 {
+		if i := v.rowAt(v.sideY+a.font.lineH/2, a.font.lineH); i >= 0 {
+			v.jumpRow(i, jumpTop)
+		}
+	}
 }
 
 // toggleDiffWrap wraps the lines of a diff, or stops, until the settings'

@@ -24,6 +24,21 @@ needs a `## <version>` section here, or its build fails.
   the change you are on, also from the change's `@@` header, after the layout
   changed, after its file folded and opened again, and after the sides were
   read again.
+- Diffs offer a **Highlight** menu that shows what changed within a line by
+  word (as before), by character, or no more than the line, and a **Context**
+  menu that keeps none to ten unchanged lines around each change and folds
+  the rest away. Both are kept in the settings for the next diffs. What a
+  diff highlights is only so: the changes its block actions take are still
+  its hunks of lines, as the header of each run says.
+- A side-by-side diff can let its sides scroll together, or each on its own:
+  **Synchronized Scrolling** in the Layout menu. A wheel over a side scrolls
+  that side alone; together again, the sides line up from the line the right
+  side was at.
+- A diff keeps its place: folding or unfolding a gap or a file, wrapping its
+  lines and a wider or narrower window keep the line at the top of the view
+  the same line of the file, and a layout chosen by hand is no longer the
+  width's to change. A file that folded under the view unfolds where the
+  view was.
 
 ## 0.9.1
 

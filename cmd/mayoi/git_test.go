@@ -1704,3 +1704,398 @@ func TestCommitCardWraps(t *testing.T) {
 		t.Errorf("clipboard %q, not the hash %q", got, hash)
 	}
 }
+
+// chooseButtonMenu opens the menu of a button and chooses an item of it.
+func (hs *harness) chooseButtonMenu(button string, item string) error {
+	r, ok := hs.tt.Find(button)
+	if !ok {
+		return fmt.Errorf("no button %q", button)
+	}
+	hs.tt.Press(r.X+r.W/2, r.Y+r.H/2)
+	hs.tt.Release(r.X+r.W/2, r.Y+r.H/2)
+	hs.settle()
+	return hs.tt.ChooseMenuItem(item)
+}
+
+// diffSpansOf spells the runs of a line of a diff that its highlight
+// shows as changed.
+func diffSpansOf(s string, spans []linediff.Span) []string {
+	var out []string
+	for _, sp := range spans {
+		out = append(out, s[sp.Start:sp.End])
+	}
+	return out
+}
+
+// The highlight of a diff shows the words that changed, the characters
+// within them, or the lines changed and no more.
+func TestDiffHighlightSpans(t *testing.T) {
+	f := &diffFile{old: diffSide{lines: []string{"abcd"}}, new: diffSide{lines: []string{"abXd"}}}
+	// The words changed.
+	if got := diffSpansOf("abXd", diffSpans(f, true, 0, 0, highlightWord)); !slices.Equal(got, []string{"abXd"}) {
+		t.Errorf("words of the new side %q", got)
+	}
+	if got := diffSpansOf("abcd", diffSpans(f, false, 0, 0, highlightWord)); !slices.Equal(got, []string{"abcd"}) {
+		t.Errorf("words of the old side %q", got)
+	}
+	// The characters within them did.
+	if got := diffSpansOf("abXd", diffSpans(f, true, 0, 0, highlightChar)); !slices.Equal(got, []string{"X"}) {
+		t.Errorf("chars of the new side %q", got)
+	}
+	if got := diffSpansOf("abcd", diffSpans(f, false, 0, 0, highlightChar)); !slices.Equal(got, []string{"c"}) {
+		t.Errorf("chars of the old side %q", got)
+	}
+	// The lines changed, and no more: nothing to paint over them.
+	if got := diffSpans(f, true, 0, 0, highlightLine); got != nil {
+		t.Errorf("lines %v", got)
+	}
+	// A line with no other side to compare with shows none.
+	if got := diffSpans(f, true, 0, -1, highlightWord); got != nil {
+		t.Errorf("no peer %v", got)
+	}
+	// A line a side does not have shows none.
+	if got := diffSpans(f, true, 5, 0, highlightWord); got != nil {
+		t.Errorf("past the lines %v", got)
+	}
+}
+
+// The unchanged lines a diff shows around a change are as the settings
+// keep: none, a few, or every one the file has.
+func TestDiffContext(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	long := hs.path("long.go")
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc long() {\n")
+	for i := range 100 {
+		fmt.Fprintf(&b, "\tprintln(%d)\n", i)
+	}
+	b.WriteString("}\n")
+	os.WriteFile(long, []byte(b.String()), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "long")
+	data, _ := os.ReadFile(long)
+	os.WriteFile(long, []byte(strings.Replace(string(data), "println(50)", "println(\"fifty\")", 1)), 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: long, any: true}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	if got := kinds(v); got != "SFGHLLLLLLLLG" {
+		t.Fatalf("rows %s", got)
+	}
+	// One unchanged line on each side of the change.
+	a.setDiffContext(1)
+	hs.settle()
+	if got := kinds(v); got != "SFGHLLLLG" {
+		t.Errorf("one line: %s", got)
+	}
+	// None: the change and its header, between the gaps.
+	a.setDiffContext(0)
+	hs.settle()
+	if got := kinds(v); got != "SFGHLLG" {
+		t.Errorf("no lines: %s", got)
+	}
+	if g := v.rows[2]; g.kind != rowGap || g.n != 53 {
+		t.Errorf("the gap above folds %d", g.n)
+	}
+	// Five around it.
+	a.setDiffContext(5)
+	hs.settle()
+	if got := kinds(v); got != "SFGH"+strings.Repeat("L", 12)+"G" {
+		t.Errorf("five lines: %s", got)
+	}
+	// More than the file has: every line, header and all.
+	a.setDiffContext(100)
+	hs.settle()
+	if got := kinds(v); got != "SFH"+strings.Repeat("L", 105) {
+		t.Errorf("all of them: %s", got)
+	}
+	// Back as it was.
+	a.setDiffContext(3)
+	hs.settle()
+	if got := kinds(v); got != "SFGHLLLLLLLLG" {
+		t.Errorf("three again: %s", got)
+	}
+	// The settings keep it for the next diffs.
+	if a.settings.DiffContext != 3 {
+		t.Errorf("settings keep %d", a.settings.DiffContext)
+	}
+}
+
+// The sides of a side-by-side diff scroll together, or each on its own,
+// and together again from where the right one was.
+func TestDiffSyncScroll(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	long := hs.path("long.go")
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc long() {\n")
+	for i := range 100 {
+		fmt.Fprintf(&b, "\tprintln(%d)\n", i)
+	}
+	b.WriteString("}\n")
+	os.WriteFile(long, []byte(b.String()), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "long")
+	data, _ := os.ReadFile(long)
+	os.WriteFile(long, []byte(strings.Replace(string(data), "println(5)", "println(\"five\")", 1)), 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: long, any: true}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	a.setDiffLayout(v, layoutSplit)
+	hs.settle()
+	if !v.split || !a.settings.DiffSyncScroll {
+		t.Fatalf("split %v, synced %v", v.split, a.settings.DiffSyncScroll)
+	}
+	// Whole files, so there is enough to scroll.
+	a.setDiffFull(v, true)
+	hs.settle()
+	lineH := a.font.lineH
+	v.scroll.Y = 5 * lineH
+	hs.settle()
+	// Each side on its own, from where they showed together.
+	a.setDiffSync(v, false)
+	hs.settle()
+	if v.sideY != 5*lineH {
+		t.Fatalf("the right side starts at %v, not where they showed", v.sideY)
+	}
+	scrollY := v.scroll.Y
+	pane, ok := hs.tt.Find("Diff of the Changes")
+	if !ok {
+		t.Fatal("no diff pane")
+	}
+	// A wheel over the right half scrolls it alone.
+	hs.tt.Scroll(pane.X+pane.W*3/4, pane.Y+pane.H/2, 0, 4*lineH)
+	hs.settle()
+	if v.sideY == scrollY {
+		t.Errorf("the right side does not scroll on its own")
+	}
+	if v.scroll.Y != scrollY {
+		t.Errorf("the left side moved with it: %v", v.scroll.Y)
+	}
+	// A wheel over the left half scrolls what they share.
+	hs.tt.Scroll(pane.X+pane.W/4, pane.Y+pane.H/2, 0, 4*lineH)
+	hs.settle()
+	if v.scroll.Y == scrollY {
+		t.Errorf("the left side does not scroll")
+	}
+	// Together again, from the line the right side was at.
+	rightTop := v.rowAt(v.sideY+lineH/2, lineH)
+	a.setDiffSync(v, true)
+	hs.settle()
+	if top := v.rowAt(v.scroll.Y+lineH/2, lineH); top != rightTop {
+		t.Errorf("back together at row %d, the right side was at %d", top, rightTop)
+	}
+	if !a.settings.DiffSyncScroll {
+		t.Errorf("the settings do not keep it")
+	}
+}
+
+// Whatever a diff highlights within a line, its block actions are for the
+// hunk the line is in, never only for what the highlight shows.
+func TestDiffHighlightKeepsBlockActions(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	p := hs.path("main.go")
+	os.WriteFile(p, []byte("package main\n\nfunc main() {\n\tprintln(1)\n\tprintln(2)\n\tprintln(3)\n}\n"), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "main")
+	os.WriteFile(p, []byte("package main\n\nfunc main() {\n\tprintln(11)\n\tprintln(2)\n\tprintln(33)\n}\n"), 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: p, any: true}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	f := diffFileOf(v, p, diffIndex)
+	if f == nil || len(f.hunks) != 2 {
+		t.Fatalf("hunks %v", f.hunks)
+	}
+	i := v.starts[0]
+	for _, h := range []diffHighlight{highlightChar, highlightWord, highlightLine} {
+		a.setDiffHighlight(h)
+		hs.settle()
+		// The line stands for its whole hunk, and the actions are of it.
+		fl, hs2 := v.hunksAt(i)
+		if fl != f || !slices.Equal(hs2, f.hunks[:1]) {
+			t.Errorf("highlight %d: the changes of the line are %v", h, hs2)
+		}
+		if acts := hunkActions(fl); !slices.Equal(acts, []hunkAction{hunkDiscard, hunkStage}) {
+			t.Errorf("highlight %d: actions %v", h, acts)
+		}
+		// The header of the run stands for all of the hunks it heads.
+		hdr := v.hunkHead(i)
+		if _, hs2 := v.hunksAt(hdr); !slices.Equal(hs2, f.hunks) {
+			t.Errorf("highlight %d: the changes of the header are %v", h, hs2)
+		}
+	}
+}
+
+// Folding a gap or a file, wrapping and a wider window keep the line at
+// the top of a diff's view the same line of the file, and a layout chosen
+// stays chosen whatever the width.
+func TestDiffKeepsItsPlace(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	long := hs.path("long.go")
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc long() {\n")
+	for i := range 100 {
+		if i == 50 {
+			// A line that wraps, once the diff wraps its lines.
+			b.WriteString("\tprintln(\"" + strings.Repeat("fifty ", 60) + "\")\n")
+			continue
+		}
+		fmt.Fprintf(&b, "\tprintln(%d)\n", i)
+	}
+	b.WriteString("}\n")
+	os.WriteFile(long, []byte(b.String()), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "long")
+	data, _ := os.ReadFile(long)
+	for i := range 100 {
+		if i != 50 && i%10 == 0 {
+			data = []byte(strings.Replace(string(data), fmt.Sprintf("println(%d)", i), fmt.Sprintf("println(%d thousand)", i), 1))
+		}
+	}
+	os.WriteFile(long, data, 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: long, any: true}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	a.setDiffLayout(v, layoutSplit)
+	hs.settle()
+	lineH := a.font.lineH
+	at := func() diffAnchor { return v.anchorOf(v.focusRowAt(v.topRow(lineH))) }
+	// At the line that wraps.
+	a.setDiffFull(v, true)
+	hs.settle()
+	wrapped := -1
+	for i, r := range v.rows {
+		if r.kind == rowLine && r.new == 53 {
+			wrapped = i
+		}
+	}
+	if wrapped < 0 {
+		t.Fatal("no long line")
+	}
+	v.scroll.Y = float32(v.tops[wrapped]) * lineH
+	hs.settle()
+	was := at()
+	// Wrapped, the line is more rows tall, and still the line at the top.
+	a.toggleDiffWrap(v)
+	hs.settle()
+	if got := at(); got != was {
+		t.Errorf("wrapped: %+v → %+v", was, got)
+	}
+	if r := v.rows[v.focusRowAt(v.topRow(lineH))]; r.kind != rowLine || r.h < 2 {
+		t.Errorf("the long line is %d rows tall", r.h)
+	}
+	// Narrower, the rows lay out again; the line stays at the top, and
+	// the layout chosen stays chosen.
+	hs.tt.SetSize(800, 760)
+	hs.settle()
+	if got := at(); got != was {
+		t.Errorf("narrower: %+v → %+v", was, got)
+	}
+	if !v.split {
+		t.Errorf("the layout chosen gave way to the width")
+	}
+	hs.tt.SetSize(1200, 760)
+	a.toggleDiffWrap(v)
+	hs.settle()
+	// A gap above the view folds and opens, and the line stays put.
+	a.setDiffFull(v, false)
+	hs.settle()
+	var gaps []int
+	for i, r := range v.rows {
+		if r.kind == rowGap {
+			gaps = append(gaps, i)
+		}
+	}
+	if len(gaps) < 6 {
+		t.Fatalf("%d gaps", len(gaps))
+	}
+	v.scroll.Y = float32(v.tops[gaps[4]+6]) * lineH
+	hs.settle()
+	was = at()
+	a.activateRow(v, gaps[4], false)
+	hs.settle()
+	if got := at(); got != was {
+		t.Errorf("opened a gap: %+v → %+v", was, got)
+	}
+	a.toggleGap(v, gaps[4]+1)
+	hs.settle()
+	if got := at(); got != was {
+		t.Errorf("folded a gap: %+v → %+v", was, got)
+	}
+	// The file folds under its header, and unfolds where it was.
+	was = at()
+	a.activateRow(v, 1, false)
+	hs.settle()
+	if got := kinds(v); got != "SF" {
+		t.Fatalf("folded: %s", got)
+	}
+	a.activateRow(v, 1, false)
+	hs.settle()
+	if got := at(); got != was {
+		t.Errorf("unfolded: %+v → %+v", was, got)
+	}
+}
+
+// A diff's buttons offer what its lines highlight, how much shows around
+// a change, and whether the sides scroll together.
+func TestDiffButtons(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	os.WriteFile(hs.path("main.go"), []byte("package main\n\nfunc main() {\n\tfmt.Println(\"hi, mayoi\")\n}\n"), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "main")
+	os.WriteFile(hs.path("main.go"), []byte("package main\n\nfunc main() {\n\tfmt.Println(\"hello, mayoi\")\n}\n"), 0o644)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("main.go"), any: true}, true)
+	hs.settleGit()
+	v := a.activeTab().diff
+	if _, ok := hs.tt.Find("Highlight"); !ok {
+		t.Fatal("no highlight button")
+	}
+	if _, ok := hs.tt.Find("Context"); !ok {
+		t.Fatal("no context button")
+	}
+	// The highlight menu chooses the characters.
+	if err := hs.chooseButtonMenu("Highlight", "Highlight Characters"); err != nil {
+		t.Fatal(err)
+	}
+	hs.settle()
+	if a.diffHighlightOf() != highlightChar {
+		t.Errorf("highlight %d, want the characters", a.diffHighlightOf())
+	}
+	if a.settings.DiffHighlight != "char" {
+		t.Errorf("settings keep %q", a.settings.DiffHighlight)
+	}
+	// The context menu chooses no unchanged lines.
+	if err := hs.chooseButtonMenu("Context", "No Lines"); err != nil {
+		t.Fatal(err)
+	}
+	hs.settle()
+	if a.diffContextOf() != 0 {
+		t.Errorf("context %d, want none", a.diffContextOf())
+	}
+	// The last unchanged line, on its own, does not fold.
+	if got := kinds(v); got != "SFGHLLL" {
+		t.Errorf("rows %s", got)
+	}
+	// The layout menu has the sides scrolling together, and lets them go.
+	if err := hs.chooseButtonMenu("Layout", "Synchronized Scrolling"); err != nil {
+		t.Fatal(err)
+	}
+	hs.settle()
+	if a.settings.DiffSyncScroll {
+		t.Errorf("the sides still scroll together")
+	}
+	a.setDiffSync(v, true)
+}

@@ -56,6 +56,17 @@ func (a *app) diffGeometry(v *diffView, split bool, viewW float32) diffGeometry 
 	return l
 }
 
+// rowUnder returns the row of a diff at a pointer's place in its
+// content, x and y: on the right half of a split diff whose sides do not
+// scroll together, the row the right side shows there.
+func (a *app) rowUnder(v *diffView, x, y float32, l diffGeometry) int {
+	d := float32(0)
+	if v.split && !a.settings.DiffSyncScroll && x-v.scroll.X >= l.half {
+		d = v.sideY - v.scroll.Y
+	}
+	return v.rowAt(y+d, a.font.lineH)
+}
+
 // diffViewUI shows a diff: its rows painted in a pane that scrolls both
 // ways, keeping the line numbers in place, or down only as its lines wrap.
 func (a *app) diffViewUI(c *ui.Context, v *diffView) {
@@ -126,6 +137,9 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 		contentW, v.scroll.X = view.W, 0
 	}
 	contentH := 2*editorPadY + float32(v.tops[len(rows)])*lineH
+	if v.split && !a.settings.DiffSyncScroll {
+		v.sideY = clamp(v.sideY, 0, max(0, contentH-v.viewH))
+	}
 	if j := v.jump; j >= 0 && view.H > 0 {
 		v.jump = -1
 		if j < len(rows) {
@@ -197,14 +211,21 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 	focused := v.pane.FocusWithin(c)
 	pane := ui.ScrollBoth(c.Key("diff")).TrackScroll(&v.scroll).Bind(&v.pane).Fill().Background(p.editor).
 		Focusable().FocusRing(false).Label("Diff of the Changes")
-	a.takeKeys(pane, placeDiff, func(ev ui.InputEvent) bool { return a.diffInput(v, ev) }).Children(func() {
+	a.takeKeys(pane, placeDiff, func(ev ui.InputEvent) bool {
+		if ev.Kind == ui.InputScroll && v.split && !a.settings.DiffSyncScroll && ev.X >= l.half {
+			// The right side scrolls on its own.
+			v.sideY = clamp(v.sideY+ev.DY, 0, max(0, contentH-v.viewH))
+			return true
+		}
+		return a.diffInput(v, ev)
+	}).Children(func() {
 		box := ui.Box(c).Width(contentW).Height(contentH)
 		// The buttons of the file's header under the pointer, or chosen.
 		onSticky := func(y float32) bool { return sticky >= 0 && y >= stickyY && y < stickyY+lineH }
 		hovered := -1
 		if box.Hovered() {
-			if _, y, ok := box.PointerPosition(); ok {
-				hovered = v.rowAt(y, lineH)
+			if x, y, ok := box.PointerPosition(); ok {
+				hovered = a.rowUnder(v, x, y, l)
 				if onSticky(y) {
 					hovered = sticky
 				}
@@ -243,7 +264,7 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 		// click opens the file at a line, unless its first click did that.
 		if clicked, double := box.Clicked(), box.DoubleClicked(); clicked || double {
 			if x, y, ok := box.PointerPosition(); ok && len(rows) > 0 && !buttons.Contains(x, y) && !hunkButtons.Contains(x, y) && !cardRect.Contains(x, y) {
-				i := v.rowAt(y, lineH)
+				i := a.rowUnder(v, x, y, l)
 				stuck := onSticky(y)
 				if stuck {
 					i = sticky
@@ -346,14 +367,19 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 							if side == 1 {
 								n, tint = row.new, p.added
 							}
+							ys := y
+							if side == 1 && !a.settings.DiffSyncScroll {
+								// The right side is scrolled on its own.
+								ys += v.scroll.Y - v.sideY
+							}
 							pt.Clip(ui.Rect{X: x0, Y: vy, W: w, H: view.H}, 0, func() {
 								if n < 0 {
-									a.paintFiller(pt, ui.Rect{X: x0, Y: y, W: w, H: h})
+									a.paintFiller(pt, ui.Rect{X: x0, Y: ys, W: w, H: h})
 									return
 								}
 								changed := row.hunk >= 0
 								if changed {
-									pt.Fill(ui.Rect{X: x0, Y: y, W: w, H: h}, tint.Alpha(0.16), 0)
+									pt.Fill(ui.Rect{X: x0, Y: ys, W: w, H: h}, tint.Alpha(0.16), 0)
 								}
 								peer := -1
 								if changed && row.old >= 0 && row.new >= 0 {
@@ -363,26 +389,26 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 									}
 								}
 								pt.Clip(ui.Rect{X: x0 + l.textX - 4, Y: vy, W: w - l.textX + 4, H: view.H}, 0, func() {
-									a.paintDiffLine(pt, file, side == 1, n, peer, r.X+float32(side)*l.half+l.textX, y, tint, l.cols[side], wrap)
+									a.paintDiffLine(pt, file, side == 1, n, peer, r.X+float32(side)*l.half+l.textX, ys, tint, l.cols[side], wrap)
 								})
 								numCol := p.gutter
 								switch {
 								case changed && v.inCurrent(row):
-									rail(x0, y, h, tint)
+									rail(x0, ys, h, tint)
 									numCol = tint
 								case changed:
-									rail(x0, y, h, dim(tint))
+									rail(x0, ys, h, dim(tint))
 									numCol = tint
 								default:
-									rail(x0, y, h, neutral)
+									rail(x0, ys, h, neutral)
 								}
-								number(n, x0+diffRailW+l.numW, y, numCol)
+								number(n, x0+diffRailW+l.numW, ys, numCol)
 								if changed {
 									mark := "-"
 									if side == 1 {
 										mark = "+"
 									}
-									txt(x0+diffRailW+l.numW+8, y, mark, tint)
+									txt(x0+diffRailW+l.numW+8, ys, mark, tint)
 								}
 							})
 						}
@@ -436,7 +462,16 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 					if focused {
 						col = p.text.Alpha(0.09)
 					}
-					pt.Fill(full, col, 0)
+					left, right := full, ui.Rect{}
+					if v.split && !a.settings.DiffSyncScroll {
+						// The row shows where each side has it.
+						left.W = l.half
+						right = ui.Rect{X: vx + l.half, Y: y + v.scroll.Y - v.sideY, W: view.W - l.half, H: h}
+					}
+					pt.Fill(left, col, 0)
+					if right.W > 0 {
+						pt.Fill(right, col, 0)
+					}
 					pt.Fill(ui.Rect{X: vx, Y: y, W: diffRailW, H: h}, p.accent, 0)
 				}
 			}
@@ -927,6 +962,47 @@ func (a *app) paintFiller(pt *ui.Painter, r ui.Rect) {
 	pt.StrokePath(&stripes, 1, p.text.Alpha(0.04))
 }
 
+// diffSpanKey is a pair of lines a diff compares, and whether it keeps
+// the characters that changed rather than the words.
+type diffSpanKey struct {
+	old, new int
+	char     bool
+}
+
+// diffSpans returns the runs of line n of a side of a file of a diff
+// that its highlight shows as changed from the line peer of the other
+// side: none for the whole lines, the words, or the characters that
+// changed. The file keeps the spans, as it compared the pair last.
+func diffSpans(file *diffFile, newSide bool, n, peer int, h diffHighlight) []linediff.Span {
+	if peer < 0 || h == highlightLine {
+		return nil
+	}
+	old, new := n, peer
+	if !newSide {
+		old, new = peer, n
+	}
+	if old >= len(file.old.lines) || new >= len(file.new.lines) {
+		return nil
+	}
+	k := diffSpanKey{old, new, h == highlightChar}
+	ws, ok := file.spans[k]
+	if !ok {
+		o, w := linediff.Words(file.old.lines[old], file.new.lines[new])
+		if h == highlightChar {
+			o, w = linediff.Chars(file.old.lines[old], file.new.lines[new])
+		}
+		ws = [2][]linediff.Span{o, w}
+		if file.spans == nil {
+			file.spans = map[diffSpanKey][2][]linediff.Span{}
+		}
+		file.spans[k] = ws
+	}
+	if newSide {
+		return ws[1]
+	}
+	return ws[0]
+}
+
 // paintDiffLine paints line n of a side of a file of a diff at x, y: its
 // words that changed from the line peer of the other side, then its text
 // in the colors of its tokens, on rows cols wide as it wraps.
@@ -956,32 +1032,13 @@ func (a *app) paintDiffLine(pt *ui.Painter, file *diffFile, newSide bool, n, pee
 			fn(k, f.width(shown[lo:s0]), f.width(shown[lo:s1]), s0, s1)
 		}
 	}
-	if peer >= 0 {
-		key := [2]int{n, peer}
-		if !newSide {
-			key = [2]int{peer, n}
+	for _, sp := range diffSpans(file, newSide, n, peer, a.diffHighlightOf()) {
+		if sp.Start >= len(text) {
+			continue
 		}
-		ws, ok := file.words[key]
-		if !ok && key[0] < len(file.old.lines) && key[1] < len(file.new.lines) {
-			o, w := linediff.Words(file.old.lines[key[0]], file.new.lines[key[1]])
-			ws = [2][]linediff.Span{o, w}
-			if file.words == nil {
-				file.words = map[[2]int][2][]linediff.Span{}
-			}
-			file.words[key] = ws
-		}
-		spans := ws[0]
-		if newSide {
-			spans = ws[1]
-		}
-		for _, sp := range spans {
-			if sp.Start >= len(text) {
-				continue
-			}
-			piece(at(sp.Start), at(min(sp.End, len(text))), func(k int, x0, x1 float32, _, _ int) {
-				pt.Fill(ui.Rect{X: x + x0, Y: y + float32(k)*f.lineH, W: max(x1-x0, 2), H: f.lineH}, tint.Alpha(0.30), 0)
-			})
-		}
+		piece(at(sp.Start), at(min(sp.End, len(text))), func(k int, x0, x1 float32, _, _ int) {
+			pt.Fill(ui.Rect{X: x + x0, Y: y + float32(k)*f.lineH, W: max(x1-x0, 2), H: f.lineH}, tint.Alpha(0.30), 0)
+		})
 	}
 	// The runs of shown in the colors of their tokens.
 	type run struct {

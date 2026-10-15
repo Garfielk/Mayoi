@@ -112,6 +112,18 @@ type Prefs struct {
 	// is and crosses on one more step that way, "always" crosses at once,
 	// and "never" stays in the file.
 	DiffCrossFiles string `json:"diffCrossFiles,omitempty"`
+	// DiffHighlight is what a diff shows of a line that changed: "line"
+	// no more than the line, "char" the characters that changed, or ""
+	// the words that changed. What it shows is only so: a diff's block
+	// actions are for its hunks of lines, whatever it highlights.
+	DiffHighlight string `json:"diffHighlight,omitempty"`
+	// DiffContext is how many unchanged lines a diff shows around a
+	// change, the rest folded away.
+	DiffContext int `json:"diffContext,omitempty"`
+	// DiffSyncScroll has the sides of a side-by-side diff scroll
+	// together. Without it, each side scrolls on its own, and scrolls
+	// together again from where the right one was.
+	DiffSyncScroll bool `json:"diffSyncScroll"`
 	// ScmTree lists the changes in source control in a tree of their
 	// folders, rather than by path.
 	ScmTree bool `json:"scmTree,omitempty"`
@@ -224,12 +236,17 @@ type Tab struct {
 	Wrap    *bool   `json:"wrap,omitempty"`
 }
 
+// MaxDiffContext is as many unchanged lines around a change as a diff
+// shows, the rest folded away.
+const MaxDiffContext = 100
+
 // Default is the settings of a first launch.
 func Default() *Settings {
 	return &Settings{
 		Prefs: Prefs{
 			FontSize: 13, FontFamily: "monospace", FontWeight: 400, LineHeight: 1.55,
 			AutoSave: true, Blame: true, TerminalCopyOnSelect: true,
+			DiffContext: 3, DiffSyncScroll: true,
 		},
 	}
 }
@@ -314,6 +331,12 @@ func (s *Settings) normalize() {
 	if s.TerminalFontSize != 0 {
 		s.TerminalFontSize = clamp(s.TerminalFontSize, 9, 28)
 	}
+	switch s.DiffHighlight {
+	case "line", "char":
+	default:
+		s.DiffHighlight = ""
+	}
+	s.DiffContext = min(max(s.DiffContext, 0), MaxDiffContext)
 	// The themes were appearances once.
 	if s.Appearance == "matrix" || s.Appearance == "claude" {
 		s.Theme, s.Appearance = s.Appearance, ""
