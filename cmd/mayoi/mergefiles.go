@@ -7,6 +7,8 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+
+	"mayoi/internal/git"
 )
 
 // mergeFile is a file of the command that stopped for conflicts: in
@@ -109,6 +111,58 @@ func (a *app) chooseMergeFile(f mergeFile) {
 		return
 	}
 	a.openPath(f.path, true)
+}
+
+// applyMergeChanges saves the result of the merge and stages the file,
+// which ends its conflict, then opens the next file in conflict, as
+// applying the changes of a file goes on to the next.
+func (a *app) applyMergeChanges(v *mergeView) {
+	if v.doc == nil {
+		return
+	}
+	path := v.path
+	var next, first string
+	for _, f := range a.mergeFiles() {
+		if f.resolved || f.path == path {
+			continue
+		}
+		if first == "" {
+			first = f.path
+		}
+		if f.path > path && next == "" {
+			next = f.path
+		}
+	}
+	if next == "" {
+		next = first // the files stand by path, round the end back up
+	}
+	a.saveDoc(v.doc, func() {
+		a.gitDo("", func(r *git.Repo) error { return r.Stage(path) }, func() {
+			a.noteMergeResolved(path)
+			a.tell(note{message: "Marked " + filepath.Base(path) + " resolved"})
+			if next != "" {
+				a.openMerge(next, true)
+			}
+		})
+	})
+}
+
+// saveCloseMerge saves the result of the merge in the file, and closes
+// the merge, back to the files in conflict while any stand.
+func (a *app) saveCloseMerge(v *mergeView) {
+	a.saveMerge(v)
+	t := a.mergeTab(v.path)
+	if t == nil {
+		return
+	}
+	a.closeTab(t, func() {
+		for _, f := range a.mergeFiles() {
+			if !f.resolved {
+				a.openConflicts()
+				return
+			}
+		}
+	})
 }
 
 // conflictsView shows the box of the files in conflict while it is open.

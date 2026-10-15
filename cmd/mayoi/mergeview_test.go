@@ -754,3 +754,82 @@ func TestMergeFilesList(t *testing.T) {
 		t.Errorf("the files of the merge stand still: %+v", files)
 	}
 }
+
+func TestMergeApplyChanges(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	a := hs.a
+	v := hs.mergeOfRel("one.txt")
+	// The conflict taken theirs', Apply Changes saves the result, stages
+	// the file, and opens the next file in conflict.
+	a.takeMergeSide(v, 0, false)
+	a.applyMergeChanges(v)
+	hs.settleGit()
+	if b, err := os.ReadFile(hs.path("one.txt")); err != nil || string(b) != "ours\nb\nside\nm\nside2\n" {
+		t.Fatalf("one.txt is not saved: %q (%v)", b, err)
+	}
+	if e := a.git.entries[hs.path("one.txt")]; e.Conflicted() {
+		t.Errorf("one.txt does not stand resolved: %+v", e)
+	}
+	if v2 := a.activeTab().merge; v2 == nil || v2.path != hs.path("two.txt") {
+		t.Fatalf("the next file in conflict is not open: %+v", a.activeTab())
+	}
+	// Two resolved, the next after it opens in turn.
+	a.takeMergeSide(a.activeTab().merge, 0, false)
+	a.applyMergeChanges(a.activeTab().merge)
+	hs.settleGit()
+	if v3 := a.activeTab().merge; v3 == nil || v3.path != hs.path("four.txt") {
+		t.Fatalf("the next file in conflict is not open: %+v", a.activeTab())
+	}
+	// The last file of the merge: Apply Changes stages it, and no file of
+	// the merge stands in conflict.
+	a.takeMergeSide(a.activeTab().merge, 0, false)
+	a.applyMergeChanges(a.activeTab().merge)
+	hs.settleGit()
+	if e := a.git.entries[hs.path("four.txt")]; e.Conflicted() {
+		t.Errorf("four.txt does not stand resolved: %+v", e)
+	}
+	for _, f := range a.mergeFiles() {
+		if !f.resolved {
+			t.Errorf("%s does not stand resolved: %+v", filepath.Base(f.path), f)
+		}
+	}
+}
+
+func TestMergeSaveClose(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	a := hs.a
+	v := hs.mergeOfRel("one.txt")
+	// The result taken ours', Save and Close saves it in the file, whose
+	// conflict stands, and goes back to the files in conflict.
+	a.takeMergeSide(v, 0, true)
+	a.saveCloseMerge(v)
+	hs.settleGit()
+	if b, err := os.ReadFile(hs.path("one.txt")); err != nil || string(b) != "ours\nb\nours2\nm\nside2\n" {
+		t.Fatalf("one.txt is not saved: %q (%v)", b, err)
+	}
+	if e := a.git.entries[hs.path("one.txt")]; !e.Conflicted() {
+		t.Errorf("one.txt does not stand in conflict: %+v", e)
+	}
+	if t2 := a.activeTab(); t2 != nil && t2.merge != nil && t2.merge.path == v.path {
+		t.Error("the merge tab is open still")
+	}
+	if !a.conflicts.open {
+		t.Error("the files in conflict do not show")
+	}
+	if !hs.tt.HasText("0 of 3 files resolved") {
+		t.Errorf("no progress: %q", hs.tt.Texts())
+	}
+	// Back in, the result goes on where it stood.
+	a.closeConflicts()
+	a.openMerge(v.path, true)
+	hs.settle()
+	v2 := a.activeTab().merge
+	if v2 == nil || v2.path != v.path {
+		t.Fatal("the merge did not open again")
+	}
+	if st := v2.stateOf(v2.regions[0]); st != regionLeft {
+		t.Errorf("the result did not go on: %v", st)
+	}
+}
