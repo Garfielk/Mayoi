@@ -1451,8 +1451,8 @@ func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
 			return true
 		}
 		// A key that types, or moves the caret, is not the pager's: the
-		// pager pages on, and the shortcuts of the file take their keys.
-		if ev.Kind == ui.InputKeyDown && ev.Mods&^(ui.Shift|ui.Cmd) == 0 &&
+		// pager pages on, and the keys with cmd go on to the shortcuts.
+		if ev.Kind == ui.InputKeyDown && ev.Mods == ev.Mods&ui.Shift &&
 			ev.Key != ui.KeyPageDown && ev.Key != ui.KeyPageUp {
 			return true
 		}
