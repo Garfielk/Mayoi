@@ -1381,3 +1381,45 @@ func TestCommitCardWraps(t *testing.T) {
 		t.Errorf("clipboard %q, not the hash %q", got, hash)
 	}
 }
+
+// diffSpansOf spells the runs of a line of a diff that its highlight
+// shows as changed.
+func diffSpansOf(s string, spans []linediff.Span) []string {
+	var out []string
+	for _, sp := range spans {
+		out = append(out, s[sp.Start:sp.End])
+	}
+	return out
+}
+
+// The highlight of a diff shows the words that changed, the characters
+// within them, or the lines changed and no more.
+func TestDiffHighlightSpans(t *testing.T) {
+	f := &diffFile{old: diffSide{lines: []string{"abcd"}}, new: diffSide{lines: []string{"abXd"}}}
+	// The words changed.
+	if got := diffSpansOf("abXd", diffSpans(f, true, 0, 0, highlightWord)); !slices.Equal(got, []string{"abXd"}) {
+		t.Errorf("words of the new side %q", got)
+	}
+	if got := diffSpansOf("abcd", diffSpans(f, false, 0, 0, highlightWord)); !slices.Equal(got, []string{"abcd"}) {
+		t.Errorf("words of the old side %q", got)
+	}
+	// The characters within them did.
+	if got := diffSpansOf("abXd", diffSpans(f, true, 0, 0, highlightChar)); !slices.Equal(got, []string{"X"}) {
+		t.Errorf("chars of the new side %q", got)
+	}
+	if got := diffSpansOf("abcd", diffSpans(f, false, 0, 0, highlightChar)); !slices.Equal(got, []string{"c"}) {
+		t.Errorf("chars of the old side %q", got)
+	}
+	// The lines changed, and no more: nothing to paint over them.
+	if got := diffSpans(f, true, 0, 0, highlightLine); got != nil {
+		t.Errorf("lines %v", got)
+	}
+	// A line with no other side to compare with shows none.
+	if got := diffSpans(f, true, 0, -1, highlightWord); got != nil {
+		t.Errorf("no peer %v", got)
+	}
+	// A line a side does not have shows none.
+	if got := diffSpans(f, true, 5, 0, highlightWord); got != nil {
+		t.Errorf("past the lines %v", got)
+	}
+}

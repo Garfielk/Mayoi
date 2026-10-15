@@ -18,6 +18,7 @@ import (
 	"mayoi/internal/highlight"
 	"mayoi/internal/linediff"
 	"mayoi/internal/remote"
+	"mayoi/internal/settings"
 )
 
 // diffBase is what a diff compares: which version of a file with which.
@@ -64,6 +65,39 @@ func parseDiffLayout(s string) diffLayout {
 	return layoutAuto
 }
 
+// diffHighlight is how a diff shows what changed within a line: the
+// words that changed, the characters within them, or nothing more than
+// the lines changed. What it shows is only so: the changes a diff acts
+// on are its hunks of lines, whatever it highlights.
+type diffHighlight uint8
+
+const (
+	highlightWord diffHighlight = iota
+	highlightLine
+	highlightChar
+)
+
+// key is how the settings name the highlight.
+func (h diffHighlight) key() string { return [...]string{"", "line", "char"}[h] }
+
+func parseDiffHighlight(s string) diffHighlight {
+	switch s {
+	case "line":
+		return highlightLine
+	case "char":
+		return highlightChar
+	}
+	return highlightWord
+}
+
+// diffHighlightOf is how the diffs show what changed within a line, as
+// the settings say.
+func (a *app) diffHighlightOf() diffHighlight { return parseDiffHighlight(a.settings.DiffHighlight) }
+
+// diffContextOf is how many unchanged lines the diffs show around a
+// change, as the settings say.
+func (a *app) diffContextOf() int { return min(max(a.settings.DiffContext, 0), settings.MaxDiffContext) }
+
 // diffSide is a version of the file a diff shows.
 type diffSide struct {
 	text  string
@@ -101,7 +135,9 @@ type diffFile struct {
 	running, waiting    bool
 	started             time.Time
 
-	words map[[2]int][2][]linediff.Span
+	// spans are the runs of a pair of lines that changed, as the diff
+	// showed them last, by the words or by the characters.
+	spans map[diffSpanKey][2][]linediff.Span
 	// open are the gaps of unchanged lines opened, by their keys, and
 	// folded is set for a file whose lines are hidden under its header.
 	open   map[int]bool
@@ -700,7 +736,7 @@ func (a *app) refreshDiffFile(v *diffView, f *diffFile) bool {
 			first := !f.loaded
 			f.loaded, f.binary, f.hunks, f.widest = true, binary, hunks, widest
 			f.unified, f.pairs = unified, pairs
-			f.words = nil
+			f.spans = nil
 			setDiffSide(&f.old, old, oldLines)
 			setDiffSide(&f.new, new, newLines)
 			if add, del := f.counts(); first && add+del > foldedLines {

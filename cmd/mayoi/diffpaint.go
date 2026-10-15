@@ -927,6 +927,47 @@ func (a *app) paintFiller(pt *ui.Painter, r ui.Rect) {
 	pt.StrokePath(&stripes, 1, p.text.Alpha(0.04))
 }
 
+// diffSpanKey is a pair of lines a diff compares, and whether it keeps
+// the characters that changed rather than the words.
+type diffSpanKey struct {
+	old, new int
+	char     bool
+}
+
+// diffSpans returns the runs of line n of a side of a file of a diff
+// that its highlight shows as changed from the line peer of the other
+// side: none for the whole lines, the words, or the characters that
+// changed. The file keeps the spans, as it compared the pair last.
+func diffSpans(file *diffFile, newSide bool, n, peer int, h diffHighlight) []linediff.Span {
+	if peer < 0 || h == highlightLine {
+		return nil
+	}
+	old, new := n, peer
+	if !newSide {
+		old, new = peer, n
+	}
+	if old >= len(file.old.lines) || new >= len(file.new.lines) {
+		return nil
+	}
+	k := diffSpanKey{old, new, h == highlightChar}
+	ws, ok := file.spans[k]
+	if !ok {
+		o, w := linediff.Words(file.old.lines[old], file.new.lines[new])
+		if h == highlightChar {
+			o, w = linediff.Chars(file.old.lines[old], file.new.lines[new])
+		}
+		ws = [2][]linediff.Span{o, w}
+		if file.spans == nil {
+			file.spans = map[diffSpanKey][2][]linediff.Span{}
+		}
+		file.spans[k] = ws
+	}
+	if newSide {
+		return ws[1]
+	}
+	return ws[0]
+}
+
 // paintDiffLine paints line n of a side of a file of a diff at x, y: its
 // words that changed from the line peer of the other side, then its text
 // in the colors of its tokens, on rows cols wide as it wraps.
@@ -956,32 +997,13 @@ func (a *app) paintDiffLine(pt *ui.Painter, file *diffFile, newSide bool, n, pee
 			fn(k, f.width(shown[lo:s0]), f.width(shown[lo:s1]), s0, s1)
 		}
 	}
-	if peer >= 0 {
-		key := [2]int{n, peer}
-		if !newSide {
-			key = [2]int{peer, n}
+	for _, sp := range diffSpans(file, newSide, n, peer, a.diffHighlightOf()) {
+		if sp.Start >= len(text) {
+			continue
 		}
-		ws, ok := file.words[key]
-		if !ok && key[0] < len(file.old.lines) && key[1] < len(file.new.lines) {
-			o, w := linediff.Words(file.old.lines[key[0]], file.new.lines[key[1]])
-			ws = [2][]linediff.Span{o, w}
-			if file.words == nil {
-				file.words = map[[2]int][2][]linediff.Span{}
-			}
-			file.words[key] = ws
-		}
-		spans := ws[0]
-		if newSide {
-			spans = ws[1]
-		}
-		for _, sp := range spans {
-			if sp.Start >= len(text) {
-				continue
-			}
-			piece(at(sp.Start), at(min(sp.End, len(text))), func(k int, x0, x1 float32, _, _ int) {
-				pt.Fill(ui.Rect{X: x + x0, Y: y + float32(k)*f.lineH, W: max(x1-x0, 2), H: f.lineH}, tint.Alpha(0.30), 0)
-			})
-		}
+		piece(at(sp.Start), at(min(sp.End, len(text))), func(k int, x0, x1 float32, _, _ int) {
+			pt.Fill(ui.Rect{X: x + x0, Y: y + float32(k)*f.lineH, W: max(x1-x0, 2), H: f.lineH}, tint.Alpha(0.30), 0)
+		})
 	}
 	// The runs of shown in the colors of their tokens.
 	type run struct {
