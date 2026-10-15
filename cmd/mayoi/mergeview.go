@@ -678,6 +678,138 @@ func (a *app) resolveUsingMerge(v *mergeView, left bool) {
 	v.syncRegions()
 }
 
+// applySide is the sides whose changes that no conflict holds a batch
+// application takes.
+type applySide uint8
+
+const (
+	applyAll   applySide = iota // both sides'
+	applyLeft                   // ours' alone
+	applyRight                  // theirs' alone
+)
+
+// notHeld returns the hunks of a side that no conflict of the merge
+// holds: the changes a batch application may take without a hand's
+// judgment. A hunk a conflict holds touches its lines of the base.
+func notHeld(regions []*mergeRegion, hs []sideHunk) []sideHunk {
+	var out []sideHunk
+	for _, h := range hs {
+		held := false
+		for _, r := range regions {
+			if h.alo <= r.baseHi && h.ahi >= r.baseLo {
+				held = true
+				break
+			}
+		}
+		if !held {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// locateBase finds where the base's lines [alo,ahi) stand in result, as
+// the base has them or as want has, which a side took them for: from the
+// hunk of the result that holds the range, or where the hunks before it
+// push it down. -1 when the result has changed them beyond finding, so
+// that an application cannot write over lines it does not know.
+func (v *mergeView) locateBase(result []string, hs []sideHunk, alo, ahi int, want []string) (int, int) {
+	at := -1
+	for k, h := range hs {
+		if h.alo <= alo && h.ahi >= ahi {
+			at = k
+			break
+		}
+	}
+	base := clipLines(v.baseLines, alo, ahi)
+	lo, hi := -1, -1
+	if at >= 0 {
+		h := hs[at]
+		lo, hi = h.blo, h.bhi
+		if h.alo < alo || h.ahi > ahi {
+			if k := indexSeq(result, lo, hi, want); k >= 0 {
+				lo, hi = k, k+len(want)
+			} else if k := indexSeq(result, lo, hi, base); k >= 0 {
+				lo, hi = k, k+len(base)
+			} else {
+				return -1, -1
+			}
+		}
+	} else {
+		off := shifted(hs, alo)
+		lo, hi = alo+off, ahi+off
+	}
+	if lo < 0 || hi < lo || hi > len(result) {
+		return -1, -1
+	}
+	content := clipLines(result, lo, hi)
+	if slices.Equal(content, want) || slices.Equal(content, base) {
+		return lo, hi
+	}
+	return -1, -1
+}
+
+// applyNonConflicts puts the changes of a side that no conflict of the
+// merge holds in the result, where the base still has them, as one step
+// of undo. The conflicts stand: the batch takes no line the hand must
+// judge, and passes a change it cannot find the base's lines for, as one
+// the result has changed beyond finding.
+func (a *app) applyNonConflicts(v *mergeView, side applySide) {
+	if v.doc == nil || v.ed == nil || v.binary {
+		return
+	}
+	result := v.resultLines()
+	hs := hunksOf(v.baseLines, result)
+	type held struct {
+		h    sideHunk
+		left bool
+	}
+	var puts []held
+	if side != applyRight {
+		for _, h := range notHeld(v.regions, hunksOf(v.baseLines, v.oursLines)) {
+			puts = append(puts, held{h, true})
+		}
+	}
+	if side != applyLeft {
+		for _, h := range notHeld(v.regions, hunksOf(v.baseLines, v.theirsLines)) {
+			puts = append(puts, held{h, false})
+		}
+	}
+	slices.SortFunc(puts, func(x, y held) int { return x.h.alo - y.h.alo })
+	snap := v.doc.buf.Snapshot()
+	n := snap.LineCount()
+	var edits []textEdit
+	for _, put := range puts {
+		lines := v.oursLines
+		if !put.left {
+			lines = v.theirsLines
+		}
+		want := clipLines(lines, put.h.blo, put.h.bhi)
+		k, m := v.locateBase(result, hs, put.h.alo, put.h.ahi, want)
+		if k < 0 || slices.Equal(clipLines(result, k, m), want) {
+			continue // not found, or the side's lines stand there already
+		}
+		s, _ := snap.LineRange(k)
+		e := snap.Len()
+		if m < n {
+			e, _ = snap.LineRange(m) // where the line after it starts
+		}
+		text := strings.Join(want, "\n")
+		if len(want) > 0 && m < n {
+			text += "\n"
+		}
+		if s == e && text == "" {
+			continue
+		}
+		edits = append(edits, textEdit{s, e, text})
+	}
+	if len(edits) == 0 {
+		return
+	}
+	v.ed.edit(v.ed.sel, edits...)
+	v.syncRegions()
+}
+
 // resetMerge puts the base's text in the result, which takes back what
 // every region took, as one step of undo.
 func (a *app) resetMerge(v *mergeView) {

@@ -219,10 +219,16 @@ func (hs *harness) mergeRepo(base, ours, theirs string) func(args ...string) str
 // mergeOf opens the merge view of the harness's conflict and returns it,
 // settled.
 func (hs *harness) mergeOf() *mergeView {
+	return hs.mergeOfRel("shared.txt")
+}
+
+// mergeOfRel opens the merge view of a file of the harness's conflict and
+// returns it, settled.
+func (hs *harness) mergeOfRel(rel string) *mergeView {
 	t := hs.t
-	path := hs.path("shared.txt")
+	path := hs.path(rel)
 	if e := hs.a.git.entries[path]; !e.Conflicted() {
-		t.Fatalf("shared.txt is not in conflict: %+v", e)
+		t.Fatalf("%s is not in conflict: %+v", rel, e)
 	}
 	hs.a.openMerge(path, true)
 	hs.settle()
@@ -469,5 +475,110 @@ func TestMergeViewTypeResult(t *testing.T) {
 	}
 	if v.gen != v.doc.buf.Version() {
 		t.Error("the regions did not follow the text")
+	}
+}
+
+// mergeFilesRepo makes the harness's folder a work tree where merging
+// side into main stops for the conflicts of one.txt and two.txt, while
+// three.txt merges clean, no conflict of its own. ours and theirs changed
+// more than the conflicts of one.txt: ours changed its first line alone,
+// and theirs its last alone, so the merge of the file has changes that no
+// conflict holds.
+func (hs *harness) mergeFilesRepo() func(args ...string) string {
+	t := hs.t
+	git := hs.gitRepo()
+	commit := func(files map[string]string) {
+		for name, body := range map[string]string{
+			"one.txt":   "a\nb\nc\nm\nz\n",
+			"two.txt":   "a\nb\nc\nm\nz\n",
+			"three.txt": "a\nb\nc\nd\ne\n",
+		} {
+			if s, ok := files[name]; ok {
+				body = s
+			}
+			os.WriteFile(hs.path(name), []byte(body), 0o644)
+			git("add", name)
+		}
+		git("commit", "-qm", "change")
+	}
+	commit(nil)
+	git("checkout", "-qb", "side")
+	commit(map[string]string{
+		"one.txt":   "a\nb\nside\nm\nside2\n",
+		"two.txt":   "a\nb\nside\nm\nz\n",
+		"three.txt": "a\nb\nc\nD\ne\n",
+	})
+	git("checkout", "-q", "main")
+	commit(map[string]string{
+		"one.txt":   "ours\nb\nours2\nm\nz\n",
+		"two.txt":   "a\nb\nours\nm\nz\n",
+		"three.txt": "A\nb\nc\nd\ne\n",
+	})
+	cmd := exec.Command("git", "-C", hs.root, "merge", "side")
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("the merge went clean: %s", out)
+	}
+	hs.settleGit()
+	return git
+}
+
+func TestMergeApplyNonConflicts(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	a := hs.a
+	v := hs.mergeOfRel("one.txt")
+	// ours changed the first line alone, theirs the last alone: applying
+	// the changes no conflict holds puts both in the result, and leaves
+	// the conflict the base's, for the hand to decide.
+	a.applyNonConflicts(v, applyAll)
+	if got := v.resultLines(); !slices.Equal(got, []string{"ours", "b", "c", "m", "side2"}) {
+		t.Fatalf("after applying: %q", got)
+	}
+	if st := v.stateOf(v.regions[0]); st != regionUndecided {
+		t.Errorf("the conflict stands %v, want undecided", st)
+	}
+	if v.unresolved() != 1 {
+		t.Errorf("%d unresolved, want 1", v.unresolved())
+	}
+	// The whole application is one step of undo.
+	if !v.ed.undo() {
+		t.Fatal("no step of undo")
+	}
+	a.invalidate()
+	hs.settle()
+	if got := v.resultLines(); !slices.Equal(got, []string{"a", "b", "c", "m", "z"}) {
+		t.Errorf("after undo: %q", got)
+	}
+	// A side of its own: ours' first, then theirs'.
+	a.applyNonConflicts(v, applyLeft)
+	if got := v.resultLines(); !slices.Equal(got, []string{"ours", "b", "c", "m", "z"}) {
+		t.Errorf("after applying ours': %q", got)
+	}
+	if st := v.stateOf(v.regions[0]); st != regionUndecided {
+		t.Errorf("the conflict stands %v, want undecided", st)
+	}
+	a.applyNonConflicts(v, applyRight)
+	if got := v.resultLines(); !slices.Equal(got, []string{"ours", "b", "c", "m", "side2"}) {
+		t.Errorf("after applying theirs': %q", got)
+	}
+	// Nothing of theirs' alone is left: applying again changes nothing,
+	// and makes no step of undo.
+	steps := len(v.ed.hist.undo)
+	a.applyNonConflicts(v, applyAll)
+	if got := v.resultLines(); !slices.Equal(got, []string{"ours", "b", "c", "m", "side2"}) {
+		t.Errorf("after applying again: %q", got)
+	}
+	if len(v.ed.hist.undo) != steps {
+		t.Error("applying what stood made a step of undo")
+	}
+	// A file whose conflicts hold every change of both sides has nothing
+	// to apply.
+	v2 := hs.mergeOfRel("two.txt")
+	a.applyNonConflicts(v2, applyAll)
+	if got := v2.resultLines(); !slices.Equal(got, []string{"a", "b", "c", "m", "z"}) {
+		t.Errorf("two.txt changed: %q", got)
+	}
+	if len(v2.ed.hist.undo) != 0 {
+		t.Error("applying nothing made a step of undo")
 	}
 }
