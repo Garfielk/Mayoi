@@ -2650,3 +2650,67 @@ func notes(v *diffView, s string) int {
 	}
 	return n
 }
+
+// TestRevertArrowOfOneOfTwoNearbyBlocks: two blocks a couple of lines
+// apart share the header of their run of changes, and the arrow of one
+// still applies its block alone, as the rows take it.
+func TestRevertArrowOfOneOfTwoNearbyBlocks(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	var b strings.Builder
+	for i := range 30 {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	orig := b.String()
+	os.WriteFile(hs.path("t.txt"), []byte(orig), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "t")
+	changed := strings.Replace(strings.Replace(orig, "line 2\n", "line two\n", 1), "line 5\n", "line five\n", 1)
+	os.WriteFile(hs.path("t.txt"), []byte(changed), 0o644)
+	a.openFile(hs.path("t.txt"), false)
+	hs.settle()
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	runs := hunkRuns(v, hs.path("t.txt"), diffIndex)
+	if len(runs) != 1 {
+		t.Fatalf("runs %v: %s", runs, kinds(v))
+	}
+	f, hks := v.hunksAt(runs[0])
+	if len(hks) != 2 {
+		t.Fatalf("the run has %d hunks: %v", len(hks), hks)
+	}
+	ars := hunkArrows(f)
+	if len(ars) != 1 {
+		t.Fatalf("arrows %v", ars)
+	}
+	// The arrows take the hunk of each block's first row, as the rows of
+	// the diff show them.
+	hunkOf := func(line int) linediff.Hunk {
+		for _, r := range v.rows {
+			if r.changed() && r.new == line {
+				return f.hunks[r.hunk]
+			}
+		}
+		t.Fatalf("no changed row of line %d", line)
+		return linediff.Hunk{}
+	}
+	d := a.docs[a.docIndex(hs.path("t.txt"))]
+	a.errors = nil
+	a.applyArrow(v, f, hunkOf(2), ars[0])
+	hs.settle()
+	if len(a.errors) > 0 {
+		t.Fatalf("the arrow failed: %v", a.errors)
+	}
+	if want := strings.Replace(changed, "line two\n", "line 2\n", 1); d.buf.String() != want {
+		t.Fatalf("after the arrow of the first block:\n%s", d.buf.String())
+	}
+	a.applyArrow(v, f, hunkOf(5), ars[0])
+	hs.settle()
+	if d.buf.String() != orig {
+		t.Fatalf("after the arrow of the second block:\n%s", d.buf.String())
+	}
+}
