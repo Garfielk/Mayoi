@@ -1145,7 +1145,13 @@ func (a *app) fileButtons(c *ui.Context, v *diffView, f *diffFile, right, y floa
 		bs = append(bs, button{iconMinus, "Unstage Changes", func() { a.unstage(entryPaths(e, true)...) }})
 	default:
 		if !e.Submodule() {
-			bs = append(bs, button{iconUndo, "Discard Changes…", func() { a.discard(e) }})
+			if f.letter == 'D' && !e.Untracked() {
+				bs = append(bs, button{iconUndo, "Restore File", func() { a.restoreDeletedFile(e) }})
+			} else if e.Untracked() {
+				bs = append(bs, button{iconUndo, "Remove File…", func() { a.discard(e) }})
+			} else {
+				bs = append(bs, button{iconUndo, "Discard Changes…", func() { a.discard(e) }})
+			}
 		}
 		bs = append(bs, button{iconPlus, "Stage Changes", func() { a.stage(e.Path) }})
 	}
