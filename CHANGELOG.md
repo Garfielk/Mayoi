@@ -5,6 +5,11 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
+- **Compare Two Files…** in the **Git** menu opens a diff of any two local
+  files, whether or not they are in the current repository. The tab names
+  both paths and each changed block offers **Accept Left** or **Accept Right**;
+  the chosen file is edited through its document history for undo, redo and
+  save, without staging either file.
 - Diffs can filter comparison whitespace from the **Whitespace** menu:
   exact, line-end, all whitespace, or whitespace plus blank lines. The
   filter changes only what the diff shows and counts; source text and block

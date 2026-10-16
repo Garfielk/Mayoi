@@ -1136,10 +1136,16 @@ func (a *app) fileButtons(c *ui.Context, v *diffView, f *diffFile, right, y floa
 		fn    func()
 	}
 	var bs []button
-	if f.letter != 'D' || f.base == diffStaged {
+	if f.base == diffLocal {
+		bs = append(bs,
+			button{iconOpenFile, "Open Left", func() { a.openFileAt(f.path, 0, true) }},
+			button{iconOpenFile, "Open Right", func() { a.openFileAt(f.peerPath, 0, true) }},
+		)
+	} else if f.letter != 'D' || f.base == diffStaged {
 		bs = append(bs, button{iconOpenFile, openLabel(e), func() { a.openFileAt(f.path, 0, true) }})
 	}
 	switch {
+	case f.base == diffLocal:
 	case f.base == diffCommit:
 	case f.base == diffStaged:
 		bs = append(bs, button{iconMinus, "Unstage Changes", func() { a.unstage(entryPaths(e, true)...) }})

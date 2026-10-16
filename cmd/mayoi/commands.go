@@ -104,6 +104,7 @@ func (a *app) commands() []command {
 		{"git.amend", "Amend Last Commit", "", func() { a.showSourceControl(); a.startAmend() }},
 		{"git.openChanges", "Open Changes", "", a.openChanges},
 		{"git.openAllChanges", "Open All Changes", "", func() { a.openChangesTab(true) }},
+		{"git.compareFiles", "Compare Two Files…", "", a.compareLocalFiles},
 		{"git.solveConflicts", "Solve the Conflicts of the Active File", "", a.solveActiveConflicts},
 		{"git.conflictFiles", "Show the Files in Conflict", "", a.openConflicts},
 		{"git.nextChange", "Next Change", "Alt+F5", func() { a.stepChange(1) }},
@@ -428,7 +429,7 @@ func (a *app) menu(cli bool, run func(id string, win *mygo.Window)) *mygo.Menu {
 		}},
 		{Label: "Git", Submenu: []*mygo.MenuItem{
 			item("git.commit"), item("git.commitPush"), item("git.amend"), item("git.undoCommit"), mygo.Separator(),
-			item("git.openChanges"), item("git.openAllChanges"), item("git.nextChange"), item("git.prevChange"), item("git.nextFile"), item("git.prevFile"), mygo.Separator(),
+			item("git.openChanges"), item("git.openAllChanges"), item("git.compareFiles"), item("git.nextChange"), item("git.prevChange"), item("git.nextFile"), item("git.prevFile"), mygo.Separator(),
 			item("git.showChange"), item("git.revertChange"), item("git.stageChange"), mygo.Separator(),
 			item("git.stageFile"), item("git.unstageFile"), item("git.stageAll"), mygo.Separator(),
 			item("git.switchBranch"), item("git.createBranch"), item("git.fetch"), item("git.pull"), item("git.push"), mygo.Separator(),

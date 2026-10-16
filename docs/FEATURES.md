@@ -163,6 +163,11 @@ when they are staged, or to discard them. Mayoi reads the index and the file aga
 are. Discarding edits an open file as a step of undo, and asks first for one that is not open. As you scroll through a
 file, its header stays at the top of the view with its buttons, and a click there folds the file.
 
+**Git → Compare Two Files…** compares two local files directly, including files outside the current repository. The
+tab names the left and right paths, and each changed block has **Accept Left** and **Accept Right** arrows. Accepting
+a side opens or reuses that file's document and records one undoable edit; save it from the file tab when ready. This
+comparison reads and writes local documents only and does not stage Git changes.
+
 Removed and added lines show in one column, or side by side with the lines of a change across from each other. The
 layout button in the breadcrumbs chooses side by side, one column, or side by side when each side has room for 80
 columns, which is the default. Words that changed within a line are tinted,
