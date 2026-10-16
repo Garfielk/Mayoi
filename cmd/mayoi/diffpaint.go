@@ -171,6 +171,12 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 	if len(rows) > 0 {
 		first, last = v.rowAt(v.scroll.Y, lineH), v.rowAt(v.scroll.Y+view.H, lineH)
 	}
+	paintFirst, paintLast := first, last
+	if v.split && !a.settings.DiffSyncScroll && len(rows) > 0 {
+		rightFirst := v.rowAt(v.sideY, lineH)
+		rightLast := v.rowAt(v.sideY+view.H, lineH)
+		paintFirst, paintLast = min(first, rightFirst), max(last, rightLast)
+	}
 	// The files read are those within a view's height of it, and the
 	// source control view chooses the file chosen, or at its top.
 	if len(rows) > 0 {
@@ -336,7 +342,7 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 			}
 			dim := func(col ui.Color) ui.Color { return col.Mix(p.editor, 0.55) }
 			neutral := p.gutter.Alpha(0.45)
-			for i := first; i <= last; i++ {
+			for i := paintFirst; i <= paintLast; i++ {
 				row := &rows[i]
 				file := v.files[row.file]
 				y := r.Y + editorPadY + float32(v.tops[i])*lineH

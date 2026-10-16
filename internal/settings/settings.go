@@ -123,7 +123,7 @@ type Prefs struct {
 	DiffWhitespace string `json:"diffWhitespace,omitempty"`
 	// DiffContext is how many unchanged lines a diff shows around a
 	// change, the rest folded away.
-	DiffContext int `json:"diffContext,omitempty"`
+	DiffContext int `json:"diffContext"`
 	// DiffSyncScroll has the sides of a side-by-side diff scroll
 	// together. Without it, each side scrolls on its own, and scrolls
 	// together again from where the right one was.

@@ -1042,7 +1042,9 @@ func (r *Repo) MergeSides(op Op) (ours, theirs MergeSide) {
 		theirs = r.sideOf("REVERT_HEAD")
 	case OpRebase:
 		theirs = r.sideOf("REBASE_HEAD")
-		if b := r.rebaseBranch(); b != "" {
+		if base := r.rebaseOnto(); base.Ref != "" {
+			ours = base
+		} else if b := r.rebaseBranch(); b != "" {
 			ours.Name = b
 		}
 	default:
@@ -1061,6 +1063,10 @@ func (r *Repo) sideOf(name string) MergeSide {
 	if hash == "" {
 		return MergeSide{Name: "Theirs"}
 	}
+	return r.sideRef(hash)
+}
+
+func (r *Repo) sideRef(hash string) MergeSide {
 	s := MergeSide{Ref: hash, Name: ShortHash(hash)}
 	if out, err := run(r.Root, nil, "name-rev", "--name-only", "--exclude", "refs/remotes/*", hash); err == nil {
 		if name := strings.TrimSpace(string(out)); name != "" && name != "undefined" {
@@ -1078,6 +1084,20 @@ func (r *Repo) rebaseBranch() string {
 		return ""
 	}
 	return strings.TrimPrefix(strings.TrimSpace(string(b)), "refs/heads/")
+}
+
+// rebaseOnto returns the commit currently checked out while rebase replays
+// the branch named by rebaseBranch.
+func (r *Repo) rebaseOnto() MergeSide {
+	b, err := vfs.ReadFile(filepath.Join(r.Dir, "rebase-merge", "onto"))
+	if err != nil {
+		return MergeSide{}
+	}
+	hash := strings.TrimSpace(string(b))
+	if hash == "" {
+		return MergeSide{}
+	}
+	return r.sideRef(hash)
 }
 
 // RestoreConflict puts a file back in conflict, as the command stopped

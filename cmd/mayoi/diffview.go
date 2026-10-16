@@ -188,6 +188,34 @@ func compareDiffLines(lines []string, mode diffWhitespace) []string {
 	return out
 }
 
+// withoutBlankHunks drops changes made only of whitespace-only lines. The
+// hunk offsets stay in the original line arrays so block actions still edit
+// the source text they were drawn from.
+func withoutBlankHunks(hs []linediff.Hunk, old, new []string) []linediff.Hunk {
+	out := hs[:0]
+	for _, h := range hs {
+		blank := true
+		for _, line := range old[h.A:min(h.A+h.ALen, len(old))] {
+			if strings.TrimSpace(line) != "" {
+				blank = false
+				break
+			}
+		}
+		if blank {
+			for _, line := range new[h.B:min(h.B+h.BLen, len(new))] {
+				if strings.TrimSpace(line) != "" {
+					blank = false
+					break
+				}
+			}
+		}
+		if !blank {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 // diffContextOf is how many unchanged lines the diffs show around a
 // change, as the settings say.
 func (a *app) diffContextOf() int {
@@ -920,6 +948,9 @@ func (a *app) refreshDiffFile(v *diffView, f *diffFile) bool {
 		var hunks []linediff.Hunk
 		if !binary {
 			hunks = linediff.Hunks(compareOld, compareNew)
+			if whitespace == whitespaceBlank {
+				hunks = withoutBlankHunks(hunks, oldLines, newLines)
+			}
 		}
 		unified, pairs := lineRows(oldLines, newLines, hunks)
 		widest := 0

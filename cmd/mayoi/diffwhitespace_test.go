@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"testing"
+
+	"mayoi/internal/linediff"
 )
 
 func TestDiffWhitespaceModes(t *testing.T) {
@@ -35,5 +37,14 @@ func TestDiffIgnoreLineEndHidesOnlyWhitespaceChange(t *testing.T) {
 	hs.settleDiff(hs.a.activeTab().diff)
 	if got := len(hs.a.activeTab().diff.files[0].hunks); got != 0 {
 		t.Fatalf("line-end-only change has %d hunks", got)
+	}
+}
+
+func TestDiffIgnoreBlankLinesHidesWhitespaceOnlyHunks(t *testing.T) {
+	old := []string{"one", "two"}
+	new := []string{"one", "  ", "two"}
+	got := linediff.Hunks(compareDiffLines(old, whitespaceBlank), compareDiffLines(new, whitespaceBlank))
+	if got = withoutBlankHunks(got, old, new); len(got) != 0 {
+		t.Fatalf("whitespace-only hunk remains: %#v", got)
 	}
 }

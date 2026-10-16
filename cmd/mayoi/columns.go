@@ -571,7 +571,7 @@ func (a *app) dropTab(t *colTab) {
 	if t.merge != nil {
 		v := t.merge
 		v.stop()
-		if v.doc != nil && a.docIndex(v.path) >= 0 {
+		if v.doc != nil && len(v.doc.views) == 0 && a.docIndex(v.path) >= 0 {
 			a.docs = slices.DeleteFunc(a.docs, func(d *document) bool { return d == v.doc })
 			if a.tree != nil {
 				a.tree.Unwatch(v.path)

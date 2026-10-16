@@ -733,8 +733,8 @@ func TestMergeSidesRebase(t *testing.T) {
 		t.Fatalf("the rebase went clean: %s", out)
 	}
 	ours, theirs := r.MergeSides(OpRebase)
-	if ours.Name != "main" {
-		t.Errorf("ours %+v, want the branch the rebase moves", ours)
+	if ours.Name != "side" {
+		t.Errorf("ours %+v, want the rebase base", ours)
 	}
 	if theirs.Name == "" || theirs.Name == "Theirs" {
 		t.Errorf("theirs %+v, want the commit it applies", theirs)

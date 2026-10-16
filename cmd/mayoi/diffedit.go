@@ -432,9 +432,15 @@ func diffCaretCol(f codeFont, text string, x, y float32, lineH float32, cols int
 	breaks := diffBreaks(shown, cols, wrap)
 	k := min(max(int(y/lineH), 0), len(breaks)-2)
 	lo, hi := breaks[k], breaks[k+1]
-	runes, best := 0, 0
-	for b := 0; b <= len(text); {
-		sb := min(at(min(b, len(text))), hi)
+	b, runes := 0, 0
+	for b < len(text) && at(b) < lo {
+		_, n := utf8.DecodeRuneInString(text[b:])
+		b += n
+		runes++
+	}
+	best := runes
+	for b <= len(text) {
+		sb := min(max(at(min(b, len(text))), lo), hi)
 		if f.width(shown[lo:sb]) > x {
 			break
 		}
@@ -454,7 +460,7 @@ func diffCaretCol(f codeFont, text string, x, y float32, lineH float32, cols int
 func diffCaretX(f codeFont, text string, col, cols int, wrap bool) (x float32, row int) {
 	shown, at := expandTabs(text)
 	breaks := diffBreaks(shown, cols, wrap)
-	b := len(text)
+	b := 0
 	for i, runes := 0, 0; i < len(text) && runes < col; {
 		_, n := utf8.DecodeRuneInString(text[i:])
 		i += n

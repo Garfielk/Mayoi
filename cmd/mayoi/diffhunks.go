@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -46,10 +47,14 @@ func hunkArrows(f *diffFile) []hunkArrow {
 		return nil
 	}
 	if f.base == diffLocal {
-		return []hunkArrow{
-			{dir: 1, label: "Accept Left", icon: iconArrowRight, tip: "Write the left file's lines into the right file"},
-			{dir: -1, label: "Accept Right", icon: iconArrowLeft, tip: "Write the right file's lines into the left file"},
+		var out []hunkArrow
+		if localFileWritable(f.peerPath) {
+			out = append(out, hunkArrow{dir: 1, label: "Accept Left", icon: iconArrowRight, tip: "Write the left file's lines into the right file"})
 		}
+		if localFileWritable(f.path) {
+			out = append(out, hunkArrow{dir: -1, label: "Accept Right", icon: iconArrowLeft, tip: "Write the right file's lines into the left file"})
+		}
+		return out
 	}
 	if f.base != diffIndex {
 		return nil
@@ -61,6 +66,11 @@ func hunkArrows(f *diffFile) []hunkArrow {
 		icon:  iconArrowRight,
 		tip:   "Revert this change: the lines of " + old + ", into the " + new + "; Control-click to append them",
 	}}
+}
+
+func localFileWritable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().Perm()&0222 != 0
 }
 
 // hunkActions returns what can be done to the changes of a file of a
@@ -287,6 +297,11 @@ func (a *app) appendHunks(f *diffFile, hs []linediff.Hunk) {
 		d, _ := a.editorOf(a.diffDoc(f))
 		if d == nil || d.loading || d.loadErr != nil || d.offline {
 			a.fail("Could not open %s to append its changes.", name)
+			return
+		}
+		if d.buf.Snapshot().String() != f.new.text {
+			f.diskStale = true
+			a.fail("%s has changed since the diff was drawn. It is read again: try again.", name)
 			return
 		}
 		a.appendInto(d, f, hs)

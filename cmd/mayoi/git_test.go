@@ -1922,7 +1922,7 @@ func TestDiffHighlightKeepsBlockActions(t *testing.T) {
 		if fl != f || !slices.Equal(hs2, f.hunks[:1]) {
 			t.Errorf("highlight %d: the changes of the line are %v", h, hs2)
 		}
-		if acts := hunkActions(fl); !slices.Equal(acts, []hunkAction{hunkDiscard, hunkStage}) {
+		if acts := hunkActions(fl); !slices.Equal(acts, []hunkAction{hunkDiscard, hunkStage, hunkAppend}) {
 			t.Errorf("highlight %d: actions %v", h, acts)
 		}
 		// The header of the run stands for all of the hunks it heads.

@@ -30,6 +30,15 @@ func TestCompareLocalFilesAcceptsEitherSide(t *testing.T) {
 	if len(ars) != 2 || ars[0].dir != 1 || ars[1].dir != -1 {
 		t.Fatalf("local arrows: %#v", ars)
 	}
+	if err := os.Chmod(left, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if ro := hunkArrows(f); len(ro) != 1 || ro[0].dir != 1 {
+		t.Fatalf("read-only left arrows: %#v", ro)
+	}
+	if err := os.Chmod(left, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	h := f.hunks[0]
 
 	// Accept Left opens and edits the right document, and the diff keyboard

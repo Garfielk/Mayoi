@@ -427,8 +427,10 @@ func (v *mergeView) name() string { return filepath.Base(v.path) }
 // stop lets go of the document's highlighter, as the tab closes.
 func (v *mergeView) stop() {
 	if v.doc != nil {
-		v.doc.hl.Close()
 		v.ed.release()
+		if len(v.doc.views) == 0 {
+			v.doc.hl.Close()
+		}
 	}
 }
 
@@ -493,6 +495,7 @@ func (a *app) refreshMerge(v *mergeView) {
 	go func() {
 		base, ours, theirs, err := r.Stages(path)
 		oursSide, theirsSide := r.MergeSides(op)
+		data, readErr := vfs.ReadFile(path)
 		a.post(func() {
 			v.loading = false
 			if a.git.repo != r {
@@ -515,7 +518,7 @@ func (a *app) refreshMerge(v *mergeView) {
 			if !v.binary {
 				v.regions = mergeRegions(v.baseLines, v.oursLines, v.theirsLines)
 			}
-			a.makeMergeResult(v)
+			a.makeMergeResult(v, data, readErr)
 			a.invalidate()
 		})
 	}()
@@ -524,10 +527,10 @@ func (a *app) refreshMerge(v *mergeView) {
 // makeMergeResult makes the document the middle pane edits: the base of
 // the conflict, or what the file has on disk when the work tree holds a
 // result of the merge saved before, without the markers of a conflict.
-func (a *app) makeMergeResult(v *mergeView) {
+func (a *app) makeMergeResult(v *mergeView, data []byte, diskErr error) {
 	text := v.base
 	fresh := true
-	if data, err := vfs.ReadFile(v.path); err == nil && !isBinary(data) {
+	if diskErr == nil && !isBinary(data) {
 		work := string(data)
 		crlf := bytes.Contains(data, []byte("\r\n"))
 		if crlf {
@@ -608,7 +611,13 @@ func (a *app) dropMergeSide(v *mergeView, i int, left bool) {
 	if r == nil {
 		return
 	}
-	a.replaceMergeRegion(v, r, clipLines(v.baseLines, r.baseLo, r.baseHi))
+	lines, lo, hi := v.baseLines, r.baseLo, r.baseHi
+	if left && r.takenR {
+		lines, lo, hi = v.theirsLines, r.theirsLo, r.theirsHi
+	} else if !left && r.takenL {
+		lines, lo, hi = v.oursLines, r.oursLo, r.oursHi
+	}
+	a.replaceMergeRegion(v, r, clipLines(lines, lo, hi))
 }
 
 // replaceMergeRegion puts lines in a region's place in the result, as
@@ -624,24 +633,32 @@ func (a *app) replaceMergeRegion(v *mergeView, r *mergeRegion, lines []string) {
 // hi, as one step of undo.
 func (v *mergeView) replaceLines(lo, hi int, lines []string) {
 	snap := v.doc.buf.Snapshot()
-	n := snap.LineCount()
-	if lo < 0 || lo > n || hi < lo {
+	e, ok := mergeTextEdit(snap, lo, hi, lines)
+	if !ok {
 		return
 	}
+	v.ed.edit(v.ed.sel, e)
+	v.syncRegions()
+}
+
+func mergeTextEdit(snap ui.TextSnapshot, lo, hi int, lines []string) (textEdit, bool) {
+	n := snap.LineCount()
+	if lo < 0 || lo > n || hi < lo || hi > n {
+		return textEdit{}, false
+	}
 	s, _ := snap.LineRange(lo)
-	e := snap.Len()
+	end := snap.Len()
 	if hi < n {
-		e, _ = snap.LineRange(hi) // where the line after the region starts
+		end, _ = snap.LineRange(hi)
 	}
 	text := strings.Join(lines, "\n")
 	if len(lines) > 0 && hi < n {
 		text += "\n"
 	}
-	if s == e && text == "" {
-		return
+	if s == end && text == "" {
+		return textEdit{}, false
 	}
-	v.ed.edit(v.ed.sel, textEdit{s, e, text})
-	v.syncRegions()
+	return textEdit{s, end, text}, true
 }
 
 // resolveUsingMerge puts one side's lines in the place of every region,
@@ -652,7 +669,6 @@ func (a *app) resolveUsingMerge(v *mergeView, left bool) {
 		return
 	}
 	snap := v.doc.buf.Snapshot()
-	n := snap.LineCount()
 	var edits []textEdit
 	last := -1
 	for _, r := range v.regions {
@@ -664,19 +680,9 @@ func (a *app) resolveUsingMerge(v *mergeView, left bool) {
 			lines, lo, hi = v.theirsLines, r.theirsLo, r.theirsHi
 		}
 		lines = clipLines(lines, lo, hi)
-		s, _ := snap.LineRange(r.atLo)
-		e := snap.Len()
-		if r.atHi < n {
-			e, _ = snap.LineRange(r.atHi) // where the line after it starts
+		if e, ok := mergeTextEdit(snap, r.atLo, r.atHi, lines); ok {
+			edits = append(edits, e)
 		}
-		text := strings.Join(lines, "\n")
-		if len(lines) > 0 && r.atHi < n {
-			text += "\n"
-		}
-		if s == e && text == "" {
-			continue
-		}
-		edits = append(edits, textEdit{s, e, text})
 		last = r.atHi
 	}
 	if len(edits) == 0 {
@@ -785,7 +791,6 @@ func (a *app) applyNonConflicts(v *mergeView, side applySide) {
 	}
 	slices.SortFunc(puts, func(x, y held) int { return x.h.alo - y.h.alo })
 	snap := v.doc.buf.Snapshot()
-	n := snap.LineCount()
 	var edits []textEdit
 	for _, put := range puts {
 		lines := v.oursLines
@@ -797,19 +802,9 @@ func (a *app) applyNonConflicts(v *mergeView, side applySide) {
 		if k < 0 || slices.Equal(clipLines(result, k, m), want) {
 			continue // not found, or the side's lines stand there already
 		}
-		s, _ := snap.LineRange(k)
-		e := snap.Len()
-		if m < n {
-			e, _ = snap.LineRange(m) // where the line after it starts
+		if e, ok := mergeTextEdit(snap, k, m, want); ok {
+			edits = append(edits, e)
 		}
-		text := strings.Join(want, "\n")
-		if len(want) > 0 && m < n {
-			text += "\n"
-		}
-		if s == e && text == "" {
-			continue
-		}
-		edits = append(edits, textEdit{s, e, text})
 	}
 	if len(edits) == 0 {
 		return
@@ -850,19 +845,21 @@ func (a *app) saveMerge(v *mergeView) {
 	if v.doc == nil {
 		return
 	}
-	if v.doc.dirty() || mergeOnDiskDiffers(v) {
+	if v.doc.dirty() {
 		a.saveDoc(v.doc, nil)
+		return
 	}
-}
-
-// mergeOnDiskDiffers reports whether the file on disk is not what the
-// result is, as it is while the file still has the conflict's markers.
-func mergeOnDiskDiffers(v *mergeView) bool {
-	data, err := vfs.ReadFile(v.path)
-	if err != nil {
-		return true
-	}
-	return v.doc.buf.String() != strings.ReplaceAll(string(data), "\r\n", "\n")
+	doc, path := v.doc, v.path
+	go func() {
+		data, err := vfs.ReadFile(path)
+		differs := err != nil || doc.buf.String() != strings.ReplaceAll(string(data), "\r\n", "\n")
+		a.post(func() {
+			if v.doc != doc || !differs {
+				return
+			}
+			a.saveDoc(doc, nil)
+		})
+	}()
 }
 
 // completeMerge saves the result and stages the file, which ends its
