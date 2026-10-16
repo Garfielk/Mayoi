@@ -70,9 +70,12 @@ func (a *app) rowUnder(v *diffView, x, y float32, l diffGeometry) int {
 
 // diffViewUI shows a diff: its rows painted in a pane that scrolls both
 // ways, keeping the line numbers in place, or down only as its lines wrap.
+// While its writable side is edited, the edits run first, as a frame is
+// built.
 func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 	p, f := a.pal, a.font
 	a.refreshDiff(v)
+	a.runDiffEdits(v, v.pane.FocusWithin(c))
 	message := func(msg string) {
 		ui.Column(c).Fill().Background(p.editor).Center().Children(func() {
 			ui.Text(c, msg).FontSize(13).TextColor(p.muted)
@@ -212,6 +215,13 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 	focused := v.pane.FocusWithin(c)
 	pane := ui.ScrollBoth(c.Key("diff")).TrackScroll(&v.scroll).Bind(&v.pane).Fill().Background(p.editor).
 		Focusable().FocusRing(false).Label("Diff of the Changes")
+	// While the working tree side is edited, the input methods type for
+	// the caret the diff paints.
+	if e := v.editing; e != nil {
+		if rc, ok := a.diffCaretRect(v, e, l); ok {
+			pane.TextCaret(rc)
+		}
+	}
 	a.takeKeys(pane, placeDiff, func(ev ui.InputEvent) bool {
 		if ev.Kind == ui.InputScroll && v.split && !a.settings.DiffSyncScroll && ev.X >= l.half {
 			// The right side scrolls on its own.
@@ -487,6 +497,10 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 					}
 					pt.Fill(ui.Rect{X: vx, Y: y, W: diffRailW, H: h}, p.accent, 0)
 				}
+			}
+			// The selection and the caret of the side being edited.
+			if e := v.editing; e != nil {
+				a.paintDiffEdit(pt, v, e, l, first, last, r, focused)
 			}
 			// The header of the file at the top, over its lines.
 			if sticky >= 0 {

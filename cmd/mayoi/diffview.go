@@ -267,6 +267,11 @@ type diffView struct {
 	// edited is the document an arrow of the diff last wrote: the undo
 	// of the diff, from its keyboard, works in it.
 	edited *document
+	// edits are the editors the diff made to edit the working tree sides
+	// of its files, and editing the one whose side the caret is in, nil
+	// while the diff reads as a pager.
+	edits   []*diffEdit
+	editing *diffEdit
 }
 
 // diffBoundary is where the navigation of a diff stopped: the step that
@@ -353,11 +358,15 @@ func (v *diffView) same(o *diffView) bool {
 	return v.commit.hash == o.commit.hash
 }
 
-// stop lets go of the highlighters.
+// stop lets go of the highlighters and the editors of the sides edited.
 func (v *diffView) stop() {
 	for _, f := range v.files {
 		f.stop()
 	}
+	for _, e := range v.edits {
+		e.ed.release()
+	}
+	v.edits, v.editing = nil, nil
 }
 
 // stop lets go of a file's highlighters.
@@ -1463,8 +1472,9 @@ func (a *app) undoDiff(v *diffView, redo bool) {
 }
 
 // diffInput takes the keys of a diff that has the keyboard: those of a
-// pager, as Hunk has them, and the undo and redo of the documents its
-// arrows have written.
+// pager, as Hunk has them, and, while its writable side is edited, the
+// typing and the keys of an editor. The undo and redo of the documents
+// its arrows have written remain available from the diff keyboard.
 func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
 	if ev.Kind == ui.InputKeyDown && v.edited != nil {
 		switch m := ev.Mods; {
@@ -1473,6 +1483,27 @@ func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
 			return true
 		case ev.Key == ui.KeyZ && m == ui.Cmd|ui.Shift, ev.Key == ui.KeyY && m == ui.Ctrl && ui.Cmd == ui.Ctrl:
 			a.undoDiff(v, true)
+			return true
+		}
+	}
+	// A line of the diff copies as it is, of the side the chosen row
+	// shows, while the diff reads as a pager.
+	if ev.Kind == ui.InputCommand && ev.Text == "copy" && v.editing == nil {
+		if s := v.diffChosenText(); s != "" {
+			a.services.WriteClipboard(s)
+			a.tell(note{message: "Copied the line"})
+			return true
+		}
+	}
+	if v.editing != nil {
+		if a.diffEditInput(v, ev) {
+			return true
+		}
+		// A key that types, or moves the caret, is not the pager's: the
+		// pager pages on, and the keys with cmd go on to the shortcuts.
+		if ev.Kind == ui.InputKeyDown && ev.Mods == ev.Mods&ui.Shift &&
+			ev.Key != ui.KeyPageDown && ev.Key != ui.KeyPageUp {
+
 			return true
 		}
 	}
@@ -1526,6 +1557,9 @@ func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
 		a.openDiffFile(v)
 	case ui.KeyS:
 		a.stageAtCursor(v)
+	case ui.KeyI:
+		// The working tree side of the chosen row takes the keys.
+		a.beginDiffEdit(v, v.focusRow())
 	default:
 		return false
 	}
@@ -1581,8 +1615,12 @@ func (a *app) openFileAt(path string, line int, focus bool) {
 
 // diffStatus is what the status bar says of a diff: what the navigation
 // said where it stopped, or which change of all it is at, and how many
-// lines the diff adds and removes, once every file is read.
+// lines the diff adds and removes, once every file is read. While its
+// writable side is edited, it says so.
 func (v *diffView) diffStatus() string {
+	if e := v.editing; e != nil {
+		return "Editing " + filepath.Base(e.f.path) + " · Esc when done"
+	}
 	if v.boundary != nil {
 		return v.boundary.msg
 	}
@@ -1708,6 +1746,26 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 			a.post(func() { a.setDiffSync(v, !a.settings.DiffSyncScroll) })
 		}
 	})
+	// Editing the working tree side of the file of the chosen row, which
+	// the I key does too.
+	if f := a.diffEditTarget(v); f != nil {
+		editing := v.editing != nil && v.editing.f == f
+		label := "Edit"
+		if editing {
+			label = "Editing"
+		}
+		b = button(iconPencil, label, editing)
+		b.Tooltip("Edit the working tree side of this file (I) · Esc when done")
+		if b.Clicked() {
+			a.post(func() {
+				if e := v.editing; e != nil && e.f == f {
+					a.endDiffEdit(v)
+					return
+				}
+				a.beginDiffEdit(v, v.focusRow())
+			})
+		}
+	}
 	act(iconOpenFile, "Open File (E)", func() { a.openDiffFile(v) })
 }
 
