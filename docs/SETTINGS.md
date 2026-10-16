@@ -59,6 +59,9 @@ takes its default.
 | `blame`                | `true`        | `true`, `false`                                             | **Git → Inline Blame**                         |
 | `diffLayout`           | `""`          | `""` (side by side when wide enough), `"split"`, `"inline"` | A diff's **Layout** button                     |
 | `diffCrossFiles`       | `""`          | `""` (say it, and cross on one more step), `"always"`, `"never"` | Only this file                            |
+| `diffHighlight`        | `""`          | `""` (changed words), `"line"`, `"char"`                  | A diff's **Highlight** menu                    |
+| `diffContext`          | `3`           | `0` to `100` unchanged lines around each change             | A diff's **Context** menu                     |
+| `diffSyncScroll`       | `true`        | `true`, `false`                                             | A diff's **Synchronized Scrolling** menu      |
 | `scmTree`              | `false`       | `true`, `false`                                             | **View as Tree** in Source Control's menu      |
 | `scmAllBranches`       | `false`       | `true`, `false`                                             | **Show All Branches** in Source Control's menu |
 
@@ -88,6 +91,11 @@ differ in width lines them up only roughly.
 - **`autoSave`** saves a changed file a moment after you stop typing, and when you leave it.
 - **`wordWrap`** wraps long lines at the edge of the editor. **⌥Z** wraps or unwraps one tab only, until this
   setting changes.
+- **`diffHighlight`** chooses whether changed lines show word-level, character-level or line-level tinting. The
+  highlighting changes how a diff looks; block actions still use whole line hunks.
+- **`diffContext`** keeps that many unchanged lines around each diff hunk visible and folds the rest.
+- **`diffSyncScroll`** keeps the two sides of a split diff aligned while scrolling. Turn it off to scroll each side
+  independently.
 - **`vim`** starts editors in vim's normal mode.
 - **`vimCtrlKeys`** gives ⌃F, ⌃B and ⌃R to vim's normal mode on Windows and Linux, rather than to Find, Toggle
   Sidebar and Open Recent. On macOS, where those commands use ⌘, vim always has them.
