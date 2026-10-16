@@ -29,6 +29,7 @@ const (
 	diffIndex                  // the index with the work tree: the changes not staged
 	diffStaged                 // HEAD with the index: the changes staged
 	diffCommit                 // a commit with its first parent
+	diffLocal                  // two local files, both writable
 )
 
 // sides names the two versions a diff compares.
@@ -38,6 +39,8 @@ func (b diffBase) sides() (old, new string) {
 		return "Index", "Working Tree"
 	case diffStaged:
 		return "HEAD", "Index"
+	case diffLocal:
+		return "Left File", "Right File"
 	}
 	return "HEAD", "Working Tree"
 }
@@ -205,11 +208,12 @@ type diffSide struct {
 // as the source control view lists it in group, and the changes between
 // them, read and compared in the background.
 type diffFile struct {
-	path   string
-	base   diffBase
-	group  scmGroup
-	entry  git.Entry
-	letter byte // its letter in the source control view
+	path     string
+	peerPath string // right-hand path for a local two-file comparison
+	base     diffBase
+	group    scmGroup
+	entry    git.Entry
+	letter   byte // its letter in the source control view
 
 	old, new diffSide
 	binary   bool
@@ -222,11 +226,12 @@ type diffFile struct {
 
 	// gitStale has the sides Git keeps read again, diskStale the work
 	// tree's file; docVersion is the version of the open document's text
-	// compared last.
-	gitStale, diskStale bool
-	docVersion          uint64
-	running, waiting    bool
-	started             time.Time
+	// compared last. peerDocVersion is the corresponding version of the
+	// right-hand document in a local two-file comparison.
+	gitStale, diskStale        bool
+	docVersion, peerDocVersion uint64
+	running, waiting           bool
+	started                    time.Time
 
 	// spans are the runs of a pair of lines that changed, as the diff
 	// showed them last, by the words or by the characters.
@@ -276,6 +281,7 @@ type diffView struct {
 	layout  diffLayout
 	split   bool // as the layout and the width chose last
 	full    bool // every unchanged line shows
+	local   bool // a comparison of two local files, outside Git status
 	wrap    *bool
 	wrapGen int
 
@@ -399,6 +405,17 @@ func newDiffView(layout diffLayout) *diffView {
 	return &diffView{layout: layout, current: -1, cursor: -1, jump: -1, near: [2]int{0, diffNear}}
 }
 
+func newLocalCompareView(layout diffLayout, left, right string) *diffView {
+	v := newDiffView(layout)
+	v.local = true
+	v.files = []*diffFile{{
+		path: left, peerPath: right, base: diffLocal, group: groupChanges,
+		entry: git.Entry{Path: left}, gitStale: true,
+	}}
+	v.near = [2]int{0, 1}
+	return v
+}
+
 // newCommitView makes the tab of a commit's changes, its message read
 // already in info when its hash is set.
 func newCommitView(layout diffLayout, hash string, info git.Commit) *diffView {
@@ -408,6 +425,9 @@ func newCommitView(layout diffLayout, hash string, info git.Commit) *diffView {
 }
 
 func (v *diffView) name() string {
+	if v.local && len(v.files) > 0 {
+		return filepath.Base(v.files[0].path) + " ↔ " + filepath.Base(v.files[0].peerPath)
+	}
 	if c := v.commit; c != nil {
 		if c.info.Subject != "" {
 			return c.info.Subject
@@ -531,6 +551,22 @@ func (a *app) showChanges(target diffTarget, focus bool) {
 	v.changed()
 }
 
+// compareLocalFiles opens a two-file diff. The dialog chooses exactly two
+// local paths; neither file is staged or otherwise changed by opening it.
+func (a *app) compareLocalFiles() {
+	a.host.choosePaths("Compare Two Files", "Compare", a.workDir(), false, func(paths []string) {
+		if len(paths) != 2 || paths[0] == paths[1] {
+			a.fail("Choose two different files to compare.")
+			return
+		}
+		col := a.column()
+		at := min(col.active+1, len(col.tabs))
+		v := newLocalCompareView(parseDiffLayout(a.settings.DiffLayout), paths[0], paths[1])
+		a.addTab(col, at, &colTab{diff: v})
+		a.activate(col, at, true)
+	})
+}
+
 // openChanges shows the changes of the file of the tab shown, or, from
 // the tab of the changes, the file at its chosen row.
 func (a *app) openChanges() {
@@ -614,6 +650,17 @@ func (a *app) diffDoc(f *diffFile) *document {
 		return nil
 	}
 	if i := a.docIndex(f.path); i >= 0 {
+		return a.docs[i]
+	}
+	return nil
+}
+
+// diffPeerDoc returns the right-hand document of a local file comparison.
+func (a *app) diffPeerDoc(f *diffFile) *document {
+	if f == nil || f.base != diffLocal || f.peerPath == "" {
+		return nil
+	}
+	if i := a.docIndex(f.peerPath); i >= 0 {
 		return a.docs[i]
 	}
 	return nil
@@ -725,7 +772,9 @@ func (a *app) listCommitFiles(v *diffView) {
 // again in the background, where one may have changed: the others wait
 // until they come near it.
 func (a *app) refreshDiff(v *diffView) {
-	a.listDiffFiles(v)
+	if !v.local {
+		a.listDiffFiles(v)
+	}
 	reading := 0
 	for _, f := range v.files {
 		if f.running {
@@ -759,15 +808,21 @@ func (a *app) refreshDiff(v *diffView) {
 // background when one may have changed, and reports whether it started.
 func (a *app) refreshDiffFile(v *diffView, f *diffFile) bool {
 	r := a.git.repo
-	if f.running || f.waiting || r == nil {
+	if f.running || f.waiting || (r == nil && f.base != diffLocal) {
 		return false
 	}
 	doc := a.diffDoc(f)
+	peerDoc := a.diffPeerDoc(f)
 	var snap ui.TextSnapshot
+	var peerSnap ui.TextSnapshot
 	edited := false
 	if doc != nil {
 		snap = doc.buf.Snapshot()
 		edited = snap.Version() != f.docVersion
+	}
+	if peerDoc != nil {
+		peerSnap = peerDoc.buf.Snapshot()
+		edited = edited || peerSnap.Version() != f.peerDocVersion
 	}
 	if f.loaded && !f.gitStale && !edited && !(f.diskStale && doc == nil) {
 		return false
@@ -783,8 +838,11 @@ func (a *app) refreshDiffFile(v *diffView, f *diffFile) bool {
 	if doc != nil {
 		f.docVersion = snap.Version()
 	}
+	if peerDoc != nil {
+		f.peerDocVersion = peerSnap.Version()
+	}
 	old, new := f.old, f.new
-	path, orig, base := f.path, f.entry.Orig, f.base
+	path, orig, base, peerPath := f.path, f.entry.Orig, f.base, f.peerPath
 	sub, dirty := f.entry.Submodule(), f.entry.Dirty()
 	whitespace := a.diffWhitespaceOf()
 	var hash, parent string
@@ -806,7 +864,20 @@ func (a *app) refreshDiffFile(v *diffView, f *diffFile) bool {
 			}
 			return text, ok
 		}
-		if readGit {
+		if base == diffLocal {
+			if doc != nil {
+				old.text, old.ok = snap.String(), true
+			} else {
+				old.text, _, err = readWork(path)
+				old.ok = err == nil
+			}
+			if peerDoc != nil {
+				new.text, new.ok = peerSnap.String(), true
+			} else {
+				new.text, _, err = readWork(peerPath)
+				new.ok = err == nil
+			}
+		} else if readGit {
 			switch base {
 			case diffIndex:
 				old.text, old.ok = read("", path)
@@ -824,6 +895,9 @@ func (a *app) refreshDiffFile(v *diffView, f *diffFile) bool {
 			}
 		}
 		switch {
+		case base == diffLocal:
+			// Both sides were read above; open documents are incorporated by
+			// the local comparison helpers when they are edited.
 		case doc != nil:
 			new.text, new.ok = snap.String(), true
 		case readDisk && sub && base != diffStaged && base != diffCommit:

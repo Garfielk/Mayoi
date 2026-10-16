@@ -37,15 +37,19 @@ type hunkArrow struct {
 }
 
 // hunkArrows returns the arrows of a file of a diff, one for each side
-// its changes can be written to. The work tree's text is the only side
-// written: the lines of the version it is compared against go over its
-// changes, which reverts them. The index is written by staging and
-// unstaging, which keep their own buttons, and the versions Git keeps
-// are read only, so they take no arrows — nor does a file one side of
-// the diff lacks whole, whose changes go in or out with the file itself.
+// its changes can be written to. A local comparison offers both sides;
+// Git's working tree diff offers only the revert arrow, while the index and
+// the versions Git keeps are read only. A file one side of the diff lacks
+// whole has no arrows, since its changes go in or out with the file itself.
 func hunkArrows(f *diffFile) []hunkArrow {
 	if !f.loaded || f.binary || !f.old.ok || !f.new.ok || f.entry.Submodule() {
 		return nil
+	}
+	if f.base == diffLocal {
+		return []hunkArrow{
+			{dir: 1, label: "Accept Left", icon: iconArrowRight, tip: "Write the left file's lines into the right file"},
+			{dir: -1, label: "Accept Right", icon: iconArrowLeft, tip: "Write the right file's lines into the left file"},
+		}
 	}
 	if f.base != diffIndex {
 		return nil
@@ -362,46 +366,58 @@ func (a *app) hunkArrowUI(c *ui.Context, v *diffView, k, first, last int, l diff
 		return ui.Rect{}
 	}
 	h := f.hunks[v.rows[from].hunk]
-	ar := ars[0]
 	p := a.pal
 	mid := (float32(v.tops[from]) + float32(v.tops[to-1]+v.rows[to-1].h)) / 2
 	y := editorPadY + mid*a.font.lineH - hunkArrowW/2
-	x := v.scroll.X + diffRailW
+	center := v.scroll.X + diffRailW
 	if v.split {
-		x = v.scroll.X + l.half - hunkArrowW/2
+		center = v.scroll.X + l.half - hunkArrowW/2
 	}
-	btn := ui.ButtonBase(c.Key(fmt.Sprintf("arrow:%d", k))).Absolute().Left(x).Top(y).Size(hunkArrowW, hunkArrowW).
-		Radius(hunkArrowW/2).AlignItems(ui.Center).Justify(ui.Center).Label(ar.label).Tooltip(ar.tip).
-		Background(p.editor).Border(1, p.border)
-	col := p.muted
-	if btn.Hovered() {
-		btn.Background(p.hover.Over(p.editor))
-		col = p.text
+	out := ui.Rect{}
+	for i, ar := range ars {
+		x := center
+		if len(ars) > 1 {
+			x += float32(i) * hunkArrowW
+		}
+		btn := ui.ButtonBase(c.Key(fmt.Sprintf("arrow:%d:%d", k, i))).Absolute().Left(x).Top(y).Size(hunkArrowW, hunkArrowW).
+			Radius(hunkArrowW/2).AlignItems(ui.Center).Justify(ui.Center).Label(ar.label).Tooltip(ar.tip).
+			Background(p.editor).Border(1, p.border)
+		col := p.muted
+		if btn.Hovered() {
+			btn.Background(p.hover.Over(p.editor))
+			col = p.text
+		}
+		btn.Children(func() { ui.Icon(c, ar.icon).FontSize(hunkArrowW - 3).TextColor(col) })
+		if btn.Clicked() {
+			append := btn.ClickModifiers()&ui.Ctrl != 0 && f.base != diffLocal
+			a.post(func() {
+				v.pane.Focus()
+				if append {
+					a.appendHunks(f, []linediff.Hunk{h})
+				} else {
+					a.applyArrow(v, f, h, ar)
+				}
+			})
+		}
+		r := ui.Rect{X: x, Y: y, W: hunkArrowW, H: hunkArrowW}
+		if out.W == 0 {
+			out = r
+		} else {
+			out.W = r.X + r.W - out.X
+		}
 	}
-	btn.Children(func() {
-		ui.Icon(c, ar.icon).FontSize(hunkArrowW - 3).TextColor(col)
-	})
-	if btn.Clicked() {
-		append := btn.ClickModifiers()&ui.Ctrl != 0
-		a.post(func() {
-			v.pane.Focus()
-			if append {
-				a.appendHunks(f, []linediff.Hunk{h})
-			} else {
-				a.applyArrow(v, f, h, ar)
-			}
-		})
-	}
-	return ui.Rect{X: x, Y: y, W: hunkArrowW, H: hunkArrowW}
+	return out
 }
 
 // applyArrow does what the arrow of a change of a diff does: puts the
 // lines of the side it reads in place of the change's lines of the side
 // it writes, in a document of that side's text, as one step of undo. The
-// work tree's side is the one written, from the version it is compared
-// against, which reverts the change; the diff v keeps the document, as
-// the undo of its keyboard works in it.
+// diff v keeps the document, as the undo of its keyboard works in it.
 func (a *app) applyArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunkArrow) {
+	if f.base == diffLocal {
+		a.applyLocalArrow(v, f, h, ar)
+		return
+	}
 	switch {
 	case ar.dir > 0:
 		a.revertInto(v, f, []linediff.Hunk{h}, ar.label)
@@ -409,6 +425,73 @@ func (a *app) applyArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunkArrow
 		// No side these diffs compare is written from its new side: the
 		// index goes on by staging, and the versions Git keeps are read
 		// only, so no such arrow is offered.
+	}
+}
+
+// applyLocalArrow writes one side of a local two-file comparison into the
+// other side's document. The target is opened when needed so the edit joins
+// that file's normal undo and save history.
+func (a *app) applyLocalArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunkArrow) {
+	if f.running || !f.loaded || f.binary || !f.old.ok || !f.new.ok {
+		a.fail("The diff is catching up with the files: try again in a moment.")
+		return
+	}
+	var path, expected string
+	var target linediff.Hunk
+	var lines []string
+	var version uint64
+	if h.A < 0 || h.B < 0 || h.A+h.ALen > len(f.old.lines) || h.B+h.BLen > len(f.new.lines) {
+		return
+	}
+	switch {
+	case ar.dir > 0:
+		path, expected, target, lines, version = f.peerPath, f.new.text, h, f.old.lines[h.A:h.A+h.ALen], f.peerDocVersion
+	default:
+		path, expected = f.path, f.old.text
+		target = linediff.Hunk{A: h.B, ALen: h.BLen, B: h.A, BLen: h.ALen}
+		lines, version = f.new.lines[h.B:h.B+h.BLen], f.docVersion
+	}
+	if path == "" {
+		return
+	}
+	doc := a.diffDoc(f)
+	if ar.dir > 0 {
+		doc = a.diffPeerDoc(f)
+	}
+	if doc != nil && version != 0 && doc.buf.Version() != version {
+		a.fail("The diff is catching up with your edits: try again in a moment.")
+		return
+	}
+	if doc == nil {
+		a.openFile(path, false)
+		if ar.dir > 0 {
+			doc = a.diffPeerDoc(f)
+		} else {
+			doc = a.diffDoc(f)
+		}
+	}
+	if doc == nil || doc.locked() {
+		a.fail("Could not open %s to apply this change.", filepath.Base(path))
+		return
+	}
+	if got := doc.buf.Snapshot().String(); got != expected {
+		f.diskStale = true
+		a.fail("%s has changed since the diff was drawn. It is read again: try again.", filepath.Base(path))
+		return
+	}
+	d, _ := a.editorOf(doc)
+	if d == nil {
+		d = newEditor(doc)
+	}
+	e, ok := hunkEdit(doc.buf.Snapshot(), target, lines)
+	if !ok {
+		a.fail("The diff no longer fits the file: try again in a moment.")
+		return
+	}
+	d.peek = -1
+	d.edit([2]int{e.start, e.start}, e)
+	if v != nil {
+		v.edited = doc
 	}
 }
 
