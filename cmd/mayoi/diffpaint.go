@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -232,6 +233,7 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 			}
 		}
 		var buttons, hunkButtons, cardRect ui.Rect
+		var arrowRects []ui.Rect
 		box.Children(func() {
 			if card != nil && first == 0 && rows[0].kind == rowCommit {
 				cardRect = ui.Rect{X: v.scroll.X, Y: editorPadY + float32(v.tops[0])*lineH, W: view.W, H: float32(rows[0].h) * lineH}
@@ -259,11 +261,22 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 				}
 				hunkButtons = a.hunkButtons(c, v, h, v.scroll.X+view.W, contentW, editorPadY+float32(v.tops[h])*lineH)
 			}
+			// The arrow of every change in view that can be applied: the
+			// lines of one of its sides put in place of its lines of the
+			// other.
+			for k := range v.starts {
+				if r := a.hunkArrowUI(c, v, k, first, last, l); r.W > 0 {
+					arrowRects = append(arrowRects, r)
+				}
+			}
 		})
 		// A click chooses a row, and opens a gap or folds a file; a double
 		// click opens the file at a line, unless its first click did that.
+		arrowed := func(x, y float32) bool {
+			return slices.ContainsFunc(arrowRects, func(r ui.Rect) bool { return r.Contains(x, y) })
+		}
 		if clicked, double := box.Clicked(), box.DoubleClicked(); clicked || double {
-			if x, y, ok := box.PointerPosition(); ok && len(rows) > 0 && !buttons.Contains(x, y) && !hunkButtons.Contains(x, y) && !cardRect.Contains(x, y) {
+			if x, y, ok := box.PointerPosition(); ok && len(rows) > 0 && !buttons.Contains(x, y) && !hunkButtons.Contains(x, y) && !cardRect.Contains(x, y) && !arrowed(x, y) {
 				i := a.rowUnder(v, x, y, l)
 				stuck := onSticky(y)
 				if stuck {
@@ -743,8 +756,13 @@ func (a *app) layOutCommitCard(c *ui.Context, v *diffView, w float32) *commitCar
 		when := "committed " + ago(info.Time, time.Now()) + " · " + info.Time.Format("Jan 2, 2006 15:04")
 		pieces = append(pieces, text(label(when, 400, p.muted), false))
 	}
+	// What the diff of a commit compares: its first parent's version into
+	// its own, which the hash piece finishes.
+	if len(info.Parents) > 0 {
+		pieces = append(pieces, text(label(git.ShortHash(info.Parents[0])+" →", 400, p.faint), true))
+	}
 	hash := ui.Span{Text: git.ShortHash(cm.hash), Font: a.font.family, Size: a.font.size - 1, Color: p.accent}
-	pieces = append(pieces, cardPiece{w: measure(hash) + 12, dot: true, show: func() {
+	pieces = append(pieces, cardPiece{w: measure(hash) + 12, dot: len(info.Parents) == 0, show: func() {
 		b := ui.ButtonBase(c.Key("card-hash")).Height(18).Padding(0, 6).Radius(5).AlignItems(ui.Center).
 			Background(p.accent.Alpha(0.1)).Label("Copy Commit Hash").Tooltip("Copy Commit Hash")
 		if b.Hovered() {

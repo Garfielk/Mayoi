@@ -264,6 +264,9 @@ type diffView struct {
 	// stopped, at an end of a file or of the diff, until one more step
 	// that way crosses into another file, nil for none.
 	boundary *diffBoundary
+	// edited is the document an arrow of the diff last wrote: the undo
+	// of the diff, from its keyboard, works in it.
+	edited *document
 }
 
 // diffBoundary is where the navigation of a diff stopped: the step that
@@ -961,6 +964,16 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 			all = f.pairs
 		}
 		v.rows = foldRows(v.rows, f, i, all, v.full, b.context)
+		// A file one side of the diff lacks whole is not changed by arrows:
+		// its changes go in or out with the file itself, as the buttons of
+		// its header do them, and the diff says so.
+		if (f.base == diffIndex || f.base == diffStaged) && len(f.hunks) > 0 && (!f.old.ok || !f.new.ok) {
+			note := "The whole file is new: its changes have no arrows; the buttons of its header stage it or remove it."
+			if !f.new.ok {
+				note = "The whole file is gone: its changes have no arrows; the buttons of its header stage the deletion or bring the file back."
+			}
+			v.rows = append(v.rows, diffRow{kind: rowNote, file: i, old: -1, new: -1, hunk: -1, peer: -1, gap: -1, h: 1, label: note})
+		}
 	}
 	for i := range v.rows {
 		r := &v.rows[i]
@@ -1424,9 +1437,45 @@ func (a *app) toggleGap(v *diffView, i int) {
 	}
 }
 
+// undoDiff takes back the change an arrow of the diff last put in a
+// document, or makes it again for a redo, as the undo of the diff does
+// from its keyboard.
+func (a *app) undoDiff(v *diffView, redo bool) {
+	if v.edited == nil {
+		return
+	}
+	d, shown := a.editorOf(v.edited)
+	if d == nil {
+		return
+	}
+	cmd := func(d *editor) {
+		if redo {
+			d.redo()
+		} else {
+			d.undo()
+		}
+	}
+	if shown {
+		a.queueEdit(d, cmd)
+	} else {
+		cmd(d)
+	}
+}
+
 // diffInput takes the keys of a diff that has the keyboard: those of a
-// pager, as Hunk has them.
+// pager, as Hunk has them, and the undo and redo of the documents its
+// arrows have written.
 func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
+	if ev.Kind == ui.InputKeyDown && v.edited != nil {
+		switch m := ev.Mods; {
+		case ev.Key == ui.KeyZ && m == ui.Cmd:
+			a.undoDiff(v, false)
+			return true
+		case ev.Key == ui.KeyZ && m == ui.Cmd|ui.Shift, ev.Key == ui.KeyY && m == ui.Ctrl && ui.Cmd == ui.Ctrl:
+			a.undoDiff(v, true)
+			return true
+		}
+	}
 	if ev.Kind != ui.InputKeyDown || ev.Mods&^ui.Shift != 0 {
 		return false
 	}

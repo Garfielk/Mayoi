@@ -5,6 +5,16 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
+- Every block of a diff of the changes not staged has a round arrow, by its
+  lines in either layout, that puts the lines of the version it is compared
+  against in place of the block's own: the lines of the Index going into the
+  work tree revert the block, in the file's document, as one step of undo,
+  and the arrow says which versions it reads and writes. Blocks beside it
+  keep their changes, the view stays near where it was as the diff is read
+  again, and ⌘Z and ⇧⌘Z undo and redo from the diff's keyboard. The changes
+  staged and a commit's take no arrows: the index goes on by staging, and
+  the versions Git keeps are read only — a file that a diff adds or deletes
+  whole says so under its lines, with what the buttons of its header do.
 - Discarding changes block by block in a diff now always goes through the
   file's document, also when the file was not open: the discard is one
   step of undo, the tab shows the file as changed until it is saved, and
