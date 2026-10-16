@@ -526,6 +526,7 @@ func (a *app) refreshMerge(v *mergeView) {
 // result of the merge saved before, without the markers of a conflict.
 func (a *app) makeMergeResult(v *mergeView) {
 	text := v.base
+	fresh := true
 	if data, err := vfs.ReadFile(v.path); err == nil && !isBinary(data) {
 		work := string(data)
 		crlf := bytes.Contains(data, []byte("\r\n"))
@@ -535,6 +536,7 @@ func (a *app) makeMergeResult(v *mergeView) {
 		if !hasConflictMarkers(work) {
 			text = work
 			v.crlf = crlf
+			fresh = false
 		}
 	}
 	if i := a.docIndex(v.path); i >= 0 {
@@ -553,6 +555,12 @@ func (a *app) makeMergeResult(v *mergeView) {
 	}
 	v.ed = newEditor(v.doc)
 	v.syncRegions()
+	// A result that starts from the base takes the changes that no
+	// conflict holds at once, when the settings have it: the conflicts
+	// stand, for the hand to decide.
+	if fresh && a.settings.MergeAutoApply {
+		a.applyNonConflicts(v, applyAll)
+	}
 	// The first conflict stands chosen, for its actions to be at hand.
 	if v.chosen < 0 && len(v.regions) > 0 {
 		v.chosen, v.current = 0, 0
@@ -678,6 +686,150 @@ func (a *app) resolveUsingMerge(v *mergeView, left bool) {
 	v.syncRegions()
 }
 
+// applySide is the sides whose changes that no conflict holds a batch
+// application takes.
+type applySide uint8
+
+const (
+	applyAll   applySide = iota // both sides'
+	applyLeft                   // ours' alone
+	applyRight                  // theirs' alone
+)
+
+// notHeld returns the hunks of a side that no conflict of the merge
+// holds: the changes a batch application may take without a hand's
+// judgment. A hunk a conflict holds touches its lines of the base.
+func notHeld(regions []*mergeRegion, hs []sideHunk) []sideHunk {
+	var out []sideHunk
+	for _, h := range hs {
+		held := false
+		for _, r := range regions {
+			if h.alo <= r.baseHi && h.ahi >= r.baseLo {
+				held = true
+				break
+			}
+		}
+		if !held {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// locateBase finds where the base's lines [alo,ahi) stand in result, as
+// the base has them or as want has, which a side took them for: from the
+// hunk of the result that holds the range, or where the hunks before it
+// push it down. -1 when the result has changed them beyond finding, so
+// that an application cannot write over lines it does not know.
+func (v *mergeView) locateBase(result []string, hs []sideHunk, alo, ahi int, want []string) (int, int) {
+	at := -1
+	for k, h := range hs {
+		if h.alo <= alo && h.ahi >= ahi {
+			at = k
+			break
+		}
+	}
+	base := clipLines(v.baseLines, alo, ahi)
+	lo, hi := -1, -1
+	if at >= 0 {
+		h := hs[at]
+		lo, hi = h.blo, h.bhi
+		if h.alo < alo || h.ahi > ahi {
+			if k := indexSeq(result, lo, hi, want); k >= 0 {
+				lo, hi = k, k+len(want)
+			} else if k := indexSeq(result, lo, hi, base); k >= 0 {
+				lo, hi = k, k+len(base)
+			} else {
+				return -1, -1
+			}
+		}
+	} else {
+		off := shifted(hs, alo)
+		lo, hi = alo+off, ahi+off
+	}
+	if lo < 0 || hi < lo || hi > len(result) {
+		return -1, -1
+	}
+	content := clipLines(result, lo, hi)
+	if slices.Equal(content, want) || slices.Equal(content, base) {
+		return lo, hi
+	}
+	return -1, -1
+}
+
+// applyNonConflicts puts the changes of a side that no conflict of the
+// merge holds in the result, where the base still has them, as one step
+// of undo. The conflicts stand: the batch takes no line the hand must
+// judge, and passes a change it cannot find the base's lines for, as one
+// the result has changed beyond finding.
+func (a *app) applyNonConflicts(v *mergeView, side applySide) {
+	if v.doc == nil || v.ed == nil || v.binary {
+		return
+	}
+	result := v.resultLines()
+	hs := hunksOf(v.baseLines, result)
+	type held struct {
+		h    sideHunk
+		left bool
+	}
+	var puts []held
+	if side != applyRight {
+		for _, h := range notHeld(v.regions, hunksOf(v.baseLines, v.oursLines)) {
+			puts = append(puts, held{h, true})
+		}
+	}
+	if side != applyLeft {
+		for _, h := range notHeld(v.regions, hunksOf(v.baseLines, v.theirsLines)) {
+			puts = append(puts, held{h, false})
+		}
+	}
+	slices.SortFunc(puts, func(x, y held) int { return x.h.alo - y.h.alo })
+	snap := v.doc.buf.Snapshot()
+	n := snap.LineCount()
+	var edits []textEdit
+	for _, put := range puts {
+		lines := v.oursLines
+		if !put.left {
+			lines = v.theirsLines
+		}
+		want := clipLines(lines, put.h.blo, put.h.bhi)
+		k, m := v.locateBase(result, hs, put.h.alo, put.h.ahi, want)
+		if k < 0 || slices.Equal(clipLines(result, k, m), want) {
+			continue // not found, or the side's lines stand there already
+		}
+		s, _ := snap.LineRange(k)
+		e := snap.Len()
+		if m < n {
+			e, _ = snap.LineRange(m) // where the line after it starts
+		}
+		text := strings.Join(want, "\n")
+		if len(want) > 0 && m < n {
+			text += "\n"
+		}
+		if s == e && text == "" {
+			continue
+		}
+		edits = append(edits, textEdit{s, e, text})
+	}
+	if len(edits) == 0 {
+		return
+	}
+	v.ed.edit(v.ed.sel, edits...)
+	v.syncRegions()
+}
+
+// setMergeAutoApply has a result that starts from the base take the
+// changes that no conflict holds as it opens, or not, as the settings
+// keep it.
+func (a *app) setMergeAutoApply(on bool) {
+	if a.settings.MergeAutoApply == on {
+		return
+	}
+	a.settings.MergeAutoApply = on
+	a.settings.Changed()
+	a.invalidate()
+}
+
 // resetMerge puts the base's text in the result, which takes back what
 // every region took, as one step of undo.
 func (a *app) resetMerge(v *mergeView) {
@@ -691,11 +843,26 @@ func (a *app) resetMerge(v *mergeView) {
 	v.syncRegions()
 }
 
-// saveMerge saves the result in the file.
+// saveMerge saves the result in the file, also when the result stands as
+// it started, for the file on disk may still have the conflict's markers,
+// which the result never shows.
 func (a *app) saveMerge(v *mergeView) {
-	if v.doc != nil && v.doc.dirty() {
+	if v.doc == nil {
+		return
+	}
+	if v.doc.dirty() || mergeOnDiskDiffers(v) {
 		a.saveDoc(v.doc, nil)
 	}
+}
+
+// mergeOnDiskDiffers reports whether the file on disk is not what the
+// result is, as it is while the file still has the conflict's markers.
+func mergeOnDiskDiffers(v *mergeView) bool {
+	data, err := vfs.ReadFile(v.path)
+	if err != nil {
+		return true
+	}
+	return v.doc.buf.String() != strings.ReplaceAll(string(data), "\r\n", "\n")
 }
 
 // completeMerge saves the result and stages the file, which ends its
@@ -706,21 +873,33 @@ func (a *app) completeMerge(v *mergeView) {
 	}
 	path := v.path
 	a.saveDoc(v.doc, func() {
-		a.stage(path)
-		a.tell(note{message: "Marked " + filepath.Base(path) + " resolved"})
+		a.gitDo("", func(r *git.Repo) error { return r.Stage(path) }, func() {
+			a.noteMergeResolved(path)
+			a.tell(note{message: "Marked " + filepath.Base(path) + " resolved"})
+		})
 	})
 }
 
 // restoreMerge puts a file back in conflict, once asked, that the
 // command stopped for has staged as resolved.
 func (a *app) restoreMerge(v *mergeView) {
-	path := v.path
+	a.revertMergeConflict(v.path)
+}
+
+// revertMergeConflict puts a file back in conflict, once asked: the
+// result saved goes, and the two sides of the conflict come back, as the
+// command stopped for them has them. A merge view of the file starts its
+// result over at the base.
+func (a *app) revertMergeConflict(path string) {
 	a.confirm = &confirm{title: "Put " + filepath.Base(path) + " back in conflict?", ok: "Restore", danger: true,
 		message: "The result saved goes, and the two sides of the conflict come back, as the command stopped for them has them.",
 		run: func() {
 			a.gitDo("", func(r *git.Repo) error { return r.RestoreConflict(path) }, func() {
 				if t := a.mergeTab(path); t != nil {
 					a.resetMerge(t.merge)
+					if a.settings.MergeAutoApply {
+						a.applyNonConflicts(t.merge, applyAll)
+					}
 				}
 			})
 		}}

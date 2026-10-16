@@ -70,6 +70,17 @@ needs a `## <version>` section here, or its build fails.
   the loop with the merge, rebase, cherry-pick or revert it belongs to. A
   resolved file goes back in conflict with **Restore Conflict…**, and a
   merge left and reopened goes on where its saved result stood.
+- A merge that stopped for conflicts now works file by file: the merge
+  view lists **the files in conflict** — resolved ones among them, with
+  their resolution to take back — and says how many of them stand. The
+  changes of a side that no conflict of the file holds are applied into
+  the result as it opens (**Apply Automatically** in the Apply menu turns
+  that off), or from the menu for both sides or a side's own, as one step
+  of undo; the conflicts themselves stand for the hand to decide.
+  **Apply Changes** saves the result, stages the file and opens the next
+  file in conflict; **Save and Close** saves it and goes back to the
+  list. The list shows of itself when a command stops for conflicts, and
+  the merge goes on once every file of it stands resolved.
 
 ## 0.9.1
 

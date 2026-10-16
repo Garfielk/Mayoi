@@ -105,6 +105,7 @@ func (a *app) commands() []command {
 		{"git.openChanges", "Open Changes", "", a.openChanges},
 		{"git.openAllChanges", "Open All Changes", "", func() { a.openChangesTab(true) }},
 		{"git.solveConflicts", "Solve the Conflicts of the Active File", "", a.solveActiveConflicts},
+		{"git.conflictFiles", "Show the Files in Conflict", "", a.openConflicts},
 		{"git.nextChange", "Next Change", "Alt+F5", func() { a.stepChange(1) }},
 		{"git.prevChange", "Previous Change", "Shift+Alt+F5", func() { a.stepChange(-1) }},
 		{"git.nextFile", "Next File", "", func() { a.stepDiffFile(1) }},

@@ -124,6 +124,10 @@ type Prefs struct {
 	// together. Without it, each side scrolls on its own, and scrolls
 	// together again from where the right one was.
 	DiffSyncScroll bool `json:"diffSyncScroll"`
+	// MergeAutoApply puts the changes of a conflicted file that no
+	// conflict holds in its result when the merge view opens. The
+	// conflicts stand, for the hand to decide.
+	MergeAutoApply bool `json:"mergeAutoApply"`
 	// ScmTree lists the changes in source control in a tree of their
 	// folders, rather than by path.
 	ScmTree bool `json:"scmTree,omitempty"`
@@ -246,7 +250,7 @@ func Default() *Settings {
 		Prefs: Prefs{
 			FontSize: 13, FontFamily: "monospace", FontWeight: 400, LineHeight: 1.55,
 			AutoSave: true, Blame: true, TerminalCopyOnSelect: true,
-			DiffContext: 3, DiffSyncScroll: true,
+			DiffContext: 3, DiffSyncScroll: true, MergeAutoApply: true,
 		},
 	}
 }

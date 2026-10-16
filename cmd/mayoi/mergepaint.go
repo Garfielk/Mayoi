@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 
 	"github.com/egoist/mygo/ui"
@@ -67,10 +68,12 @@ func (a *app) mergeViewUI(c *ui.Context, v *mergeView) {
 }
 
 // mergeHead is the bar over the panes: the file in conflict, how many of
-// its conflicts stand, and what ends them.
+// its conflicts stand, how many of the files of the merge stand resolved,
+// and what ends them.
 func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 	p := a.pal
 	resolved := a.mergeResolved(v)
+	filesResolved, filesTotal := a.mergeResolvedCount()
 	ui.Row(c).Height(30).Padding(0, 10, 0, 8).Gap(8).AlignItems(ui.Center).Background(p.chrome).Children(func() {
 		ui.Icon(c, iconMerge).FontSize(14).TextColor(p.changed)
 		ui.Text(c, v.name()).FontSize(12.5).FontWeight(600).TextColor(p.text).SingleLine().Shrink(0)
@@ -93,7 +96,36 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 				ui.RichText(c, ui.Span{Text: fmt.Sprintf("%d of %d", un, n), Size: 10.5, Weight: 600, Color: p.text}).SingleLine()
 			})
 		}
+		if filesTotal > 1 {
+			ui.Text(c, fmt.Sprintf("%d of %d files resolved", filesResolved, filesTotal)).
+				FontSize(11).TextColor(p.muted).SingleLine().Shrink(0).
+				Tooltip("The files of the " + cmp.Or(v.op.Title(), "merge") + " that stand resolved")
+		}
 		ui.Spacer(c)
+		if !resolved && !v.binary && v.loaded {
+			b := ui.ButtonBase(c.Key("merge-apply")).Height(20).Padding(0, 8).Radius(5).AlignItems(ui.Center).
+				Label("Apply").Tooltip("Take the changes of a side that no conflict of the merge holds into the result")
+			if b.Hovered() {
+				b.Background(p.hover)
+			}
+			b.Menu(func(m *ui.Menu) {
+				if m.Item("Apply All Non-Conflicting Changes").Chosen() {
+					a.post(func() { a.applyNonConflicts(v, applyAll) })
+				}
+				if m.Item("Apply Non-Conflicting Changes from the Left").Chosen() {
+					a.post(func() { a.applyNonConflicts(v, applyLeft) })
+				}
+				if m.Item("Apply Non-Conflicting Changes from the Right").Chosen() {
+					a.post(func() { a.applyNonConflicts(v, applyRight) })
+				}
+				if m.Item("Apply Automatically").Checked(a.settings.MergeAutoApply).Chosen() {
+					a.post(func() { a.setMergeAutoApply(!a.settings.MergeAutoApply) })
+				}
+			})
+			b.Children(func() {
+				ui.Text(c, "Apply").FontSize(11.5).FontWeight(500).TextColor(p.text).SingleLine()
+			})
+		}
 		if !resolved {
 			if a.mergeButton(c, "merge-reset", "Reset to Base", "Put the base's text in the result, taking back what every conflict took") {
 				a.post(func() { a.resetMerge(v) })
@@ -101,6 +133,15 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 		}
 		if a.mergeButton(c, "merge-save", "Save", "Save the result in the file (Cmd+S)") {
 			a.post(func() { a.saveMerge(v) })
+		}
+		if !resolved && filesTotal > 1 && a.mergeButton(c, "merge-apply-next", "Apply Changes", "Save the result, stage the file, and go on to the next file in conflict") {
+			a.post(func() { a.applyMergeChanges(v) })
+		}
+		if filesTotal > 0 && a.mergeButton(c, "merge-save-close", "Save and Close", "Save the result, and go back to the files in conflict") {
+			a.post(func() { a.saveCloseMerge(v) })
+		}
+		if filesTotal > 0 && a.mergeButton(c, "merge-files", "Conflicts…", "The files of the "+cmp.Or(v.op.Title(), "merge")+", resolved and to resolve") {
+			a.post(a.openConflicts)
 		}
 		b := ui.PrimaryButton(c.Key("merge-resolved"), "Mark Resolved").Height(22)
 		b.Tooltip("Save the result and stage the file, which ends its conflict")

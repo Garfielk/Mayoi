@@ -190,6 +190,7 @@ type app struct {
 	branches   branchPicker      // the box that switches branches
 	recents    recentPicker      // the box of the recent folders
 	remotePick remotePicker      // the box that connects to a host
+	conflicts  conflictsList     // the box of the files in conflict
 	find       findState
 	inFiles    searchState // search in the files, of the sidebar
 	prompt     *prompt
