@@ -21,6 +21,7 @@ const (
 	hunkStage   hunkAction = iota // into the index
 	hunkUnstage                   // out of the index, which has them as HEAD does
 	hunkDiscard                   // out of the work tree, which has them as the index does
+	hunkAppend                    // append the compared side after the work tree change
 )
 
 // hunkArrow is a direction the lines of a change of a diff can be
@@ -54,7 +55,7 @@ func hunkArrows(f *diffFile) []hunkArrow {
 		dir:   1,
 		label: "Revert",
 		icon:  iconArrowRight,
-		tip:   "Revert this change: the lines of " + old + ", into the " + new,
+		tip:   "Revert this change: the lines of " + old + ", into the " + new + "; Control-click to append them",
 	}}
 }
 
@@ -67,7 +68,7 @@ func hunkActions(f *diffFile) []hunkAction {
 	}
 	switch {
 	case f.base == diffIndex && f.group == groupChanges:
-		return []hunkAction{hunkDiscard, hunkStage}
+		return []hunkAction{hunkDiscard, hunkStage, hunkAppend}
 	case f.base == diffStaged:
 		return []hunkAction{hunkUnstage}
 	}
@@ -160,6 +161,8 @@ func (a *app) hunkButtons(c *ui.Context, v *diffView, i int, right, contentW, y 
 			bs = append(bs, button{iconMinus, "Unstage", act})
 		case hunkDiscard:
 			bs = append(bs, button{iconUndo, "Discard", act})
+		case hunkAppend:
+			bs = append(bs, button{iconArrowRight, "Append", act})
 		}
 	}
 	h := a.font.lineH - 2
@@ -243,11 +246,72 @@ func (a *app) applyHunks(f *diffFile, hs []linediff.Hunk, act hunkAction) {
 		}, nil)
 	case hunkDiscard:
 		a.discardHunks(f, hs)
+	case hunkAppend:
+		a.appendHunks(f, hs)
 	}
 }
 
 // discardHunks puts changes of a file back as the index has them, in the
 // file's document, as one step of undo.
+// appendHunks keeps the work tree side of each change and appends the
+// corresponding lines from the compared side after it. Each block is one
+// undoable edit, and an empty source is a no-op.
+func (a *app) appendHunks(f *diffFile, hs []linediff.Hunk) {
+	if len(hs) == 0 || f == nil || f.base != diffIndex {
+		return
+	}
+	if f.running || f.gitStale {
+		a.fail("The diff is catching up with the files: try again in a moment.")
+		return
+	}
+	if doc := a.diffDoc(f); doc != nil && doc.buf.Version() != f.docVersion {
+		a.fail("The diff is catching up with your edits: try again in a moment.")
+		return
+	}
+	if d, shown := a.editorOf(a.diffDoc(f)); d != nil {
+		appendNow := func(d *editor) { a.appendInto(d, f, hs) }
+		if shown {
+			a.queueEdit(d, appendNow)
+		} else {
+			appendNow(d)
+		}
+		return
+	}
+	name := filepath.Base(f.path)
+	a.confirm = &confirm{title: "Append source lines to " + name + "?", message: "The compared lines are added after the local change in the editor.", ok: "Append", run: func() {
+		a.openFile(f.path, false)
+		d, _ := a.editorOf(a.diffDoc(f))
+		if d == nil || d.loading || d.loadErr != nil || d.offline {
+			a.fail("Could not open %s to append its changes.", name)
+			return
+		}
+		a.appendInto(d, f, hs)
+	}}
+}
+
+func (a *app) appendInto(d *editor, f *diffFile, hs []linediff.Hunk) {
+	if d == nil || len(hs) == 0 {
+		return
+	}
+	snap := d.buf.Snapshot()
+	var edits []textEdit
+	for _, h := range slices.Backward(hs) {
+		if h.B < 0 || h.B+h.BLen > len(f.new.lines) || h.ALen == 0 {
+			continue
+		}
+		lines := append(append([]string{}, f.new.lines[h.B:h.B+h.BLen]...), f.old.lines[h.A:h.A+h.ALen]...)
+		e, ok := hunkEdit(snap, h, lines)
+		if ok {
+			edits = append(edits, e)
+		}
+	}
+	if len(edits) == 0 {
+		return
+	}
+	d.peek = -1
+	d.edit([2]int{edits[0].start, edits[0].start}, edits...)
+}
+
 func (a *app) discardHunks(f *diffFile, hs []linediff.Hunk) {
 	a.revertInto(nil, f, hs, "Discard")
 }
@@ -294,9 +358,14 @@ func (a *app) hunkArrowUI(c *ui.Context, v *diffView, k, first, last int, l diff
 		ui.Icon(c, ar.icon).FontSize(hunkArrowW - 3).TextColor(col)
 	})
 	if btn.Clicked() {
+		append := btn.ClickModifiers()&ui.Ctrl != 0
 		a.post(func() {
 			v.pane.Focus()
-			a.applyArrow(v, f, h, ar)
+			if append {
+				a.appendHunks(f, []linediff.Hunk{h})
+			} else {
+				a.applyArrow(v, f, h, ar)
+			}
 		})
 	}
 	return ui.Rect{X: x, Y: y, W: hunkArrowW, H: hunkArrowW}
