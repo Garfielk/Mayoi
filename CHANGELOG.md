@@ -5,6 +5,11 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
+- Whole-file changes in a diff have explicit actions: a deleted tracked file
+  offers **Restore File** from the index, while an untracked file offers
+  **Remove File…** and follows the existing trash or remote-delete policy.
+  These actions keep file existence distinct from an empty text buffer and
+  refresh any open document after the operation.
 - Every block of a diff of the changes not staged has a round arrow, by its
   lines in either layout, that puts the lines of the version it is compared
   against in place of the block's own: the lines of the Index going into the

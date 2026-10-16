@@ -316,6 +316,30 @@ func (a *app) discardHunks(f *diffFile, hs []linediff.Hunk) {
 	a.revertInto(nil, f, hs, "Discard")
 }
 
+// restoreDeletedFile puts a tracked file removed from the work tree back as
+// the index has it. It is a file-level operation: an empty diff is never used
+// to stand in for the file's existence, and an open document is reloaded as
+// one visible state change.
+func (a *app) restoreDeletedFile(e git.Entry) {
+	if e.Path == "" || e.Untracked() || e.Submodule() {
+		return
+	}
+	a.confirm = &confirm{
+		title:   "Restore " + filepath.Base(e.Path) + "?",
+		message: "The file is restored from the version in the index.",
+		ok:      "Restore File",
+		run: func() {
+			a.gitDo("Restoring "+filepath.Base(e.Path)+"…", func(r *git.Repo) error {
+				return r.Discard(e.Path)
+			}, func() {
+				if i := a.docIndex(e.Path); i >= 0 {
+					a.reloadDoc(a.docs[i])
+				}
+			})
+		},
+	}
+}
+
 // hunkArrowW is the side of the round button of the arrow of a change of
 // a diff, which fits between the rail and the line numbers of the one
 // column, where they leave room.
