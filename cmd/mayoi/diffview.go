@@ -118,6 +118,73 @@ func parseDiffHighlight(s string) diffHighlight {
 // the settings say.
 func (a *app) diffHighlightOf() diffHighlight { return parseDiffHighlight(a.settings.DiffHighlight) }
 
+// diffWhitespace controls which whitespace differences participate in the
+// line comparison. The original lines remain untouched for painting and
+// applying actions; only their comparison keys are normalized.
+type diffWhitespace uint8
+
+const (
+	whitespaceExact diffWhitespace = iota
+	whitespaceEOL
+	whitespaceAll
+	whitespaceBlank
+)
+
+func (w diffWhitespace) key() string { return [...]string{"", "eol", "all", "blank"}[w] }
+
+func parseDiffWhitespace(s string) diffWhitespace {
+	switch s {
+	case "eol":
+		return whitespaceEOL
+	case "all":
+		return whitespaceAll
+	case "blank":
+		return whitespaceBlank
+	}
+	return whitespaceExact
+}
+
+func (a *app) diffWhitespaceOf() diffWhitespace {
+	return parseDiffWhitespace(a.settings.DiffWhitespace)
+}
+
+func normalizeDiffLine(s string, mode diffWhitespace) string {
+	switch mode {
+	case whitespaceEOL:
+		return strings.TrimRight(s, " \t")
+	case whitespaceAll:
+		return strings.Map(func(r rune) rune {
+			if r == ' ' || r == '\t' || r == '\u00a0' {
+				return -1
+			}
+			return r
+		}, s)
+	case whitespaceBlank:
+		if strings.TrimSpace(s) == "" {
+			return ""
+		}
+		return strings.Map(func(r rune) rune {
+			if r == ' ' || r == '\t' || r == '\u00a0' {
+				return -1
+			}
+			return r
+		}, s)
+	default:
+		return s
+	}
+}
+
+func compareDiffLines(lines []string, mode diffWhitespace) []string {
+	if mode == whitespaceExact {
+		return lines
+	}
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		out[i] = normalizeDiffLine(line, mode)
+	}
+	return out
+}
+
 // diffContextOf is how many unchanged lines the diffs show around a
 // change, as the settings say.
 func (a *app) diffContextOf() int {
@@ -313,6 +380,7 @@ type diffBuild struct {
 	gen               int
 	split, wrap, full bool
 	context           int
+	whitespace        diffWhitespace
 	cols              [2]int
 	card              int // how many lines tall the card of a commit is
 	font              codeFont
@@ -718,6 +786,7 @@ func (a *app) refreshDiffFile(v *diffView, f *diffFile) bool {
 	old, new := f.old, f.new
 	path, orig, base := f.path, f.entry.Orig, f.base
 	sub, dirty := f.entry.Submodule(), f.entry.Dirty()
+	whitespace := a.diffWhitespaceOf()
 	var hash, parent string
 	if cm := v.commit; cm != nil {
 		hash = cm.hash
@@ -773,9 +842,10 @@ func (a *app) refreshDiffFile(v *diffView, f *diffFile) bool {
 		}
 		binary := isBinary([]byte(old.text)) || isBinary([]byte(new.text))
 		oldLines, newLines := splitLines(old.text, old.ok), splitLines(new.text, new.ok)
+		compareOld, compareNew := compareDiffLines(oldLines, whitespace), compareDiffLines(newLines, whitespace)
 		var hunks []linediff.Hunk
 		if !binary {
-			hunks = linediff.Hunks(oldLines, newLines)
+			hunks = linediff.Hunks(compareOld, compareNew)
 		}
 		unified, pairs := lineRows(oldLines, newLines, hunks)
 		widest := 0
@@ -868,7 +938,7 @@ func (a *app) splits(v *diffView, viewW float32) bool {
 // how, changed, keeping the row at the top of the view where it was, or
 // scrolling to the file to reveal once it is listed.
 func (a *app) layoutRows(v *diffView, l diffGeometry) {
-	b := diffBuild{gen: v.gen, split: v.split, wrap: a.wrapsDiff(v), full: v.full, context: a.diffContextOf(), font: a.font}
+	b := diffBuild{gen: v.gen, split: v.split, wrap: a.wrapsDiff(v), full: v.full, context: a.diffContextOf(), whitespace: a.diffWhitespaceOf(), font: a.font}
 	if v.commit != nil {
 		b.card = v.commit.lines
 	}
@@ -1715,6 +1785,19 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 			}
 		}
 	})
+	// Whitespace filtering changes comparison and navigation only; the
+	// original file text remains what block actions edit.
+	b = button(iconRows, "Whitespace", false)
+	b.Menu(func(m *ui.Menu) {
+		for _, w := range []struct {
+			mode  diffWhitespace
+			label string
+		}{{whitespaceExact, "Exact"}, {whitespaceEOL, "Ignore Line End"}, {whitespaceAll, "Ignore Whitespace"}, {whitespaceBlank, "Ignore Whitespace and Blank Lines"}} {
+			if m.Item(w.label).Checked(a.diffWhitespaceOf() == w.mode).Chosen() {
+				a.post(func() { a.setDiffWhitespace(w.mode) })
+			}
+		}
+	})
 	// The unchanged lines around a change, which the rest folds down to.
 	b = button(iconRows, "Context", false)
 	b.Menu(func(m *ui.Menu) {
@@ -1814,6 +1897,30 @@ func (a *app) setDiffHighlight(h diffHighlight) {
 	}
 	a.settings.DiffHighlight = h.key()
 	a.settings.Changed()
+	a.invalidate()
+}
+
+// setDiffWhitespace changes only the comparison keys. Re-reading the sides
+// rebuilds hunks and rows while leaving the source text and document state
+// untouched.
+func (a *app) setDiffWhitespace(w diffWhitespace) {
+	if a.diffWhitespaceOf() == w {
+		return
+	}
+	a.settings.DiffWhitespace = w.key()
+	a.settings.Changed()
+	for _, col := range a.cols {
+		for _, t := range col.tabs {
+			if t.diff == nil {
+				continue
+			}
+			for _, f := range t.diff.files {
+				f.loaded = false
+				f.gitStale = true
+			}
+			t.diff.changed()
+		}
+	}
 	a.invalidate()
 }
 

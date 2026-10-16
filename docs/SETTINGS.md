@@ -185,3 +185,11 @@ The shortcuts are macOS's with Ctrl for ⌘, and the hints show them so, but for
 Ctrl with Alt is AltGr there, which types text, so no shortcut takes it: bind those commands in `keybindings.json`,
 as `{ "key": "ctrl+k s", "command": "workbench.action.files.saveAll" }`. A file can tell the systems apart with
 `isWindows`, `isLinux` and `isMac`.
+### `diffWhitespace`
+
+Controls which whitespace participates in diff comparison: `""` for exact,
+`"eol"` to ignore line-end spaces and tabs, `"all"` to ignore whitespace,
+or `"blank"` to also treat whitespace-only lines as blank. The filter changes
+the diff display and navigation while file text and block actions keep using
+the original lines.
+

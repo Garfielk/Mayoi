@@ -5,6 +5,10 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
+- Diffs can filter comparison whitespace from the **Whitespace** menu:
+  exact, line-end, all whitespace, or whitespace plus blank lines. The
+  filter changes only what the diff shows and counts; source text and block
+  actions continue to use the original lines.
 - Whole-file changes in a diff have explicit actions: a deleted tracked file
   offers **Restore File** from the index, while an untracked file offers
   **Remove File…** and follows the existing trash or remote-delete policy.

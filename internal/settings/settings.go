@@ -117,6 +117,10 @@ type Prefs struct {
 	// the words that changed. What it shows is only so: a diff's block
 	// actions are for its hunks of lines, whatever it highlights.
 	DiffHighlight string `json:"diffHighlight,omitempty"`
+	// DiffWhitespace controls the comparison: "eol" ignores line-end
+	// whitespace, "all" ignores whitespace, and "blank" also treats
+	// whitespace-only lines as empty. Empty is exact comparison.
+	DiffWhitespace string `json:"diffWhitespace,omitempty"`
 	// DiffContext is how many unchanged lines a diff shows around a
 	// change, the rest folded away.
 	DiffContext int `json:"diffContext,omitempty"`
@@ -339,6 +343,11 @@ func (s *Settings) normalize() {
 	case "line", "char":
 	default:
 		s.DiffHighlight = ""
+	}
+	switch s.DiffWhitespace {
+	case "eol", "all", "blank":
+	default:
+		s.DiffWhitespace = ""
 	}
 	s.DiffContext = min(max(s.DiffContext, 0), MaxDiffContext)
 	// The themes were appearances once.
