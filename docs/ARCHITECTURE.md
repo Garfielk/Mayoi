@@ -143,7 +143,10 @@ hunks of that comparison that overlap the change are applied, and the result goe
 **`diffview.go`.** A diff tab paints its rows itself in a pane that scrolls both ways, rather than using text areas. A
 text area has no way to leave the blank rows that side by side needs across from lines the other side lacks. Only the
 rows in view are painted, each side has its own highlighter, and word changes are found for the rows in view. The
-cost is that both sides are read-only. Double-clicking opens the file to edit.
+sides are read-only but for the working tree's, which the diff edits in
+place: its typing, its undo and its save state are the file document's
+one history, shared with the file's editor (`diffedit.go`), and the other
+sides stay read-only. Double-clicking opens the file to edit.
 
 The one diff tab holds every file the status lists, staged and not, each read and compared on its own, four at a
 time, and only those within a view's height of what shows. `diffrows.go` lays the rows out again only when what they
