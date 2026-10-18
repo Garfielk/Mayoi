@@ -931,3 +931,34 @@ func TestMergeViewFilesBar(t *testing.T) {
 	}
 	_ = v
 }
+
+// TestMergeViewTypesAsTheResultEditor: the typing of the result is the
+// merge editor's, also when the file was open already and its tab editor
+// held the document's typing before.
+func TestMergeViewTypesAsTheResultEditor(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeRepo("a\nm\nz\n", "a\nours\nz\n", "a\nside\nz\n")
+	// The file is open as its own tab, whose editor the document's
+	// typing is credited to.
+	hs.a.openFile(hs.path("shared.txt"), false)
+	hs.settle()
+	opened := hs.a.docs[hs.a.docIndex(hs.path("shared.txt"))].typist
+	if opened == nil {
+		t.Fatal("the file's tab editor does not hold the typing")
+	}
+	v := hs.mergeOf()
+	if v.doc.typist != opened {
+		t.Fatalf("the merge took the typing over before a key: %p", v.doc.typist)
+	}
+	// The result pane takes the keyboard, and the typing goes in.
+	v.ed.focusNext = true
+	hs.settle()
+	hs.tt.Type("X")
+	hs.settle()
+	if v.doc.typist != v.ed {
+		t.Fatal("the typing is not the merge editor's")
+	}
+	if !strings.Contains(v.doc.buf.String(), "X") {
+		t.Fatalf("the typing did not land in the result: %q", v.doc.buf.String())
+	}
+}
