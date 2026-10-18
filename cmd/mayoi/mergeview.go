@@ -863,9 +863,11 @@ func (a *app) saveMerge(v *mergeView) {
 	}()
 }
 
-// completeMerge saves the result and stages the file, which ends its
-// conflict: the command stopped for it goes on once every file is.
-func (a *app) completeMerge(v *mergeView) {
+// markMergeResolved saves the result of a merge view and stages its file,
+// which ends its conflict, and says so. The merge view and the list of the
+// files in conflict both take a file as resolved this way; done runs once
+// the file stands staged.
+func (a *app) markMergeResolved(v *mergeView, done func()) {
 	if v.doc == nil {
 		return
 	}
@@ -874,8 +876,17 @@ func (a *app) completeMerge(v *mergeView) {
 		a.gitDo("", func(r *git.Repo) error { return r.Stage(path) }, func() {
 			a.noteMergeResolved(path)
 			a.tell(note{message: locales.MergeMarkedResolved(filepath.Base(path))})
+			if done != nil {
+				done()
+			}
 		})
 	})
+}
+
+// completeMerge saves the result and stages the file, which ends its
+// conflict: the command stopped for it goes on once every file is.
+func (a *app) completeMerge(v *mergeView) {
+	a.markMergeResolved(v, nil)
 }
 
 // restoreMerge puts a file back in conflict, once asked, that the

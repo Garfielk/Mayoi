@@ -8,7 +8,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"mayoi/internal/git"
 	"mayoi/locales"
 )
 
@@ -137,14 +136,10 @@ func (a *app) applyMergeChanges(v *mergeView) {
 	if next == "" {
 		next = first // the files stand by path, round the end back up
 	}
-	a.saveDoc(v.doc, func() {
-		a.gitDo("", func(r *git.Repo) error { return r.Stage(path) }, func() {
-			a.noteMergeResolved(path)
-			a.tell(note{message: locales.MergeMarkedResolved(filepath.Base(path))})
-			if next != "" {
-				a.openMerge(next, true)
-			}
-		})
+	a.markMergeResolved(v, func() {
+		if next != "" {
+			a.openMerge(next, true)
+		}
 	})
 }
 

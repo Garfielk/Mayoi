@@ -29,6 +29,11 @@ needs a `## <version>` section here, or its build fails.
   staged and a commit's take no arrows: the index goes on by staging, and
   the versions Git keeps are read only — a file that a diff adds or deletes
   whole says so under its lines, with what the buttons of its header do.
+- Control-clicking the round arrow of a change of a diff of the changes
+  not staged appends instead: the lines of the version it is compared
+  against go after the change, as one step of undo, and the arrow says so
+  while Control is held. **Append the Lines of the Change** in the Git menu
+  and the command palette does the same to the change the diff has chosen.
 - The working tree side of a diff can be edited right in the diff: press
   **I** on a change, or the **Edit** button, and the side takes typing,
   selection, copy, cut, paste and the usual editing keys, with the caret
