@@ -649,3 +649,119 @@ func twoHunkFileChanged() string {
 	orig := b.String()
 	return strings.Replace(strings.Replace(orig, "line 2\n", "line two\n", 1), "line 25\n", "line twenty-five\n", 1)
 }
+
+// TestDiffEditComposeReplacesItsMark: an input method's marked text takes
+// the place of what it marked before, wherever composing began, and the
+// text it commits with leaves none of the marks behind.
+func TestDiffEditComposeReplacesItsMark(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	e := diffEditOf(t, hs, v, hs.path("t.txt"), 2)
+	// The caret sits at the start of the changed line, where the text
+	// before it is the line break, which no mark matches.
+	// n marks, ni marks over it, 你好 commits: no mark is left behind.
+	for _, ev := range []ui.InputEvent{
+		{Kind: ui.InputCompose, Text: "n"},
+		{Kind: ui.InputCompose, Text: "ni"},
+		{Kind: ui.InputText, Text: "你好"},
+	} {
+		if !a.diffInput(v, ev) {
+			t.Fatalf("the diff did not take %+v", ev)
+		}
+	}
+	if got := e.doc.buf.String(); !strings.Contains(got, "\n你好line two\n") || strings.Contains(got, "nni") || strings.Contains(got, "n你") {
+		t.Fatalf("after composing:\n%s", got)
+	}
+}
+
+// TestDiffEditComposeMarksAgainAfterItsEnd: composing again after a
+// commit marks where the caret then is, not where the last one did.
+func TestDiffEditComposeMarksAgainAfterItsEnd(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	e := diffEditOf(t, hs, v, hs.path("t.txt"), 2)
+	for _, ev := range []ui.InputEvent{
+		{Kind: ui.InputCompose, Text: "n"},
+		{Kind: ui.InputText, Text: "你"},
+		{Kind: ui.InputCompose, Text: "h"},
+		{Kind: ui.InputText, Text: "好"},
+	} {
+		if !a.diffInput(v, ev) {
+			t.Fatalf("the diff did not take %+v", ev)
+		}
+	}
+	// The first mark became 你, and the second mark went where the
+	// caret then was, right after it, as 好 alone: 你好.
+	if got := e.doc.buf.String(); !strings.Contains(got, "\n你好line two\n") {
+		t.Fatalf("after composing twice:\n%s", got)
+	}
+}
+
+// TestDiffEditComposeUndoesAsOneStep: the marks of composing and the
+// text it commits with are one step of undo, which brings the text
+// before composing began back.
+func TestDiffEditComposeUndoesAsOneStep(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	e := diffEditOf(t, hs, v, hs.path("t.txt"), 2)
+	before := e.doc.buf.Snapshot().String()
+	for _, ev := range []ui.InputEvent{
+		{Kind: ui.InputCompose, Text: "n"},
+		{Kind: ui.InputCompose, Text: "ni"},
+		{Kind: ui.InputCompose, Text: "nihao"},
+		{Kind: ui.InputText, Text: "你好"},
+	} {
+		if !a.diffInput(v, ev) {
+			t.Fatalf("the diff did not take %+v", ev)
+		}
+	}
+	if e.doc.buf.String() == before {
+		t.Fatal("composing changed nothing")
+	}
+	steps := 0
+	for e.ed.undo() {
+		steps++
+		if steps > 3 {
+			break
+		}
+	}
+	if steps != 1 {
+		t.Errorf("composing took %d steps of undo", steps)
+	}
+	if e.doc.buf.String() != before {
+		t.Fatalf("after undo:\n%s", e.doc.buf.String())
+	}
+	// An escape takes the mark of a composing back as well, and the next
+	// Escape then leaves the editing.
+	a.diffEditInput(v, ui.InputEvent{Kind: ui.InputCompose, Text: "n"})
+	if e.compose == "" {
+		t.Fatal("the input method does not mark")
+	}
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyEscape}) {
+		t.Fatal("the diff did not take the escape")
+	}
+	if e.compose != "" || !strings.Contains(e.doc.buf.String(), "\nline two\n") {
+		t.Fatalf("the escape did not take the mark back: %q %q", e.compose, e.doc.buf.String())
+	}
+}
