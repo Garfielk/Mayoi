@@ -1317,6 +1317,16 @@ func (msgs Messages) CmdGitAmend() string {
 	return Catalog.Format(msgs.locale, "cmdGitAmend", nil)
 }
 
+// CmdGitAppendChange says "Append the Lines of the Change"
+// in the language the app shows.
+func CmdGitAppendChange() string { return In(i18n.Locale()).CmdGitAppendChange() }
+
+// CmdGitAppendChange says "Append the Lines of the Change"
+// in the language of msgs.
+func (msgs Messages) CmdGitAppendChange() string {
+	return Catalog.Format(msgs.locale, "cmdGitAppendChange", nil)
+}
+
 // CmdGitBlame says "Inline Blame"
 // in the language the app shows.
 func CmdGitBlame() string { return In(i18n.Locale()).CmdGitBlame() }

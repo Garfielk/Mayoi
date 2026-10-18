@@ -346,6 +346,7 @@
   "cmdFileUninstallCLI": "Uninstall 'mayoi' Command",
   "cmdGitAbort": "Abort Merge, Rebase or Cherry-Pick…",
   "cmdGitAmend": "Amend Last Commit",
+  "cmdGitAppendChange": "Append the Lines of the Change",
   "cmdGitBlame": "Inline Blame",
   "cmdGitCommit": "Commit",
   "cmdGitCommitPush": "Commit & Push",
