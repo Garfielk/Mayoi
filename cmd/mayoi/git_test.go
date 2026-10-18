@@ -1096,7 +1096,7 @@ func TestDiffHunkActions(t *testing.T) {
 	if len(hks) != 1 || hks[0].B != 25 {
 		t.Fatalf("hunks %v", hks)
 	}
-	a.applyHunks(f, hks, hunkStage)
+	a.applyHunks(v, f, hks, hunkStage)
 	hs.settleGit()
 	if staged := git("diff", "--cached"); !strings.Contains(staged, "+line twenty-five") || strings.Contains(staged, "line two") {
 		t.Fatalf("staged %q", staged)
@@ -1108,7 +1108,7 @@ func TestDiffHunkActions(t *testing.T) {
 		t.Fatalf("staged runs %v: %s", sh, kinds(v))
 	}
 	f, hks = v.hunksAt(sh[0])
-	a.applyHunks(f, hks, hunkUnstage)
+	a.applyHunks(v, f, hks, hunkUnstage)
 	hs.settleGit()
 	if staged := git("diff", "--cached"); staged != "" {
 		t.Fatalf("still staged %q", staged)
@@ -1135,7 +1135,7 @@ func TestDiffHunkActions(t *testing.T) {
 	hs.settle()
 	hh = heads(diffIndex)
 	f, hks = v.hunksAt(hh[0])
-	a.applyHunks(f, hks, hunkDiscard)
+	a.applyHunks(v, f, hks, hunkDiscard)
 	if a.confirm == nil {
 		t.Fatal("no question")
 	}
@@ -1168,7 +1168,7 @@ func TestDiffHunkActions(t *testing.T) {
 		t.Fatalf("runs %v", hh)
 	}
 	f, hks = v.hunksAt(hh[0])
-	a.applyHunks(f, hks, hunkDiscard)
+	a.applyHunks(v, f, hks, hunkDiscard)
 	hs.settle()
 	d, _ := a.editorOf(a.diffDoc(f))
 	if d == nil || d.buf.String() != orig {
@@ -1247,7 +1247,7 @@ func TestDiscardOfUnopenedFileIsUndoable(t *testing.T) {
 		t.Fatalf("runs %v: %s", hh, kinds(v))
 	}
 	f, hks := v.hunksAt(hh[0])
-	a.applyHunks(f, hks, hunkDiscard)
+	a.applyHunks(v, f, hks, hunkDiscard)
 	if a.confirm == nil {
 		t.Fatal("no question")
 	}
@@ -1307,7 +1307,7 @@ func TestDiscardOfEveryHunkIsOneUndoStep(t *testing.T) {
 	if len(hks) != 2 {
 		t.Fatalf("hunks %v", hks)
 	}
-	a.applyHunks(f, hks, hunkDiscard)
+	a.applyHunks(v, f, hks, hunkDiscard)
 	a.confirm.run()
 	a.confirm = nil
 	hs.settle()
@@ -1332,7 +1332,7 @@ func TestDiscardOfEveryHunkIsOneUndoStep(t *testing.T) {
 		t.Fatalf("runs %v: %s", hh, kinds(v))
 	}
 	f, hks = v.hunksAt(hh[1])
-	a.applyHunks(f, hks, hunkStage)
+	a.applyHunks(v, f, hks, hunkStage)
 	hs.settleGit()
 	staged := func() string { return strings.TrimSpace(git("diff", "--cached")) }
 	if want := staged(); !strings.Contains(want, "line twenty-five") || strings.Contains(want, "line two\n") {
@@ -1346,7 +1346,7 @@ func TestDiscardOfEveryHunkIsOneUndoStep(t *testing.T) {
 		t.Fatalf("runs %v: %s", hh, kinds(v))
 	}
 	f, hks = v.hunksAt(hh[0])
-	a.applyHunks(f, hks, hunkDiscard)
+	a.applyHunks(v, f, hks, hunkDiscard)
 	hs.settle()
 	if want := strings.Replace(changed, "line two\n", "line 2\n", 1); d.buf.String() != want {
 		t.Fatalf("in the document: %q", d.buf.String())
@@ -1390,7 +1390,7 @@ func TestDiscardRefusesStaleContent(t *testing.T) {
 	fresh := strings.Replace(changed, "line twenty-five\n", "line 25th\n", 1)
 	os.WriteFile(hs.path("t.txt"), []byte(fresh), 0o644)
 	f, hks := v.hunksAt(hh[0])
-	a.applyHunks(f, hks, hunkDiscard)
+	a.applyHunks(v, f, hks, hunkDiscard)
 	a.confirm.run()
 	a.confirm = nil
 	if len(a.errors) == 0 {
@@ -1418,7 +1418,7 @@ func TestDiscardRefusesStaleContent(t *testing.T) {
 		t.Fatalf("runs %v: %s", hh, kinds(v))
 	}
 	f, hks = v.hunksAt(hh[0])
-	a.applyHunks(f, hks, hunkDiscard)
+	a.applyHunks(v, f, hks, hunkDiscard)
 	if a.confirm != nil {
 		t.Fatal("asked about a file that is open now")
 	}
@@ -1447,7 +1447,7 @@ func TestDiscardRefusesStaleContent(t *testing.T) {
 	ed := d.main()
 	ed.edit(ed.sel, textEdit{0, 0, "// typed\n"})
 	f, hks = v.hunksAt(hh[0])
-	a.applyHunks(f, hks, hunkDiscard)
+	a.applyHunks(v, f, hks, hunkDiscard)
 	if len(a.errors) == 0 {
 		t.Fatal("no word of the diff catching up")
 	}
@@ -1473,7 +1473,7 @@ func TestDiscardRefusesStaleContent(t *testing.T) {
 			f, hks = ff, hks2
 		}
 	}
-	a.applyHunks(f, hks, hunkDiscard)
+	a.applyHunks(v, f, hks, hunkDiscard)
 	hs.settle()
 	if want := "// typed\n" + long; d.buf.String() != want {
 		t.Errorf("in the document: %q", d.buf.String())

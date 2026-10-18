@@ -436,7 +436,7 @@ func TestDiffEditKeepsItsPlaceAsTheDiffCatchesUp(t *testing.T) {
 	a.diffInput(v, ui.InputEvent{Kind: ui.InputText, Text: "X"})
 	// The diff is behind: its changes are not applied over the typing.
 	f, hks := v.hunksAt(v.starts[0])
-	a.applyHunks(f, hks, hunkDiscard)
+	a.applyHunks(v, f, hks, hunkDiscard)
 	if len(a.errors) == 0 {
 		t.Error("no word of the diff catching up")
 	}
@@ -763,5 +763,70 @@ func TestDiffEditComposeUndoesAsOneStep(t *testing.T) {
 	}
 	if e.compose != "" || !strings.Contains(e.doc.buf.String(), "\nline two\n") {
 		t.Fatalf("the escape did not take the mark back: %q %q", e.compose, e.doc.buf.String())
+	}
+}
+
+// TestDiffUndoFollowsTheDocumentEdited: after an arrow wrote a revert in
+// one file, the undo of the diff's keyboard takes back what the editing
+// of another file typed, not the arrow's.
+func TestDiffUndoFollowsTheDocumentEdited(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	twoHunkFile(hs, git)
+	origB := "alpha\nbeta\ngamma\n"
+	os.WriteFile(hs.path("u.txt"), []byte(origB), 0o644)
+	git("add", "u.txt")
+	git("commit", "-qm", "base")
+	changedB := strings.Replace(origB, "gamma\n", "gamma local\n", 1)
+	os.WriteFile(hs.path("u.txt"), []byte(changedB), 0o644)
+	hs.settleGit()
+	a.openChangesTab(true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	// The arrow reverts a block of t.txt, which registers its document.
+	rowA := diffEditRow(v, hs.path("t.txt"), 2)
+	if rowA < 0 {
+		t.Fatal("no row of the change of t.txt")
+	}
+	fA := v.files[v.rows[rowA].file]
+	a.revertInto(v, fA, fA.hunks[:1], "Revert")
+	if a.confirm != nil {
+		a.confirm.run()
+		a.confirm = nil
+	}
+	hs.settle()
+	docA := a.docs[a.docIndex(hs.path("t.txt"))]
+	// One hunk reverted: the first change is back, the second stands.
+	wantA := strings.Replace(twoHunkFileChanged(), "line two\n", "line 2\n", 1)
+	if docA.buf.String() != wantA {
+		t.Fatalf("the revert did not go in: %q", docA.buf.String())
+	}
+	// Editing u.txt types into its document, and the undo of the diff's
+	// keyboard is then that document's.
+	rowB := diffEditRow(v, hs.path("u.txt"), 2)
+	if rowB < 0 {
+		t.Fatal("no row of the change of u.txt")
+	}
+	if !a.beginDiffEdit(v, rowB) {
+		t.Fatal("u.txt did not begin to edit")
+	}
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputText, Text: "Z"}) {
+		t.Fatal("the diff did not take the text")
+	}
+	docB := a.docs[a.docIndex(hs.path("u.txt"))]
+	if !strings.Contains(docB.buf.String(), "Zgamma local") {
+		t.Fatalf("the typing did not go in: %q", docB.buf.String())
+	}
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyZ, Mods: ui.Cmd}) {
+		t.Fatal("the diff did not take the undo")
+	}
+	hs.settle()
+	if docB.buf.String() != changedB {
+		t.Fatalf("the undo did not take the typing back: %q", docB.buf.String())
+	}
+	if docA.buf.String() != wantA {
+		t.Fatalf("the undo reached the other file: %q", docA.buf.String())
 	}
 }

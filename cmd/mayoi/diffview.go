@@ -1750,6 +1750,19 @@ func (a *app) toggleGap(v *diffView, i int) {
 // document, or makes it again for a redo, as the undo of the diff does
 // from its keyboard.
 func (a *app) undoDiff(v *diffView, redo bool) {
+	if e := v.editing; e != nil {
+		// The document the diff edits has the keyboard: its history is
+		// what the undo and redo of the diff's keyboard take, not what
+		// an earlier arrow wrote. Its editor is the diff's own, which no
+		// column shows, so the undo goes through it directly.
+		e.endCompose()
+		if redo {
+			e.ed.redo()
+		} else {
+			e.ed.undo()
+		}
+		return
+	}
 	if v.edited == nil {
 		return
 	}
