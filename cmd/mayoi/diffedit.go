@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/remote"
+	"mayoi/locales"
 )
 
 // diffEdit is the writable side of a file of a diff while it is edited:
@@ -59,11 +60,11 @@ func (a *app) beginDiffEdit(v *diffView, i int) bool {
 		return true
 	}
 	if !f.writable() {
-		a.fail("Only the working tree side of a diff can be edited, and %s has none here.", filepath.Base(f.path))
+		a.fail("%s", locales.DiffEditOnlyLocal(filepath.Base(f.path)))
 		return false
 	}
 	if f.running || f.gitStale {
-		a.fail("The diff is catching up with the files: try again in a moment.")
+		a.fail("%s", locales.DiffCatchingUpFiles())
 		return false
 	}
 	doc, ok := a.diffEditDoc(f)
@@ -499,19 +500,19 @@ func (a *app) diffEditDoc(f *diffFile) (*document, bool) {
 		if doc.buf.Version() != f.docVersion {
 			// The diff compared the file before this text: it catches up
 			// first, so that the edits go to what it shows.
-			a.fail("The diff is catching up with your edits: try again in a moment.")
+			a.fail("%s", locales.DiffCatchingUp())
 			return nil, false
 		}
 		return doc, true
 	}
 	if remote.Is(f.path) {
-		a.fail("A file on a host is edited in its editor, not in the diff.")
+		a.fail("%s", locales.DiffEditRemote())
 		return nil, false
 	}
 	a.nextID++
 	doc, err := readDocument(a.nextID, f.path, a.invalidate)
 	if err != nil {
-		a.fail("Could not open %s to edit it: %v", filepath.Base(f.path), err)
+		a.fail("%s", locales.DiffOpenFailEdit(filepath.Base(f.path), err.Error()))
 		return nil, false
 	}
 	if doc.buf.Snapshot().String() != f.new.text {

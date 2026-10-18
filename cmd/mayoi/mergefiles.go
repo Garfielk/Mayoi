@@ -1,14 +1,15 @@
 package main
 
 import (
-	"fmt"
 	"maps"
 	"path/filepath"
 	"slices"
+	"strconv"
 
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/git"
+	"mayoi/locales"
 )
 
 // mergeFile is a file of the command that stopped for conflicts: in
@@ -139,7 +140,7 @@ func (a *app) applyMergeChanges(v *mergeView) {
 	a.saveDoc(v.doc, func() {
 		a.gitDo("", func(r *git.Repo) error { return r.Stage(path) }, func() {
 			a.noteMergeResolved(path)
-			a.tell(note{message: "Marked " + filepath.Base(path) + " resolved"})
+			a.tell(note{message: locales.MergeMarkedResolved(filepath.Base(path))})
 			if next != "" {
 				a.openMerge(next, true)
 			}
@@ -177,15 +178,15 @@ func (a *app) conflictsView(c *ui.Context) {
 		back := a.dialogBack(c, "conflicts")
 		back.Children(func() {
 			box := a.floating(c, ui.Column(c).Width(520).MaxWidthPercent(92).Margin(titleBarH+8, 0, 0, 0).Radius(10), true).Clip().
-				Role(ui.RoleDialog).Label("Files in Conflict")
+				Role(ui.RoleDialog).Label(locales.MergeFilesTitle())
 			box.Children(func() {
 				resolved, total := a.mergeResolvedCount()
 				ui.Row(c).Padding(10, 14).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.border).
-					Label("Files in Conflict").Children(func() {
+					Label(locales.MergeFilesTitle()).Children(func() {
 					ui.Icon(c, iconMerge).FontSize(15).TextColor(p.changed)
-					ui.Text(c, "Files in Conflict").FontSize(14).FontWeight(600).TextColor(p.text)
+					ui.Text(c, locales.MergeFilesTitle()).FontSize(14).FontWeight(600).TextColor(p.text)
 					ui.Spacer(c)
-					ui.Text(c, plural(total-resolved, "file")+" to resolve").FontSize(12).TextColor(p.muted).SingleLine()
+					ui.Text(c, locales.MergeFilesToResolve(total-resolved)).FontSize(12).TextColor(p.muted).SingleLine()
 				})
 				ui.Scroll(c.Key("conflicts-results")).MaxHeight(380).Padding(6).Children(func() {
 					for i, f := range files {
@@ -193,11 +194,11 @@ func (a *app) conflictsView(c *ui.Context) {
 					}
 				})
 				ui.Row(c).Height(26).Padding(0, 10, 2, 8).Gap(6).AlignItems(ui.Center).Background(p.chrome).Children(func() {
-					ui.Text(c, fmt.Sprintf("%d of %d files resolved", resolved, total)).
+					ui.Text(c, locales.MergeFilesResolved(strconv.Itoa(resolved), strconv.Itoa(total))).
 						FontSize(11.5).TextColor(p.muted).SingleLine()
 					ui.Spacer(c)
 					if op := a.git.status.Op; op != "" {
-						if a.mergeButton(c, "conflicts-continue", "Continue "+op.Title(), "Go on with the "+op.Title()+", once every file of it stands resolved") {
+						if a.mergeButton(c, "conflicts-continue", locales.MergeContinueOp(op.Title()), locales.MergeContinueOpTipFiles(op.Title())) {
 							a.post(a.continueOp)
 						}
 					}
@@ -217,9 +218,9 @@ func (a *app) mergeFileRow(c *ui.Context, f mergeFile, i int) {
 	cl := &a.conflicts
 	p := a.pal
 	name, dir := filepath.Base(f.path), filepath.Dir(f.path)
-	label, tip := "Open the merge of "+name, "Open the merge of the file"
+	label, tip := locales.MergeOpenMerge(name), locales.MergeOpenMergeTip()
 	if f.resolved {
-		label, tip = "Show "+name, "The file stands resolved: open it as it is, or take its resolution back"
+		label, tip = locales.MergeShowResolved(name), locales.MergeShowResolvedTip()
 	}
 	row := ui.ButtonBase(c.Key("conflict:"+f.path)).Padding(5, 10).Gap(10).Radius(6).Justify(ui.Start).AlignItems(ui.Center).
 		Label(label).Tooltip(tip)
@@ -244,7 +245,7 @@ func (a *app) mergeFileRow(c *ui.Context, f mergeFile, i int) {
 		ui.Text(c, name).FontSize(13).TextColor(p.text).SingleLine().Shrink(0)
 		ui.Text(c, dir).FontSize(12).TextColor(p.faint).SingleLine().Shrink(1).Grow(1).MinWidth(0)
 		if f.resolved {
-			if a.mergeButton(c, "conflict-revert:"+f.path, "Revert", "Put the file back in conflict, as the command stopped for it has it") {
+			if a.mergeButton(c, "conflict-revert:"+f.path, locales.RevertButton(), locales.MergeRestoreConflictTip()) {
 				a.post(func() { a.revertMergeConflict(f.path) })
 			}
 		}

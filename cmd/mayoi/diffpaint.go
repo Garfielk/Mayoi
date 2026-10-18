@@ -1278,8 +1278,8 @@ func (a *app) fileButtons(c *ui.Context, v *diffView, f *diffFile, right, y floa
 	var bs []button
 	if f.base == diffLocal {
 		bs = append(bs,
-			button{iconOpenFile, "Open Left", func() { a.openFileAt(f.path, 0, true) }},
-			button{iconOpenFile, "Open Right", func() { a.openFileAt(f.peerPath, 0, true) }},
+			button{iconOpenFile, locales.DiffOpenLeft(), func() { a.openFileAt(f.path, 0, true) }},
+			button{iconOpenFile, locales.DiffOpenRight(), func() { a.openFileAt(f.peerPath, 0, true) }},
 		)
 	} else if f.letter != 'D' || f.base == diffStaged {
 		bs = append(bs, button{iconOpenFile, openLabel(e), func() { a.openFileAt(f.path, 0, true) }})
@@ -1292,9 +1292,9 @@ func (a *app) fileButtons(c *ui.Context, v *diffView, f *diffFile, right, y floa
 	default:
 		if !e.Submodule() {
 			if f.letter == 'D' && !e.Untracked() {
-				bs = append(bs, button{iconUndo, "Restore File", func() { a.restoreDeletedFile(e) }})
+				bs = append(bs, button{iconUndo, locales.DiffRestoreFile(), func() { a.restoreDeletedFile(e) }})
 			} else if e.Untracked() {
-				bs = append(bs, button{iconUndo, "Remove File…", func() { ctx.discard(e) }})
+				bs = append(bs, button{iconUndo, locales.DiffRemoveFile(), func() { ctx.discard(e) }})
 			} else {
 				bs = append(bs, button{iconUndo, locales.DiscardChangesEllipsis(), func() { ctx.discard(e) }})
 			}

@@ -41,7 +41,7 @@ func (b diffBase) sides() (old, new string) {
 	case diffStaged:
 		return "HEAD", locales.SideIndex()
 	case diffLocal:
-		return "Left File", "Right File"
+		return locales.DiffSideLeft(), locales.DiffSideRight()
 	}
 	return "HEAD", locales.SideWorkingTree()
 }
@@ -636,9 +636,9 @@ func (a *app) showChanges(target diffTarget, focus bool, roots ...string) {
 // compareLocalFiles opens a two-file diff. The dialog chooses exactly two
 // local paths; neither file is staged or otherwise changed by opening it.
 func (a *app) compareLocalFiles() {
-	a.host.choosePaths("Compare Two Files", "Compare", a.workDir(), false, func(paths []string) {
+	a.host.choosePaths(locales.CompareTwoFiles(), locales.ButtonCompare(), a.workDir(), false, func(paths []string) {
 		if len(paths) != 2 || paths[0] == paths[1] {
-			a.fail("Choose two different files to compare.")
+			a.fail("%s", locales.DiffChooseDifferent())
 			return
 		}
 		col := a.column()
@@ -1234,9 +1234,9 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 		// its changes go in or out with the file itself, as the buttons of
 		// its header do them, and the diff says so.
 		if (f.base == diffIndex || f.base == diffStaged) && len(f.hunks) > 0 && (!f.old.ok || !f.new.ok) {
-			note := "The whole file is new: its changes have no arrows; the buttons of its header stage it or remove it."
+			note := locales.DiffWholeFileNew()
 			if !f.new.ok {
-				note = "The whole file is gone: its changes have no arrows; the buttons of its header stage the deletion or bring the file back."
+				note = locales.DiffWholeFileGone()
 			}
 			v.rows = append(v.rows, diffRow{kind: rowNote, file: i, old: -1, new: -1, hunk: -1, peer: -1, gap: -1, h: 1, label: note})
 		}
@@ -1569,23 +1569,23 @@ func (v *diffView) edgeMessage(path string, step int, cross diffCross) string {
 	name := filepath.Base(path)
 	if step > 0 {
 		if cross == crossAsk {
-			return fmt.Sprintf("This is the last change of %s. Press again to go to the next file.", name)
+			return locales.DiffEdgeLastOfFileAsk(name)
 		}
-		return fmt.Sprintf("This is the last change of %s.", name)
+		return locales.DiffEdgeLastOfFile(name)
 	}
 	if cross == crossAsk {
-		return fmt.Sprintf("This is the first change of %s. Press again to go to the previous file.", name)
+		return locales.DiffEdgeFirstOfFileAsk(name)
 	}
-	return fmt.Sprintf("This is the first change of %s.", name)
+	return locales.DiffEdgeFirstOfFile(name)
 }
 
 // endOfDiffMessage is what a diff says when its change navigation
 // reaches the end, or the start, of all of it.
 func endOfDiffMessage(step int) string {
 	if step > 0 {
-		return "This is the last change of the diff."
+		return locales.DiffEdgeLastOfDiff()
 	}
-	return "This is the first change of the diff."
+	return locales.DiffEdgeFirstOfDiff()
 }
 
 // stepFile goes to the header of the next file of a diff of every file,
@@ -1615,9 +1615,9 @@ func (v *diffView) stepFile(step int) {
 	}
 	if k < 0 {
 		if step > 0 {
-			v.boundary = &diffBoundary{step, "This is the last file of the diff."}
+			v.boundary = &diffBoundary{step, locales.DiffEdgeLastFile()}
 		} else {
-			v.boundary = &diffBoundary{step, "This is the first file of the diff."}
+			v.boundary = &diffBoundary{step, locales.DiffEdgeFirstFile()}
 		}
 		return
 	}
@@ -1796,7 +1796,7 @@ func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
 	if ev.Kind == ui.InputCommand && ev.Text == "copy" && v.editing == nil {
 		if s := v.diffChosenText(); s != "" {
 			a.services.WriteClipboard(s)
-			a.tell(note{message: "Copied the line"})
+			a.tell(note{message: locales.DiffCopiedLine()})
 			return true
 		}
 		a.copyExcerpt(v)
@@ -2027,9 +2027,9 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 	a.reviewSendButton(c)
 	act(iconArrowUp, locales.DiffPrevChange(), func() { v.stepHunk(-1, a.crossesDiff()) })
 	act(iconArrowDown, locales.DiffNextChange(), func() { v.stepHunk(1, a.crossesDiff()) })
-	act(iconChevronLeft, "Previous File (,)", func() { v.stepFile(-1) })
-	act(iconChevronRight, "Next File (.)", func() { v.stepFile(1) })
-	if button(iconColumns, "Side by Side", v.split).Clicked() {
+	act(iconChevronLeft, locales.DiffPrevFile(), func() { v.stepFile(-1) })
+	act(iconChevronRight, locales.DiffNextFile(), func() { v.stepFile(1) })
+	if button(iconColumns, locales.DiffLayoutSplit(), v.split).Clicked() {
 		next := layoutSplit
 		if v.split {
 			next = layoutInline
@@ -2044,12 +2044,12 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 	}
 	// What a line that changed shows of itself: the words, the characters
 	// within them, or no more than the line.
-	b := button(iconHighlight, "Highlight", false)
+	b := button(iconHighlight, locales.DiffHighlightMenu(), false)
 	b.Menu(func(m *ui.Menu) {
 		for _, h := range []struct {
 			mode  diffHighlight
 			label string
-		}{{highlightLine, "Highlight Lines"}, {highlightWord, "Highlight Words"}, {highlightChar, "Highlight Characters"}} {
+		}{{highlightLine, locales.DiffHighlightLines()}, {highlightWord, locales.DiffHighlightWords()}, {highlightChar, locales.DiffHighlightChars()}} {
 			if m.Item(h.label).Checked(a.diffHighlightOf() == h.mode).Chosen() {
 				a.post(func() { a.setDiffHighlight(h.mode) })
 			}
@@ -2057,24 +2057,24 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 	})
 	// Whitespace filtering changes comparison and navigation only; the
 	// original file text remains what block actions edit.
-	b = button(iconRows, "Whitespace", false)
+	b = button(iconRows, locales.DiffWhitespaceMenu(), false)
 	b.Menu(func(m *ui.Menu) {
 		for _, w := range []struct {
 			mode  diffWhitespace
 			label string
-		}{{whitespaceExact, "Exact"}, {whitespaceEOL, "Ignore Line End"}, {whitespaceAll, "Ignore Whitespace"}, {whitespaceBlank, "Ignore Whitespace and Blank Lines"}} {
+		}{{whitespaceExact, locales.WhitespaceExact()}, {whitespaceEOL, locales.WhitespaceIgnoreEOL()}, {whitespaceAll, locales.WhitespaceIgnoreAll()}, {whitespaceBlank, locales.WhitespaceIgnoreBlank()}} {
 			if m.Item(w.label).Checked(a.diffWhitespaceOf() == w.mode).Chosen() {
 				a.post(func() { a.setDiffWhitespace(w.mode) })
 			}
 		}
 	})
 	// The unchanged lines around a change, which the rest folds down to.
-	b = button(iconRows, "Context", false)
+	b = button(iconRows, locales.DiffContextMenu(), false)
 	b.Menu(func(m *ui.Menu) {
 		for _, n := range []int{0, 1, 2, 3, 5, 10} {
-			label := "No Lines"
+			label := locales.DiffContextNone()
 			if n > 0 {
-				label = plural(n, "Line")
+				label = locales.DiffContextLines(n)
 			}
 			if m.Item(label).Checked(a.diffContextOf() == n).Chosen() {
 				a.post(func() { a.setDiffContext(n) })
@@ -2095,7 +2095,7 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 				a.post(func() { a.setDiffLayout(v, l.layout) })
 			}
 		}
-		if m.Item("Synchronized Scrolling").Checked(a.settings.DiffSyncScroll).Chosen() {
+		if m.Item(locales.DiffSyncScrollMenu()).Checked(a.settings.DiffSyncScroll).Chosen() {
 			a.post(func() { a.setDiffSync(v, !a.settings.DiffSyncScroll) })
 		}
 	})
@@ -2103,12 +2103,12 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 	// the I key does too.
 	if f := a.diffEditTarget(v); f != nil {
 		editing := v.editing != nil && v.editing.f == f
-		label := "Edit"
+		label := locales.DiffEditButton()
 		if editing {
-			label = "Editing"
+			label = locales.DiffEditButtonActive()
 		}
 		b = button(iconPencil, label, editing)
-		b.Tooltip("Edit the working tree side of this file (I) · Esc when done")
+		b.Tooltip(locales.DiffEditTip())
 		if b.Clicked() {
 			a.post(func() {
 				if e := v.editing; e != nil && e.f == f {

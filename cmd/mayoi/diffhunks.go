@@ -50,10 +50,10 @@ func hunkArrows(f *diffFile) []hunkArrow {
 	if f.base == diffLocal {
 		var out []hunkArrow
 		if localFileWritable(f.peerPath) {
-			out = append(out, hunkArrow{dir: 1, label: "Accept Left", icon: iconArrowRight, tip: "Write the left file's lines into the right file"})
+			out = append(out, hunkArrow{dir: 1, label: locales.DiffAcceptLeft(), icon: iconArrowRight, tip: locales.DiffAcceptLeftTip()})
 		}
 		if localFileWritable(f.path) {
-			out = append(out, hunkArrow{dir: -1, label: "Accept Right", icon: iconArrowLeft, tip: "Write the right file's lines into the left file"})
+			out = append(out, hunkArrow{dir: -1, label: locales.DiffAcceptRight(), icon: iconArrowLeft, tip: locales.DiffAcceptRightTip()})
 		}
 		return out
 	}
@@ -63,9 +63,9 @@ func hunkArrows(f *diffFile) []hunkArrow {
 	old, new := f.base.sides()
 	return []hunkArrow{{
 		dir:   1,
-		label: "Revert",
+		label: locales.RevertButton(),
 		icon:  iconArrowRight,
-		tip:   "Revert this change: the lines of " + old + ", into the " + new + "; Control-click to append them",
+		tip:   locales.DiffArrowRevertTip(old, new),
 	}}
 }
 
@@ -177,7 +177,7 @@ func (a *app) hunkButtons(c *ui.Context, v *diffView, i int, right, contentW, y 
 		case hunkDiscard:
 			bs = append(bs, button{iconUndo, locales.HunkDiscard(), locales.HunkDiscardLabel(), locales.HunkDiscardTip(), act})
 		case hunkAppend:
-			bs = append(bs, button{iconArrowRight, "Append", "Append", "Append the lines of the compared side after this change", act})
+			bs = append(bs, button{iconArrowRight, locales.HunkAppend(), locales.HunkAppend(), locales.HunkAppendTip(), act})
 		}
 	}
 	h := a.font.lineH - 2
@@ -282,11 +282,11 @@ func (a *app) appendHunks(f *diffFile, hs []linediff.Hunk) {
 		return
 	}
 	if f.running || f.gitStale {
-		a.fail("The diff is catching up with the files: try again in a moment.")
+		a.fail("%s", locales.DiffCatchingUpFiles())
 		return
 	}
 	if doc := a.diffDoc(f); doc != nil && doc.buf.Version() != f.docVersion {
-		a.fail("The diff is catching up with your edits: try again in a moment.")
+		a.fail("%s", locales.DiffCatchingUp())
 		return
 	}
 	if d, shown := a.editorOf(a.diffDoc(f)); d != nil {
@@ -299,11 +299,11 @@ func (a *app) appendHunks(f *diffFile, hs []linediff.Hunk) {
 		return
 	}
 	name := filepath.Base(f.path)
-	a.confirm = &confirm{title: "Append source lines to " + name + "?", message: "The compared lines are added after the local change in the editor.", ok: "Append", run: func() {
+	a.confirm = &confirm{title: locales.DiffAppendTitle(name), message: locales.DiffAppendDetail(), ok: locales.HunkAppend(), run: func() {
 		a.openFile(f.path, false)
 		d, _ := a.editorOf(a.diffDoc(f))
 		if d == nil || d.loading || d.loadErr != nil || d.offline {
-			a.fail("Could not open %s to append its changes.", name)
+			a.fail("%s", locales.DiffOpenFailAppend(name))
 			return
 		}
 		if d.buf.Snapshot().String() != f.new.text {
@@ -351,11 +351,11 @@ func (a *app) restoreDeletedFile(e git.Entry) {
 		return
 	}
 	a.confirm = &confirm{
-		title:   "Restore " + filepath.Base(e.Path) + "?",
-		message: "The file is restored from the version in the index.",
-		ok:      "Restore File",
+		title:   locales.DiffRestoreTitle(filepath.Base(e.Path)),
+		message: locales.DiffRestoreDetail(),
+		ok:      locales.DiffRestoreFile(),
 		run: func() {
-			a.gitDo("Restoring "+filepath.Base(e.Path)+"…", func(r *git.Repo) error {
+			a.gitDo(locales.DiffRestoring(filepath.Base(e.Path)), func(r *git.Repo) error {
 				return r.Discard(e.Path)
 			}, func() {
 				if i := a.docIndex(e.Path); i >= 0 {
@@ -455,7 +455,7 @@ func (a *app) applyArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunkArrow
 // that file's normal undo and save history.
 func (a *app) applyLocalArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunkArrow) {
 	if f.running || !f.loaded || f.binary || !f.old.ok || !f.new.ok {
-		a.fail("The diff is catching up with the files: try again in a moment.")
+		a.fail("%s", locales.DiffCatchingUpFiles())
 		return
 	}
 	var path, expected string
@@ -481,7 +481,7 @@ func (a *app) applyLocalArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunk
 		doc = a.diffPeerDoc(f)
 	}
 	if doc != nil && version != 0 && doc.buf.Version() != version {
-		a.fail("The diff is catching up with your edits: try again in a moment.")
+		a.fail("%s", locales.DiffCatchingUp())
 		return
 	}
 	if doc == nil {
@@ -493,7 +493,7 @@ func (a *app) applyLocalArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunk
 		}
 	}
 	if doc == nil || doc.locked() {
-		a.fail("Could not open %s to apply this change.", filepath.Base(path))
+		a.fail("%s", locales.DiffOpenFailApply(filepath.Base(path)))
 		return
 	}
 	if got := doc.buf.Snapshot().String(); got != expected {
@@ -507,7 +507,7 @@ func (a *app) applyLocalArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunk
 	}
 	e, ok := hunkEdit(doc.buf.Snapshot(), target, lines)
 	if !ok {
-		a.fail("The diff no longer fits the file: try again in a moment.")
+		a.fail("%s", locales.DiffNoLongerFits())
 		return
 	}
 	d.peek = -1
@@ -526,11 +526,11 @@ func (a *app) applyLocalArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunk
 // changes are not to go over what is there now.
 func (a *app) revertInto(v *diffView, f *diffFile, hs []linediff.Hunk, ok string) {
 	if f.running || f.gitStale {
-		a.fail("The diff is catching up with the files: try again in a moment.")
+		a.fail("%s", locales.DiffCatchingUpFiles())
 		return
 	}
 	if doc := a.diffDoc(f); doc != nil && doc.buf.Version() != f.docVersion {
-		a.fail("The diff is catching up with your edits: try again in a moment.")
+		a.fail("%s", locales.DiffCatchingUp())
 		return
 	}
 	if d, shown := a.editorOf(a.diffDoc(f)); d != nil {
@@ -550,11 +550,11 @@ func (a *app) revertInto(v *diffView, f *diffFile, hs []linediff.Hunk, ok string
 		return
 	}
 	name := filepath.Base(f.path)
-	title := ok + " this change to " + name + "?"
+	title := locales.DiffRevertChangeTo(ok, name)
 	if len(hs) > 1 {
-		title = ok + " these changes to " + name + "?"
+		title = locales.DiffRevertChangesTo(ok, name)
 	}
-	a.confirm = &confirm{title: title, message: "The lines go back as the index has them, in the editor, where undo takes them back.",
+	a.confirm = &confirm{title: title, message: locales.DiffRevertDetail(),
 		ok: ok, danger: true, run: func() {
 			a.intoByOpening(v, f, hs)
 		}}
@@ -567,17 +567,17 @@ func (a *app) revertInto(v *diffView, f *diffFile, hs []linediff.Hunk, ok string
 // fit, and are not to go over what it has now.
 func (a *app) intoByOpening(v *diffView, f *diffFile, hs []linediff.Hunk) {
 	if f.running || f.gitStale {
-		a.fail("The diff is catching up with the files: try again in a moment.")
+		a.fail("%s", locales.DiffCatchingUpFiles())
 		return
 	}
 	a.openFile(f.path, false)
 	d, _ := a.editorOf(a.diffDoc(f))
 	if d == nil || d.loadErr != nil || d.offline {
-		a.fail("Could not open %s to revert its changes.", filepath.Base(f.path))
+		a.fail("%s", locales.DiffOpenFailRevert(filepath.Base(f.path)))
 		return
 	}
 	if d.loading {
-		a.fail("The file is still being read: try again in a moment.")
+		a.fail("%s", locales.DiffStillReading())
 		return
 	}
 	if d.buf.Snapshot().String() != f.new.text {

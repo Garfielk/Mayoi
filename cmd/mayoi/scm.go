@@ -891,7 +891,7 @@ func (a *gitContext) scmFile(c *ui.Context, r scmRow, action *func()) {
 					*action = func() { a.toggleStaged(r) }
 				}
 			case groupMerge:
-				if a.app.smallButton(c, iconMerge, "Solve Conflicts…") {
+				if a.app.smallButton(c, iconMerge, locales.MergeSolveConflicts()) {
 					*action = func() { a.app.openMerge(e.Path, true) }
 				}
 			default:
@@ -1441,7 +1441,7 @@ func (a *gitContext) scmFileMenu(m *ui.Menu, r scmRow, action *func()) {
 	if m.Item(locales.CmdGitOpenChanges()).Disabled(r.group == groupMerge).Chosen() {
 		*action = func() { a.openChange(r, true) }
 	}
-	if r.group == groupMerge && m.Item("Solve Conflicts…").Chosen() {
+	if r.group == groupMerge && m.Item(locales.MergeSolveConflicts()).Chosen() {
 		*action = func() { a.app.openMerge(e.Path, true) }
 	}
 	if m.Item(openLabel(e)).Disabled(e.Letter() == 'D' && r.group != groupStaged).Chosen() {

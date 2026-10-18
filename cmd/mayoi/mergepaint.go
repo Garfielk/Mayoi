@@ -3,8 +3,11 @@ package main
 import (
 	"cmp"
 	"fmt"
+	"strconv"
 
 	"github.com/egoist/mygo/ui"
+
+	"mayoi/locales"
 )
 
 // mergeViewUI shows the three-way merge of a conflicted file: the two
@@ -28,7 +31,7 @@ func (a *app) mergeViewUI(c *ui.Context, v *mergeView) {
 		return
 	}
 	if v.binary {
-		message("The file is binary: the conflict is resolved in the terminal.")
+		message(locales.MergeBinary())
 		return
 	}
 	// The regions follow the result's text, whatever changed it: undo
@@ -77,16 +80,16 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 	ui.Row(c).Height(30).Padding(0, 10, 0, 8).Gap(8).AlignItems(ui.Center).Background(p.chrome).Children(func() {
 		ui.Icon(c, iconMerge).FontSize(14).TextColor(p.changed)
 		ui.Text(c, v.name()).FontSize(12.5).FontWeight(600).TextColor(p.text).SingleLine().Shrink(0)
-		tip := "The file is in conflict"
+		tip := locales.MergeConflictTip()
 		if op := v.op.Title(); op != "" {
-			tip = "The " + op + " stopped for this file"
+			tip = locales.MergeOpStoppedFile(op)
 		}
 		ui.Text(c, tip).FontSize(11).TextColor(p.muted).SingleLine().Shrink(1)
 		if n := len(v.regions); n > 0 {
 			un := v.unresolved()
 			pill := ui.Box(c.Key("merge-count")).Height(16).Padding(0, 6).Radius(8).Shrink(0).
 				AlignItems(ui.Center).Justify(ui.Center).
-				Label("Conflicts Unresolved").Tooltip("Conflicts the result still has the base's lines for")
+				Label(locales.MergeConflictsUnresolved()).Tooltip(locales.MergeConflictsUnresolvedTip())
 			if un > 0 {
 				pill.Background(p.danger.Alpha(0.18))
 			} else {
@@ -99,52 +102,52 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 		if filesTotal > 1 {
 			ui.Text(c, fmt.Sprintf("%d of %d files resolved", filesResolved, filesTotal)).
 				FontSize(11).TextColor(p.muted).SingleLine().Shrink(0).
-				Tooltip("The files of the " + cmp.Or(v.op.Title(), "merge") + " that stand resolved")
+				Tooltip("The files of the " + cmp.Or(v.op.Title(), locales.MergeOpMerge()) + " that stand resolved")
 		}
 		ui.Spacer(c)
 		if !resolved && !v.binary && v.loaded {
 			b := ui.ButtonBase(c.Key("merge-apply")).Height(20).Padding(0, 8).Radius(5).AlignItems(ui.Center).
-				Label("Apply").Tooltip("Take the changes of a side that no conflict of the merge holds into the result")
+				Label(locales.MergeApply()).Tooltip(locales.MergeApplyTip())
 			if b.Hovered() {
 				b.Background(p.hover)
 			}
 			b.Menu(func(m *ui.Menu) {
-				if m.Item("Apply All Non-Conflicting Changes").Chosen() {
+				if m.Item(locales.MergeApplyAll()).Chosen() {
 					a.post(func() { a.applyNonConflicts(v, applyAll) })
 				}
-				if m.Item("Apply Non-Conflicting Changes from the Left").Chosen() {
+				if m.Item(locales.MergeApplyLeft()).Chosen() {
 					a.post(func() { a.applyNonConflicts(v, applyLeft) })
 				}
-				if m.Item("Apply Non-Conflicting Changes from the Right").Chosen() {
+				if m.Item(locales.MergeApplyRight()).Chosen() {
 					a.post(func() { a.applyNonConflicts(v, applyRight) })
 				}
-				if m.Item("Apply Automatically").Checked(a.settings.MergeAutoApply).Chosen() {
+				if m.Item(locales.MergeApplyAuto()).Checked(a.settings.MergeAutoApply).Chosen() {
 					a.post(func() { a.setMergeAutoApply(!a.settings.MergeAutoApply) })
 				}
 			})
 			b.Children(func() {
-				ui.Text(c, "Apply").FontSize(11.5).FontWeight(500).TextColor(p.text).SingleLine()
+				ui.Text(c, locales.MergeApply()).FontSize(11.5).FontWeight(500).TextColor(p.text).SingleLine()
 			})
 		}
 		if !resolved {
-			if a.mergeButton(c, "merge-reset", "Reset to Base", "Put the base's text in the result, taking back what every conflict took") {
+			if a.mergeButton(c, "merge-reset", locales.MergeResetBase(), locales.MergeResetBaseTip()) {
 				a.post(func() { a.resetMerge(v) })
 			}
 		}
-		if a.mergeButton(c, "merge-save", "Save", "Save the result in the file (Cmd+S)") {
+		if a.mergeButton(c, "merge-save", locales.ButtonSave(), locales.MergeSaveTip()) {
 			a.post(func() { a.saveMerge(v) })
 		}
-		if !resolved && filesTotal > 1 && a.mergeButton(c, "merge-apply-next", "Apply Changes", "Save the result, stage the file, and go on to the next file in conflict") {
+		if !resolved && filesTotal > 1 && a.mergeButton(c, "merge-apply-next", locales.MergeApplyChanges(), locales.MergeApplyChangesTip()) {
 			a.post(func() { a.applyMergeChanges(v) })
 		}
-		if filesTotal > 0 && a.mergeButton(c, "merge-save-close", "Save and Close", "Save the result, and go back to the files in conflict") {
+		if filesTotal > 0 && a.mergeButton(c, "merge-save-close", locales.MergeSaveClose(), locales.MergeSaveCloseTip()) {
 			a.post(func() { a.saveCloseMerge(v) })
 		}
-		if filesTotal > 0 && a.mergeButton(c, "merge-files", "Conflicts…", "The files of the "+cmp.Or(v.op.Title(), "merge")+", resolved and to resolve") {
+		if filesTotal > 0 && a.mergeButton(c, "merge-files", locales.MergeConflictsEllipsis(), locales.MergeConflictsTip(cmp.Or(v.op.Title(), locales.MergeOpMerge()))) {
 			a.post(a.openConflicts)
 		}
-		b := ui.PrimaryButton(c.Key("merge-resolved"), "Mark Resolved").Height(22)
-		b.Tooltip("Save the result and stage the file, which ends its conflict")
+		b := ui.PrimaryButton(c.Key("merge-resolved"), locales.MergeMarkResolved()).Height(22)
+		b.Tooltip(locales.MergeMarkResolvedTip())
 		if b.Clicked() {
 			a.post(func() { a.completeMerge(v) })
 		}
@@ -158,19 +161,19 @@ func (a *app) mergeActions(c *ui.Context, v *mergeView) {
 	ui.Row(c).Height(26).Padding(0, 10, 2, 8).Gap(6).AlignItems(ui.Center).Background(p.chrome).Children(func() {
 		if a.mergeResolved(v) {
 			ui.Icon(c, iconCheck).FontSize(13).TextColor(p.added).Shrink(0)
-			done := "The file stands resolved."
+			done := locales.MergeFileResolved()
 			if op := v.op.Title(); op != "" {
-				done = "The file stands resolved: the " + op + " goes on when every file of it does."
+				done = locales.MergeFileResolvedOp(op)
 			}
 			ui.Text(c, done).FontSize(11.5).TextColor(p.muted).SingleLine().Shrink(1)
 			ui.Spacer(c)
-			if v.op != "" && a.mergeButton(c, "merge-continue", "Continue "+v.op.Title(), "Go on with the "+v.op.Title()+", once its conflicts stand resolved") {
+			if v.op != "" && a.mergeButton(c, "merge-continue", locales.MergeContinueOp(v.op.Title()), locales.MergeContinueOpTip(v.op.Title())) {
 				a.post(a.continueOp)
 			}
-			if a.mergeButton(c, "merge-restore", "Restore Conflict…", "Put the file back in conflict, as the command stopped for it has it") {
+			if a.mergeButton(c, "merge-restore", locales.MergeRestoreConflict(), locales.MergeRestoreConflictTip()) {
 				a.post(func() { a.restoreMerge(v) })
 			}
-			if a.mergeButton(c, "merge-open", "Open File", "Open the file as it is on disk") {
+			if a.mergeButton(c, "merge-open", locales.OpenFile(), locales.MergeOpenFileTip()) {
 				a.post(func() { a.openPath(v.path, true) })
 			}
 			return
@@ -189,31 +192,31 @@ func (a *app) mergeActions(c *ui.Context, v *mergeView) {
 		}
 		r := v.regions[i]
 		state := map[regionState]string{
-			regionUndecided: "the base's lines",
-			regionLeft:      "ours",
-			regionRight:     "theirs",
-			regionBoth:      "both sides, alike",
-			regionEdited:    "lines of its own",
+			regionUndecided: locales.MergeStateBase(),
+			regionLeft:      locales.MergeStateOurs(),
+			regionRight:     locales.MergeStateTheirs(),
+			regionBoth:      locales.MergeStateBoth(),
+			regionEdited:    locales.MergeStateEdited(),
 		}[v.stateOf(r)]
-		ui.Text(c, fmt.Sprintf("Conflict %d of %d · the result has %s", i+1, len(v.regions), state)).
+		ui.Text(c, locales.MergeConflictOf(strconv.Itoa(i+1), strconv.Itoa(len(v.regions)), state)).
 			FontSize(11.5).TextColor(p.muted).SingleLine().Shrink(1)
-		if a.mergeButton(c, "merge-accept-l", "Accept Left", "Put ours' lines of the conflict in the result") {
+		if a.mergeButton(c, "merge-accept-l", locales.DiffAcceptLeft(), locales.MergeAcceptLeftTip()) {
 			a.post(func() { a.takeMergeSide(v, i, true) })
 		}
-		if a.mergeButton(c, "merge-ignore-l", "Ignore Left", "Put the base's lines of the conflict back, taking ours' out") {
+		if a.mergeButton(c, "merge-ignore-l", locales.MergeIgnoreLeft(), locales.MergeIgnoreLeftTip()) {
 			a.post(func() { a.dropMergeSide(v, i, true) })
 		}
-		if a.mergeButton(c, "merge-accept-r", "Accept Right", "Put theirs' lines of the conflict in the result") {
+		if a.mergeButton(c, "merge-accept-r", locales.DiffAcceptRight(), locales.MergeAcceptRightTip()) {
 			a.post(func() { a.takeMergeSide(v, i, false) })
 		}
-		if a.mergeButton(c, "merge-ignore-r", "Ignore Right", "Put the base's lines of the conflict back, taking theirs' out") {
+		if a.mergeButton(c, "merge-ignore-r", locales.MergeIgnoreRight(), locales.MergeIgnoreRightTip()) {
 			a.post(func() { a.dropMergeSide(v, i, false) })
 		}
 		ui.Spacer(c)
-		if a.mergeButton(c, "merge-use-l", "Resolve using Left", "Accept ours and ignore theirs, for every conflict of the file") {
+		if a.mergeButton(c, "merge-use-l", locales.MergeUseLeft(), locales.MergeUseLeftTip()) {
 			a.post(func() { a.resolveUsingMerge(v, true) })
 		}
-		if a.mergeButton(c, "merge-use-r", "Resolve using Right", "Accept theirs and ignore ours, for every conflict of the file") {
+		if a.mergeButton(c, "merge-use-r", locales.MergeUseRight(), locales.MergeUseRightTip()) {
 			a.post(func() { a.resolveUsingMerge(v, false) })
 		}
 	})

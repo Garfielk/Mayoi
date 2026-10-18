@@ -14,6 +14,7 @@ import (
 	"mayoi/internal/highlight"
 	"mayoi/internal/linediff"
 	"mayoi/internal/vfs"
+	"mayoi/locales"
 )
 
 // mergeTextX is where the text of a pane of a merge starts, past the
@@ -62,11 +63,11 @@ type mergeView struct {
 	// result is the document edited in the middle, the base at first, and
 	// ed its editor here. The sides have buffers of their own, which no
 	// one edits.
-	doc      *document
-	ed       *editor
-	oursBuf  *ui.TextBuffer
+	doc       *document
+	ed        *editor
+	oursBuf   *ui.TextBuffer
 	theirsBuf *ui.TextBuffer
-	gen      uint64 // the result's version the regions were worked out at
+	gen       uint64 // the result's version the regions were worked out at
 
 	// chosen is the region the actions take, -1 for none, and current the
 	// one gone to last, which the next conflict goes on from.
@@ -87,27 +88,27 @@ type paneScroll struct {
 
 // oursLabel is what the pane of ours says it is.
 func (v *mergeView) oursLabel() string {
-	return "OURS · " + cmp.Or(v.ours.Name, "HEAD")
+	return locales.MergeOursPane(cmp.Or(v.ours.Name, "HEAD"))
 }
 
 // theirsLabel is what the pane of theirs says it is.
 func (v *mergeView) theirsLabel() string {
 	if v.theirs.Name == "" || v.theirs.Name == "Theirs" {
-		return "THEIRS"
+		return locales.MergeTheirsBare()
 	}
-	return "THEIRS · " + v.theirs.Name
+	return locales.MergeTheirsPane(v.theirs.Name)
 }
 
 // resultLabel is what the pane of the result says it is: the result
 // starts as the base of the conflict.
-func (v *mergeView) resultLabel() string { return "RESULT · FROM BASE" }
+func (v *mergeView) resultLabel() string { return locales.MergeResultPane() }
 
 // oursTip says who ours is, as the command stopped for the conflict
 // names it.
 func (v *mergeView) oursTip() string {
-	tip := "Ours: the branch checked out, as HEAD has the file"
+	tip := locales.MergeOursTip()
 	if b := cmp.Or(v.ours.Name, "HEAD"); b != "HEAD" {
-		tip = "Ours: " + b + ", the branch checked out, as HEAD has the file"
+		tip = locales.MergeOursTipBranch(b)
 	}
 	if op := v.op.Title(); op != "" {
 		tip += " · " + op
@@ -118,9 +119,9 @@ func (v *mergeView) oursTip() string {
 // theirsTip says who theirs is, as the command stopped for the conflict
 // brings it in.
 func (v *mergeView) theirsTip() string {
-	tip := "Theirs: the other side of the conflict"
+	tip := locales.MergeTheirsTip()
 	if n := v.theirs.Name; n != "" && n != "Theirs" {
-		tip = "Theirs: " + n + ", the other side of the conflict"
+		tip = locales.MergeTheirsTipName(n)
 	}
 	if op := v.op.Title(); op != "" {
 		tip += " · brought in by the " + op
@@ -130,7 +131,7 @@ func (v *mergeView) theirsTip() string {
 
 // resultTip says what the result is.
 func (v *mergeView) resultTip() string {
-	return "The result, which starts as the base both sides come from: edit it, take the sides of a conflict into it, and save it to resolve the file"
+	return locales.MergeResultTip()
 }
 
 // mergeResolved reports whether the file is in conflict no more: staged
@@ -872,7 +873,7 @@ func (a *app) completeMerge(v *mergeView) {
 	a.saveDoc(v.doc, func() {
 		a.gitDo("", func(r *git.Repo) error { return r.Stage(path) }, func() {
 			a.noteMergeResolved(path)
-			a.tell(note{message: "Marked " + filepath.Base(path) + " resolved"})
+			a.tell(note{message: locales.MergeMarkedResolved(filepath.Base(path))})
 		})
 	})
 }
@@ -888,8 +889,8 @@ func (a *app) restoreMerge(v *mergeView) {
 // command stopped for them has them. A merge view of the file starts its
 // result over at the base.
 func (a *app) revertMergeConflict(path string) {
-	a.confirm = &confirm{title: "Put " + filepath.Base(path) + " back in conflict?", ok: "Restore", danger: true,
-		message: "The result saved goes, and the two sides of the conflict come back, as the command stopped for them has them.",
+	a.confirm = &confirm{title: locales.MergeRestoreTitle(filepath.Base(path)), ok: locales.MergeRestoreOk(), danger: true,
+		message: locales.MergeRestoreDetail(),
 		run: func() {
 			a.gitDo("", func(r *git.Repo) error { return r.RestoreConflict(path) }, func() {
 				if t := a.mergeTab(path); t != nil {
