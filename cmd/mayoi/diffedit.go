@@ -75,6 +75,7 @@ func (a *app) beginDiffEdit(v *diffView, i int) bool {
 	e := a.diffEditOf(v, f, doc)
 	a.diffCaretToLine(e, v.rows[i].new)
 	v.editing = e
+	v.edited = doc
 	v.boundary = nil
 	v.pane.Focus()
 	a.invalidate()

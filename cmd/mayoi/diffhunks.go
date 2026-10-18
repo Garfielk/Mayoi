@@ -202,7 +202,7 @@ func (a *app) hunkButtons(c *ui.Context, v *diffView, i int, right, contentW, y 
 			})
 			if btn.Clicked() {
 				act := b.act
-				a.post(func() { a.applyHunks(f, hs, act) })
+				a.post(func() { a.applyHunks(v, f, hs, act) })
 			}
 		}
 	})
@@ -212,7 +212,7 @@ func (a *app) hunkButtons(c *ui.Context, v *diffView, i int, right, contentW, y 
 // applyHunks stages changes of a file of a diff, unstages them or
 // discards them. The texts are read again first, and the changes found
 // again among theirs, so that what is done is to the files as they are.
-func (a *app) applyHunks(f *diffFile, hs []linediff.Hunk, act hunkAction) {
+func (a *app) applyHunks(v *diffView, f *diffFile, hs []linediff.Hunk, act hunkAction) {
 	ctx := a.repositoryForPath(f.path)
 	if f.repoRoot != "" {
 		ctx = a.repositoryForRoot(f.repoRoot)
@@ -266,9 +266,9 @@ func (a *app) applyHunks(f *diffFile, hs []linediff.Hunk, act hunkAction) {
 			return r.StageText(path, joinLines(linediff.Apply(index, from, inverted(picked)), crlf))
 		}, nil)
 	case hunkDiscard:
-		a.discardHunks(f, hs)
+		a.discardHunks(v, f, hs)
 	case hunkAppend:
-		a.appendHunks(f, hs)
+		a.appendHunks(v, f, hs)
 	}
 }
 
@@ -277,7 +277,7 @@ func (a *app) applyHunks(f *diffFile, hs []linediff.Hunk, act hunkAction) {
 // appendHunks keeps the work tree side of each change and appends the
 // corresponding lines from the compared side after it. Each block is one
 // undoable edit, and an empty source is a no-op.
-func (a *app) appendHunks(f *diffFile, hs []linediff.Hunk) {
+func (a *app) appendHunks(v *diffView, f *diffFile, hs []linediff.Hunk) {
 	if len(hs) == 0 || f == nil || f.base != diffIndex {
 		return
 	}
@@ -290,7 +290,7 @@ func (a *app) appendHunks(f *diffFile, hs []linediff.Hunk) {
 		return
 	}
 	if d, shown := a.editorOf(a.diffDoc(f)); d != nil {
-		appendNow := func(d *editor) { a.appendInto(d, f, hs) }
+		appendNow := func(d *editor) { a.appendInto(v, d, f, hs) }
 		if shown {
 			a.queueEdit(d, appendNow)
 		} else {
@@ -311,11 +311,11 @@ func (a *app) appendHunks(f *diffFile, hs []linediff.Hunk) {
 			a.fail("%s has changed since the diff was drawn. It is read again: try again.", name)
 			return
 		}
-		a.appendInto(d, f, hs)
+		a.appendInto(v, d, f, hs)
 	}}
 }
 
-func (a *app) appendInto(d *editor, f *diffFile, hs []linediff.Hunk) {
+func (a *app) appendInto(v *diffView, d *editor, f *diffFile, hs []linediff.Hunk) {
 	if d == nil || len(hs) == 0 {
 		return
 	}
@@ -336,10 +336,13 @@ func (a *app) appendInto(d *editor, f *diffFile, hs []linediff.Hunk) {
 	}
 	d.peek = -1
 	d.edit([2]int{edits[0].start, edits[0].start}, edits...)
+	if v != nil {
+		v.edited = d.document
+	}
 }
 
-func (a *app) discardHunks(f *diffFile, hs []linediff.Hunk) {
-	a.revertInto(nil, f, hs, "Discard")
+func (a *app) discardHunks(v *diffView, f *diffFile, hs []linediff.Hunk) {
+	a.revertInto(v, f, hs, "Discard")
 }
 
 // restoreDeletedFile puts a tracked file removed from the work tree back as
@@ -415,7 +418,7 @@ func (a *app) hunkArrowUI(c *ui.Context, v *diffView, k, first, last int, l diff
 			a.post(func() {
 				v.pane.Focus()
 				if append {
-					a.appendHunks(f, []linediff.Hunk{h})
+					a.appendHunks(v, f, []linediff.Hunk{h})
 				} else {
 					a.applyArrow(v, f, h, ar)
 				}
@@ -685,7 +688,7 @@ func (a *app) stageAtCursor(v *diffView) {
 	}
 	for _, act := range hunkActions(f) {
 		if act == hunkStage || act == hunkUnstage {
-			a.applyHunks(f, hs, act)
+			a.applyHunks(v, f, hs, act)
 			return
 		}
 	}
