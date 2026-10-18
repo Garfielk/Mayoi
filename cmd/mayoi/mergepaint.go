@@ -43,6 +43,12 @@ func (a *app) mergeViewUI(c *ui.Context, v *mergeView) {
 		if !a.settings.Vim {
 			vimReset(v.ed)
 		}
+		// The typing of the result is the merge editor's while the result
+		// pane has the keyboard, also when the file was open already and
+		// its tab editor held it before.
+		if v.panes[1].scroll.FocusWithin(c) {
+			v.doc.typist = v.ed
+		}
 		v.ed.observe()
 		if len(v.ed.cmds) > 0 {
 			cmds := v.ed.cmds
