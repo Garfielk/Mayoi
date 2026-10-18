@@ -16,11 +16,12 @@ import (
 // the document of the file, and the diff's editor of it, whose selection
 // is the caret the diff paints and whose keys the diff takes.
 type diffEdit struct {
-	f       *diffFile
-	doc     *document
-	ed      *editor
-	drag    bool   // the pointer is extending the selection
-	compose string // the text an input method has marked, at the caret
+	f         *diffFile
+	doc       *document
+	ed        *editor
+	drag      bool   // the pointer is extending the selection
+	compose   string // the text an input method marks, which sits in the buffer
+	composeAt int    // where the marked text begins, in rune offsets
 }
 
 // writable reports whether the new side of a file of a diff is the work
@@ -97,17 +98,15 @@ func (a *app) diffEditInput(v *diffView, ev ui.InputEvent) bool {
 	e := v.editing
 	switch ev.Kind {
 	case ui.InputText:
-		e.diffReplace(ev.Text)
+		if e.compose != "" {
+			e.commitCompose(ev.Text)
+		} else {
+			e.diffReplace(ev.Text)
+		}
 		a.invalidate()
 		return true
 	case ui.InputCompose:
-		// What an input method marks takes the place of what it marked
-		// before, and an empty one ends it.
-		e.endCompose()
-		if ev.Text != "" {
-			e.compose = ev.Text
-			e.diffReplace(ev.Text)
-		}
+		e.beginCompose(ev.Text)
 		a.invalidate()
 		return true
 	case ui.InputCommand:
@@ -154,8 +153,10 @@ func (a *app) diffEditCommand(v *diffView, e *diffEdit, ev ui.InputEvent) bool {
 	case "selectAll":
 		e.ed.sel = [2]int{0, e.doc.buf.Snapshot().Len()}
 	case "undo":
+		e.endCompose()
 		e.ed.undo()
 	case "redo":
+		e.endCompose()
 		e.ed.redo()
 	case "delete":
 		e.diffReplace("")
@@ -173,6 +174,12 @@ func (a *app) diffEditKey(v *diffView, e *diffEdit, ev ui.InputEvent) bool {
 	m := ev.Mods
 	snap := e.doc.buf.Snapshot()
 	switch {
+	case ev.Key == ui.KeyEscape && m == 0 && e.compose != "":
+		// Escape cancels what the input method marks first; one more
+		// leaves the editing.
+		e.endCompose()
+		a.invalidate()
+		return true
 	case ev.Key == ui.KeyEscape && m == 0 && e.compose == "":
 		a.endDiffEdit(v)
 		return true
@@ -632,20 +639,71 @@ func (e *diffEdit) diffCaretTo(at int, extend bool) {
 	e.ed.sel = [2]int{anchor, at}
 }
 
-// endCompose takes back what an input method had marked, once its text is
-// replaced by the whole of what it composed.
+// beginCompose takes what an input method marks now in the place of what
+// it marked before. The marked text sits in the buffer from where the
+// caret was when composing began, so that every mark replaces the last
+// one wherever it began, and the edits of composing join one step of
+// undo, which the text it ends with commits as. An empty mark ends
+// composing and takes what it marked back.
+func (e *diffEdit) beginCompose(text string) {
+	if e.doc.locked() {
+		return
+	}
+	if text == "" {
+		e.endCompose()
+		return
+	}
+	snap := e.doc.buf.Snapshot()
+	at, marked := 0, 0
+	if e.compose != "" {
+		at, marked = e.composeAt, utf8.RuneCountInString(e.compose)
+	} else {
+		e.doc.observe()
+		e.doc.hist.group = groupOpen
+		at = min(e.ed.sel[1], snap.Len())
+		e.composeAt = at
+	}
+	e.compose = text
+	e.doc.buf.Replace(at, at+marked, text)
+	e.doc.observe()
+	end := at + utf8.RuneCountInString(text)
+	e.ed.sel = [2]int{end, end}
+}
+
+// commitCompose puts the text an input method finished in the place of
+// what it marked, and closes the step of undo composing made.
+func (e *diffEdit) commitCompose(text string) {
+	if e.compose == "" || e.doc.locked() {
+		return
+	}
+	if text == "" {
+		e.endCompose()
+		return
+	}
+	e.doc.buf.Replace(e.composeAt, e.composeAt+utf8.RuneCountInString(e.compose), text)
+	e.doc.observe()
+	end := e.composeAt + utf8.RuneCountInString(text)
+	e.ed.sel = [2]int{end, end}
+	e.compose = ""
+	e.doc.hist.group = groupNone
+}
+
+// endCompose takes what an input method had marked back, once composing
+// ends without text, or the mark is to go for another edit first.
 func (e *diffEdit) endCompose() {
 	if e.compose == "" {
 		return
 	}
-	n := utf8.RuneCountInString(e.compose)
 	snap := e.doc.buf.Snapshot()
-	at := min(e.ed.sel[1], snap.Len())
-	if at-n >= 0 && snap.Slice(at-n, at) == e.compose {
-		e.doc.buf.Replace(at-n, at, "")
-		e.ed.sel = [2]int{at - n, at - n}
+	at := min(e.composeAt, snap.Len())
+	n := utf8.RuneCountInString(e.compose)
+	if at+n <= snap.Len() {
+		e.doc.buf.Replace(at, at+n, "")
+		e.doc.observe()
 	}
+	e.ed.sel = [2]int{at, at}
 	e.compose = ""
+	e.doc.hist.group = groupNone
 }
 
 // diffEditedText returns the text the selection of an edit holds, "" for
