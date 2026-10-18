@@ -26,6 +26,9 @@ same preview tab.
 the one before. Files and terminals both come back, a terminal as a new shell in the folder it started in. Opening or
 closing a folder forgets the tabs closed.
 
+The middle mouse button closes the tab under the pointer, wherever in the tab it is pressed, without showing it first:
+clearing tabs leaves the file you are reading where it is.
+
 ### Word wrap
 
 Long lines scroll sideways by default. **View → Word Wrap** wraps them at the edge of the editor. ⌥Z toggles wrapping
@@ -47,6 +50,7 @@ Closing a changed file saves it without asking. Untitled files wait for ⌘S. Tu
 - Enter keeps the indent, and indents one more level after an opening bracket.
 - Brackets and quotes close themselves, wrap a selection, and are stepped over when typed again.
 - Commands comment lines, move, copy and delete lines, and insert a line above or below.
+- Cut (⌘X) cuts the selection, or the entire line at the caret when nothing is selected. Undo restores it in one step.
 - Home goes to the first non-blank character of the line.
 - The status bar shows the file's indentation and line endings, and you can change either from there.
 
@@ -83,6 +87,8 @@ reloading from disk can all be undone. Undoing back to the saved text marks the 
   elsewhere.
 - Sticky scroll pins the lines that open the blocks in view to the top, and breadcrumbs name the blocks around the
   caret. Click either to jump there.
+- A folder in the breadcrumbs, clicked, shows its files in a tree below it, apart from the Explorer's: open its
+  folders, and choose a file to show it in that column, with the mouse or the arrows and Enter.
 
 ### Git
 
@@ -104,12 +110,19 @@ tree, with a count of them. Files are grouped as merge changes, staged changes, 
 - The branch at the top opens **Switch Branch…**. Beside it, fetch, pull and push, which show how many commits
   they would bring down or send up; a branch with no upstream gets **Publish Branch** instead.
 - Click a file, or press Enter, to see its changes with the diff focused, so its keys (`]` `[`, `.` `,`) work at once.
-  Space stages or unstages the file chosen.
+  Shift-click or Shift+Up/Down selects a range of files, ⌘-click (Ctrl-click on Windows and Linux) adds or removes one,
+  and ⌘A selects them all. Space, and a selected row's stage, unstage and discard buttons and menu items, act on all the
+  files selected; on a row not selected they act on that file alone.
 - The buttons on a row open the file, discard its changes, and stage or unstage it. A group's header does the same for
   all its files. Discarding asks first, and moves untracked files to the Trash.
 - Write a message and press ⌘↵ or the commit button, which says what it will do: **Commit**, **Commit All** when nothing
   is staged (Mayoi asks before staging everything), or **Amend Commit**. Changed files save first. Past 50 characters
   the summary line shows its length, in a warning color past 72.
+- Signed in to your [Mon](https://mon.sorrycc.dev) account, the ✨ button at the corner of the message box has AI write
+  the message from the staged changes, or from every change when nothing is staged, in the style of the branch's last
+  commits. The message streams into the box; click the button again to stop. Text already in the box goes along as
+  notes to follow. **Git: Write Commit Message with AI** in the command palette does the same. It uses Mon's AI gateway
+  and your account's daily limit; the `aiModel` setting picks another of its models.
 - The arrow beside the commit button has **Commit & Push**, **Amend Last Commit** (which fills in the last message) and
   **Undo Last Commit**, which takes the commit back but keeps its changes staged and its message in the box.
 - The **⋯** menu by the title has the commit commands, stage, unstage and discard all, fetch, pull and push, Refresh,
@@ -119,6 +132,30 @@ tree, with a count of them. Files are grouped as merge changes, staged changes, 
   button, and when a push or a pull is done.
 - A clean work tree says so, and offers to push or pull when the branch is ahead of its upstream or behind it.
 - A folder outside a repository gets an **Initialize Repository** button.
+
+### Submodules and repository selection
+
+Initialized submodules, including nested submodules, appear as separate,
+collapsible sections in Source Control. Each section shows its branch or detached
+HEAD, staged changes and working changes. Clean repositories use only a header
+row; repositories with changes show their own commit message and button.
+Staging, unstaging, discarding and committing apply to that section's repository. A submodule commit
+updates the parent's submodule entry; stage and commit that reference separately.
+Uninitialized submodules remain entries in the parent until initialized externally.
+
+With multiple repositories, the lower part of Source Control shows the selected
+repository's commit graph. The repository button in its header and in the status
+bar opens a searchable picker with repository names and paths. **Auto** follows
+the active file or diff; choosing a repository keeps its history selected as you
+open other files. Each repository keeps its history selection, scrolling and
+loaded page count. Diff tabs stay bound to the repository they were opened for.
+The status bar picker replaces its folder item, so the root is not listed twice.
+Destructive confirmation dialogs name their target repository, including in Auto
+mode. Saved diff repository paths are relative to the workspace.
+Discovery skips repositories without `.gitmodules` and refreshes on Git metadata
+or `.gitmodules` changes, rather than enumerating indexes on a timer.
+Opening a worktree containing submodules uses the same behavior; other worktrees
+are opened separately as before.
 
 ### Commits
 
@@ -191,8 +228,64 @@ diff focused, keys work as in a pager:
 | Enter | Open folded lines, fold a file, or open the file at a line |
 | `e` | Open the file at the chosen line |
 | `s` | Stage the changes of the chosen line or run, or unstage them |
+| Shift+`j` `k`, Shift+↓ ↑ | Choose more rows, as do Shift-click and a drag |
+| `c` | Comment on the rows chosen, or edit the comment chosen |
+| `n` `N` | Go to the next or previous comment |
+| Delete | Delete the comment chosen |
+| ⌘C | Copy the lines chosen with their path and line numbers |
+| Escape | Choose one row again |
+
+### Review comments
+
+Review an agent's changes, then hand it the review in one paste. Choose lines in a diff and press `c`, or click the
+**+** by the line under the pointer, or select lines in a file and press ⇧⌘M (**Add Review Comment**), and type a
+comment: ⌘Enter keeps it, Escape drops it. In a diff the comment shows under its lines, with buttons to edit or delete
+it, and a bar by the line numbers marks its lines. In a file the bar marks them too, and the comment shows after the
+last of them: click it, or run the command on its lines, to edit it. The scroll bar marks where each comment is.
+Side by side, a comment shows under the side of its lines. While a comment is edited, **Delete** deletes it, and
+the toast that says a comment was deleted, or every comment cleared, has **Undo**. Comments work in the diff of a
+commit too. The status bar counts them, with a menu of them under their files to go to each. In a diff, `n` goes to
+the next comment and `N` to the one before; **Go to Next Review Comment** and **Go to Previous Review Comment** do so
+from anywhere, in the order of their files and lines. Going to a comment on lines removed, staged or of a commit shows
+it in its diff.
+
+**Send Review Comments to Terminal**, from the button in the diff's toolbar, that menu, the **Git** menu or the
+command palette, pastes every comment into the terminal used last, without pressing Enter, so you can add to it before
+it goes to the agent, and clears them. **Copy Review Comments** copies them instead. Each says where its lines are, relative to the folder, then shows
+them, as a diff when it was made in one, then the comment, numbered when there are more than one:
+
+````
+cmd/mayoi/diffview.go:1228-1229
+```diff
+-	if ev.Kind != ui.InputKeyDown || ev.Mods&^ui.Shift != 0 {
++	if ev.Kind != ui.InputKeyDown {
+```
+Not here, the check belongs in the section before.
+````
+
+A comment follows its lines as the file changes. When they are no longer in the file, it says it is outdated, and
+quotes the lines as they were. Comments not sent are kept with the folder's session, so they are there again at the
+next start.
+
+Commit menus also offer **Create Patch…** and **Copy Changes (Patch)**, including binary changes and root commits.
+**Compare HEAD to Here** and **Compare Here to HEAD** open the changes between the two in a diff tab, inline or side by
+side as the changes show, in the chosen direction; **Select for Compare** then **Compare with Selected** compares two
+commits from the same repository. A comparison's card names both commits, each a chip that copies its hash, and its tab
+comes back with the session. **Open Commit on Remote** supports
+GitHub, GitLab and Bitbucket, preferring a unique remote decoration, then the current upstream, origin or the first remote.
 
 ### Branches and remotes
+
+Source Control's **REPOSITORY** panel sits below **COMMITS**, starts collapsed and remembers whether it is open and its selected tab.
+**Branches** lists the current branch first, then the most recently committed branches, with their upstream and ahead/behind
+counts. Expand a branch for its history and any incoming or outgoing commits; **Load more** reads another page.
+**Remotes** lists the configured remotes, each with where it points. Expand a remote to read its fetch and push URLs and
+remote branches.
+Panel data loads when it is opened, and branch history loads when that branch is expanded.
+
+Branch rows offer checkout and pull; a remote branch's **Fetch Remote** fetches its whole remote. Context menus offer
+branch creation, rename, deletion, merge and rebase, and remote creation, URL editing, removal, fetch and prune.
+Deletion refuses unmerged branches. **Refresh** rereads local refs; **Fetch** contacts the remote.
 
 The branch in the status bar shows how far it is ahead of its upstream (↑) and behind it (↓). Click it to switch
 branches, create one, or fetch, pull and push. Switching waits until open files are saved.
@@ -225,17 +318,33 @@ two columns. A file can show in several columns at once. Those columns share its
 its own caret and scroll position. Drag a tab along its strip, into another column, or to the edge of a column to give it
 a new column.
 
+Choose **Lock Column** in a tab's menu to keep a column for terminals, or **Move to Locked Right Column** in a
+terminal tab's or panel terminal's menu to move the running terminal there in one step. The lock in the tab strip unlocks
+the column. Files, images and diffs opened from the Explorer, Search, Quick Open or Source Control go to the unlocked
+column that has the keyboard, or the one used last when a locked column has it. Dragging a tab or file into a locked
+column still puts it there. Closing files keeps at least one unlocked column beside the locked ones, without widening
+them, and ⌘W closes an extra empty column. A locked column stays when its last terminal exits and offers **New
+Terminal**. Locks, widths and the last file column come back with each project's session. The command palette has
+**Toggle Column Lock** and **Move Terminal to Locked Right Column**, which take keyboard shortcuts.
+
 Files dragged from the Finder open where you drop them: in a column after the tab shown, on its tab strip where the
 marker shows, or on the edge of a column in a new column there. Dropped elsewhere, as on the explorer, they open in the
-column that has the keyboard. A dropped folder opens as `mayoi <dir>` opens it.
+file workspace, avoiding locked columns. A dropped folder opens as `mayoi <dir>` opens it.
+On macOS, files and folders dropped on Mayoi's Dock icon open the same way as `mayoi <path>`.
 
 Files dragged from the explorer, from source control's changes or from the search results open in the same places. A
 search match opens with the match selected.
 
 ## Terminal
 
-Ghostty's emulator (libghostty-vt), in the bottom panel or in a column tab. You can run several terminals, move one
-between the panel and a column by dragging it or from its menu, and maximize the panel. Terminal colors follow the theme.
+Ghostty's emulator (libghostty-vt), in the panel or in a column tab. The panel is below the editors; **View → Panel
+Position**, the command palette's **Move Panel to Left**, **Right** and **Bottom**, and `keybindings.json`'s
+`workbench.action.positionPanelLeft` and its neighbours, and **Panel Position** in the menu of the panel's header, put
+it at a side of the window. There it sits past the sidebar,
+so with the sidebar on the same side the panel is the outer one, and dragging its inner edge sizes it. The title bar's
+terminal button is on the panel's side too: left of the sidebar's button when both are on the left, at the right of the
+bar otherwise. You can run several terminals, move one between the panel and a column by dragging it or from its menu,
+and maximize the panel. Terminal colors follow the theme.
 Files dropped on a terminal type their paths, quoted for the shell. ⌘V with only an image on the clipboard sends an empty
 bracketed paste, as VS Code's terminal does, so that Claude Code pastes the screenshot. Selecting text copies it, as
 in Ghostty and iTerm2: a drag, a double click for a word, a triple click for a line, Shift with a drag in a program
@@ -295,9 +404,10 @@ with what replaces it beside it. With regular expressions, `$1` refers to a grou
 Each folder gets its own window.
 
 - **Open Folder…** (⌘O) opens a folder in the current window.
+- **New Window** (⇧⌘N) opens a window showing nothing, which the welcome page fills.
 - **Open Folder in New Window…** (⌥⌘O), or ⌘-clicking a recent folder (or pressing ⌘↵ on it), opens it in a new window.
 - **File → Open Recent** lists the last ten folders, except the window's own and any no longer on disk, and has
-  **Clear Recently Opened**. On macOS the Dock icon's menu lists them too.
+  **Clear Recently Opened**. On macOS the Dock icon's menu lists them too, under **New Window**.
 - ⌃R (or **Open Recent → More…**) finds a recent folder by name: ↵ opens it in the current window, ⌘↵ in a new window.
   When a terminal has the keyboard, ⌃R goes to the shell instead.
 - Opening a folder that another window already has brings that window to the front instead.
@@ -306,13 +416,23 @@ Each folder gets its own window.
 
 **View → Project Tabs** keeps every folder open in one window instead, so you don't switch windows to change projects.
 
-- A rail on the far left has a square for each project, with its folder's initials, the one shown marked with a pill
-  along the rail's edge, and a dot on any with unsaved changes. Its tip gives the project's name, its folder and the
-  keys that show it. The rail shows once the window has two.
-- **View → Project Icons** shows each project's favicon or logo in its square instead of the initials, from its
+- A rail on the far left has a square for each project, the one shown marked with a pill along the rail's edge, and a
+  dot on any with unsaved changes. Its tip gives the project's name, its folder and the keys that show it. The rail
+  shows while the window has one project too, with the button that opens another folder after the squares.
+- Each square shows the project's favicon or logo, or its folder's initials when it has none, found in its
   well-known icon files, `favicon.ico` included, a mygo app's icon (`mygo.json`'s `icon`, or `resources/icon.png`),
   the icon its sources declare (`site/index.html` and `docs/index.html` among them), or a macOS app's `.icns` or Xcode
-  AppIcon, also on a connected host over SSH. A project without one keeps its initials.
+  AppIcon, also on a connected host over SSH.
+- Initials are two letters, and projects that would share them are told apart by the first letter that differs:
+  Downloads and Documents show as "Dw" and "Dc". A folder on another machine has a server badge in the square's
+  lower corner, gray while its host is connected, amber while connecting and red while not.
+- **Rename Tab…** in a square's context menu shows up to two characters of your own, an emoji too, in place of
+  its initials or logo; empty brings them back. **Tab Color** tints the square in one of the terminal's colors.
+- Drop a picture on a square, from the Finder or the Explorer, or pick one with **Choose Icon…** in its context
+  menu, and the square shows it in place of the project's logo: a PNG, JPEG, WebP, SVG, ICO or ICNS, a remote
+  project's too, even while its host is not connected. Mayoi keeps a copy in `project-icons` beside
+  `settings.json`, so the picture may move or go. **Reset Icon** brings the logo back. An icon and a label of your
+  own take each other's place.
 - Drag a square along the rail to reorder the projects, and drop a folder from the Finder on the rail to add it.
 - Clicking a square shows that project, with its tabs, columns, terminals, Explorer and source control as it left
   them, each editor with its caret and scroll position. Each project keeps its own layout: what its sidebar shows,
@@ -320,7 +440,8 @@ Each folder gets its own window.
   Project**) step along the rail, and ⌃⌘1…9 (Ctrl+Alt+1…9 on Windows and Linux) show one by its place.
 - Opening a folder, with ⌘O, ⌥⌘O, Open Recent, the welcome page or `mayoi <dir>`, adds it to the rail, or shows
   it if it is there already. The `+` after the squares opens one too.
-- A square's context menu reveals the folder in the Finder, copies its path, and closes the project or the others.
+- A square's context menu reveals the folder in the Finder, copies its path, renames, colors or gives an icon to
+  the square, and closes the project or the others.
 - **File → Close Project**, the square's context menu, or ⌘W with no tab left closes a project, asking about its
   unsaved changes first. Closing the window closes them all, and they open again at the next start, in the rail's
   order.
@@ -398,7 +519,8 @@ not have it yet.
 ## The `mayoi` command
 
 **File → Install 'mayoi' Command** installs the command into `~/.local/bin` when that directory is on your `PATH`, and
-otherwise into `/usr/local/bin`, which asks for your password.
+otherwise into `/usr/local/bin`, which asks for your password. On Linux, `install.sh` puts it in `~/.local/bin`, and the
+Debian package in `/usr/bin`.
 
 - `mayoi .` opens the current folder, in a new window or the one that already has it, or with project tabs in a new
   tab.
@@ -418,9 +540,10 @@ the welcome page and sits at the start of the status bar: it blinks now and then
 runs, and holds still as the rain does. Qoder is Qoder's Forest theme: white or green-tinged greys with forest green,
 in a light and a dark kind, and its code in Forest's greens, blues, teals and ambers. Qoduck, Qoder's duck, takes the
 logo's place and the status bar's start as Clawd does, and blinks, bobs and hops as it does. **View → Sidebar on Right**
-moves the sidebar to the right of the editors. It remembers the sidebar's side, the sidebar and panel sizes, and every
-window with its folder, frame, columns and tabs, each tab with its caret, selection, scroll position and own word wrap,
-and the folders open in the Explorer. Started without a folder, Mayoi reopens the windows that were open when it quit.
+moves the sidebar to the right of the editors. It remembers the sidebar's and the panel's sides, the sidebar and panel
+sizes, and every window with its folder, frame, columns and tabs, each tab with its caret, selection, scroll position
+and own word wrap, and the folders open in the Explorer. Started without a folder, Mayoi reopens the windows that were
+open when it quit.
 A recent folder closed, by closing its window, **File → Close Folder** or opening another folder in its window, opens
 again with its tabs, columns and Explorer as they were. Closing the last window quits the app.
 
@@ -442,6 +565,19 @@ Some commands are only in the command palette: **Copy Path of Active File**, **C
 **Reveal Active File in Finder** (File Explorer on Windows), **Indent Using Tabs** and **Indent Using 2, 4 or 8 Spaces**. **Selection → Sort Lines
 Ascending**, **Sort Lines Descending** and **Transform to Camel Case** work on the lines selected, or every line, and on
 the words selected, or the caret's.
+
+## Settings sync
+
+**Mayoi → Sign In…** (**Help** on Linux and Windows, and the command palette's **Account** commands)
+signs in to your [Mon](https://mon.sorrycc.dev) account, with GitHub or Google. Mayoi shows a short code and opens the
+browser to approve it. Your preferences and `keybindings.json` then sync between your machines: a change saves to the
+account a couple of seconds after you make it, and Mayoi gets the account's changes as it starts and as it comes to the
+front. Changes made on two machines merge setting by setting.
+
+A cloud at the right of the status bar shows whether the last sync went through, and opens the account's panel: when
+the machine last synced, **Sync Now**, switches to keep the settings or the keyboard shortcuts on this machine, and
+**Sign Out**. A sync that couldn't reach the account tries again by itself, and `keybindings.json` changed on two
+machines opens side by side to merge. See [SETTINGS.md](SETTINGS.md#settings-sync).
 
 ## Updates
 

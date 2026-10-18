@@ -13,6 +13,7 @@ import (
 	"mayoi/internal/git"
 	"mayoi/internal/linediff"
 	"mayoi/internal/vfs"
+	"mayoi/locales"
 )
 
 // hunkAction is what a button of a run of changes in a diff does to them.
@@ -114,7 +115,7 @@ func (v *diffView) hunkHead(i int) int {
 		switch v.rows[k].kind {
 		case rowHunk:
 			return k
-		case rowLine:
+		case rowLine, rowComment:
 		default:
 			return -1
 		}
@@ -135,7 +136,7 @@ func (v *diffView) hunksAt(i int) (*diffFile, []linediff.Hunk) {
 	case r.changed():
 		ks = []int{r.hunk}
 	case r.kind == rowHunk:
-		for k := i + 1; k < len(v.rows) && v.rows[k].kind == rowLine && v.rows[k].file == r.file; k++ {
+		for k := i + 1; k < len(v.rows) && (v.rows[k].kind == rowLine || v.rows[k].kind == rowComment) && v.rows[k].file == r.file; k++ {
 			if h := v.rows[k].hunk; h >= 0 && !slices.Contains(ks, h) {
 				ks = append(ks, h)
 			}
@@ -162,21 +163,21 @@ func (a *app) hunkButtons(c *ui.Context, v *diffView, i int, right, contentW, y 
 		return ui.Rect{}
 	}
 	type button struct {
-		icon  *ui.SVG
-		label string
-		act   hunkAction
+		icon             *ui.SVG
+		label, name, tip string
+		act              hunkAction
 	}
 	var bs []button
 	for _, act := range acts {
 		switch act {
 		case hunkStage:
-			bs = append(bs, button{iconPlus, "Stage", act})
+			bs = append(bs, button{iconPlus, locales.HunkStage(), locales.HunkStageLabel(), locales.HunkStageTip(), act})
 		case hunkUnstage:
-			bs = append(bs, button{iconMinus, "Unstage", act})
+			bs = append(bs, button{iconMinus, locales.HunkUnstage(), locales.HunkUnstageLabel(), locales.HunkUnstageTip(), act})
 		case hunkDiscard:
-			bs = append(bs, button{iconUndo, "Discard", act})
+			bs = append(bs, button{iconUndo, locales.HunkDiscard(), locales.HunkDiscardLabel(), locales.HunkDiscardTip(), act})
 		case hunkAppend:
-			bs = append(bs, button{iconArrowRight, "Append", act})
+			bs = append(bs, button{iconArrowRight, "Append", "Append", "Append the lines of the compared side after this change", act})
 		}
 	}
 	h := a.font.lineH - 2
@@ -187,12 +188,14 @@ func (a *app) hunkButtons(c *ui.Context, v *diffView, i int, right, contentW, y 
 	row.Children(func() {
 		for _, b := range bs {
 			btn := ui.ButtonBase(c.Key("hunk:"+b.label)).Height(h).Padding(0, 7).Gap(4).Radius(4).AlignItems(ui.Center).
-				Background(p.editor).Border(1, p.border).Label(b.label + " Change").Tooltip(b.label + " this change")
+				Background(p.editor).Border(1, p.border).Label(b.name).Tooltip(b.tip)
 			col := p.muted
 			if btn.Hovered() {
 				btn.Background(p.hover.Over(p.editor))
 				col = p.text
 			}
+			btn.Transition(hoverFade)
+			pressPose(btn)
 			btn.Children(func() {
 				ui.Icon(c, b.icon).FontSize(12).TextColor(col)
 				ui.Text(c, b.label).FontSize(11.5).TextColor(col).SingleLine()
@@ -210,19 +213,23 @@ func (a *app) hunkButtons(c *ui.Context, v *diffView, i int, right, contentW, y 
 // discards them. The texts are read again first, and the changes found
 // again among theirs, so that what is done is to the files as they are.
 func (a *app) applyHunks(f *diffFile, hs []linediff.Hunk, act hunkAction) {
-	if a.git.repo == nil || len(hs) == 0 {
+	ctx := a.repositoryForPath(f.path)
+	if f.repoRoot != "" {
+		ctx = a.repositoryForRoot(f.repoRoot)
+	}
+	if ctx.git.repo == nil || len(hs) == 0 {
 		return
 	}
 	path := f.path
 	// The changes are of the editor's text as the diff last compared it.
 	if doc := a.diffDoc(f); doc != nil && doc.buf.Version() != f.docVersion && act != hunkUnstage {
-		a.fail("The diff is catching up with your edits: try again in a moment.")
+		a.fail("%s", locales.DiffCatchingUp())
 		return
 	}
 	switch act {
 	case hunkStage:
 		work, crlf, ok := a.workText(f)
-		a.gitDo("", func(r *git.Repo) error {
+		ctx.gitDo("", func(r *git.Repo) error {
 			if !ok {
 				var err error
 				if work, crlf, err = readWork(path); err != nil {
@@ -241,7 +248,7 @@ func (a *app) applyHunks(f *diffFile, hs []linediff.Hunk, act hunkAction) {
 			return r.StageText(path, joinLines(linediff.Apply(index, lines, picked), crlf))
 		}, nil)
 	case hunkUnstage:
-		a.gitDo("", func(r *git.Repo) error {
+		ctx.gitDo("", func(r *git.Repo) error {
 			head, _, err := r.Show("HEAD", path)
 			if err != nil {
 				return err

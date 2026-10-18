@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/remote"
+	"mayoi/locales"
 )
 
 // transfer is a copy to or from a host running in the background, which
@@ -66,19 +67,20 @@ func (a *app) transferStatus(c *ui.Context, text func(string) ui.Element) {
 	}
 	p := a.pal
 	b := ui.ButtonBase(c.Key("status:transfer")).Height(statusBarH-6).Padding(0, 6).Gap(5).Radius(4).
-		AlignItems(ui.Center).Label(label).Tooltip(label + " Click to cancel.")
+		AlignItems(ui.Center).Label(label).Tooltip(locales.TransferClickToCancel(label))
 	if b.Hovered() {
 		b.Background(p.hover)
 	}
+	b.Transition(hoverFade)
 	b.Children(func() {
 		ui.Spinner(c).Size(11, 11)
 		text(label)
 	})
 	b.Menu(func(m *ui.Menu) {
 		for _, x := range a.transfers {
-			title := "Cancel " + strings.TrimSuffix(x.label, "…")
+			title := locales.TransferCancelLabel(strings.TrimSuffix(x.label, "…"))
 			if len(a.transfers) == 1 {
-				title = "Cancel"
+				title = locales.TransferCancel()
 			}
 			if m.Item(title).Chosen() {
 				x.progress.Cancel()
@@ -91,10 +93,10 @@ func (a *app) transferStatus(c *ui.Context, text func(string) ui.Element) {
 // transferFailed says why a transfer failed, unless it was canceled.
 func (a *app) transferFailed(what string, err error) {
 	if errors.Is(err, remote.ErrCanceled) {
-		a.tell(note{message: "Canceled"})
+		a.tell(note{message: locales.TransferCanceled()})
 		return
 	}
-	a.fail("%s: %v", what, err)
+	a.fail("%s", locales.FailWithError(what, err.Error()))
 }
 
 // byteSize is a count of bytes as people read it: 12 KB, 3.4 MB.
@@ -146,13 +148,13 @@ func (a *app) terminalPaste(s *session, text string) bool {
 	// images, as Claude Code, read when its path is pasted.
 	dir, err := os.MkdirTemp("", "mayoi-image-")
 	if err != nil {
-		a.fail("Could not paste the image: %v", err)
+		a.fail("%s", locales.FailPasteImage(err.Error()))
 		return true
 	}
 	p := filepath.Join(dir, "image-"+time.Now().Format("20060102-150405")+".png")
 	if err := os.WriteFile(p, img, 0o644); err != nil {
 		os.RemoveAll(dir)
-		a.fail("Could not paste the image: %v", err)
+		a.fail("%s", locales.FailPasteImage(err.Error()))
 		return true
 	}
 	a.uploadPaths(s, []string{p}, func() { os.RemoveAll(dir) })
@@ -165,15 +167,15 @@ func (a *app) terminalPaste(s *session, text string) bool {
 func (a *app) uploadPaths(s *session, srcs []string, done func()) {
 	c := sessionConn(s)
 	if !c.Connected() {
-		a.fail("Could not paste: %s is not connected", c.Host)
+		a.fail("%s", locales.FailPasteNotConnected(c.Host))
 		if done != nil {
 			done()
 		}
 		return
 	}
-	label := "Uploading " + filepath.Base(srcs[0]) + " to " + c.Host + "…"
+	label := locales.TransferUploadingTo(filepath.Base(srcs[0]), c.Host)
 	if len(srcs) > 1 {
-		label = fmt.Sprintf("Uploading %d items to %s…", len(srcs), c.Host)
+		label = locales.TransferUploadingTo(locales.ItemsCount(len(srcs)), c.Host)
 	}
 	x := a.startTransfer(label)
 	go func() {
@@ -208,7 +210,7 @@ func quotePaths(paths []string) string {
 // a host.
 func (a *app) askUpload(dir string) {
 	home, _ := os.UserHomeDir()
-	a.host.choosePaths("Upload to "+remote.Display(dir), "Upload", home, false, func(paths []string) {
+	a.host.choosePaths(locales.UploadTo(remote.Display(dir)), locales.UploadButton(), home, false, func(paths []string) {
 		a.copyPathsInto(paths, dir)
 	})
 }
@@ -217,7 +219,7 @@ func (a *app) askUpload(dir string) {
 // of a host into, the Downloads folder first.
 func (a *app) askDownload(src string) {
 	home, _ := os.UserHomeDir()
-	a.host.choosePaths("Download "+path.Base(src), "Download", filepath.Join(home, "Downloads"), true, func(paths []string) {
+	a.host.choosePaths(locales.DownloadTitle(path.Base(src)), locales.DownloadButton(), filepath.Join(home, "Downloads"), true, func(paths []string) {
 		a.download(src, paths[0])
 	})
 }
@@ -226,7 +228,7 @@ func (a *app) askDownload(src string) {
 // machine in the background, and offers to show it once it is there.
 func (a *app) download(src, dir string) {
 	if !remote.IsConnected(src) {
-		a.fail("Could not download: %s is not connected", remote.HostOf(src))
+		a.fail("%s", locales.FailDownloadNotConnected(remote.HostOf(src)))
 		return
 	}
 	x := a.startTransfer(transferLabel([]string{src}, dir))
@@ -235,11 +237,11 @@ func (a *app) download(src, dir string) {
 		a.post(func() {
 			a.endTransfer(x)
 			if err != nil {
-				a.transferFailed("Could not download "+path.Base(src), err)
+				a.transferFailed(locales.FailDownload(path.Base(src)), err)
 				return
 			}
 			to := got[0]
-			a.tell(note{message: "Downloaded " + filepath.Base(to), label: revealLabel(), action: func() { a.host.reveal(to) }})
+			a.tell(note{message: locales.Downloaded(filepath.Base(to)), label: revealLabel(), action: func() { a.host.reveal(to) }})
 		})
 	}()
 }

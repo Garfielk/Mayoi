@@ -1,13 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/git"
 	"mayoi/internal/linediff"
+	"mayoi/locales"
 )
 
 // editorHunks returns the runs of lines of an editor's document changed
@@ -195,13 +195,14 @@ func hunkEdit(snap ui.TextSnapshot, h linediff.Hunk, lines []string) (textEdit, 
 // lines at HEAD, which the index may have changed: it is found again
 // among the index's.
 func (a *app) stageHunk(d *editor, h linediff.Hunk) {
-	if a.git.repo == nil || d.path == "" {
+	ctx := a.repositoryForPath(d.path)
+	if ctx.git.repo == nil || d.path == "" {
 		return
 	}
 	path, crlf := d.path, d.crlf
 	work := strings.Split(d.buf.Snapshot().String(), "\n")
 	d.peek = -1
-	a.gitDo("", func(r *git.Repo) error {
+	ctx.gitDo("", func(r *git.Repo) error {
 		text, _, err := r.Show("", path)
 		if err != nil {
 			return err
@@ -270,31 +271,31 @@ func (a *app) hunkPeekView(c *ui.Context, d *editor) {
 	base := d.git.Base()
 	const most = 12
 	box := a.floating(c, ui.Column(c.Key("hunk-peek")).Absolute().Top(y+1).Left(d.gutterW-4).Right(14).Radius(6).Clip(), false).Transition(popIn).
-		Role(ui.RoleToolbar).Label("Change")
+		Role(ui.RoleToolbar).Label(locales.HunkPeekLabel())
 	box.Children(func() {
 		ui.Row(c).Height(26).Padding(0, 4, 0, 10).Gap(2).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.border).Children(func() {
-			what := "Changed"
+			what := locales.HunkChanged()
 			switch {
 			case h.ALen == 0:
-				what = "Added"
+				what = locales.HunkAdded()
 			case h.BLen == 0:
-				what = "Removed"
+				what = locales.HunkRemoved()
 			}
-			ui.Text(c, fmt.Sprintf("%s · change %d of %d since HEAD", what, k+1, len(editorHunks(d)))).FontSize(11.5).
+			ui.Text(c, locales.HunkPeekTitle(what, k+1, len(editorHunks(d)))).FontSize(11.5).
 				TextColor(p.muted).Grow(1).SingleLine()
-			if a.git.repo != nil && a.smallButton(c, iconPlus, "Stage Change") {
+			if a.repositoryForPath(d.path).git.repo != nil && a.smallButton(c, iconPlus, locales.CmdGitStageChange()) {
 				a.post(func() { a.stageHunk(d, h) })
 			}
-			if a.smallButton(c, iconUndo, "Revert Change") {
+			if a.smallButton(c, iconUndo, locales.CmdGitRevertChange()) {
 				a.queueEdit(d, func(d *editor) { a.revertHunk(d, h) })
 			}
-			if a.smallButton(c, iconArrowUp, a.withKey("Previous Change", "git.prevChange")) {
+			if a.smallButton(c, iconArrowUp, a.withKey(locales.HunkPrevChange(), "git.prevChange")) {
 				a.queueEdit(d, func(d *editor) { a.stepPeek(d, -1) })
 			}
-			if a.smallButton(c, iconArrowDown, a.withKey("Next Change", "git.nextChange")) {
+			if a.smallButton(c, iconArrowDown, a.withKey(locales.HunkNextChange(), "git.nextChange")) {
 				a.queueEdit(d, func(d *editor) { a.stepPeek(d, 1) })
 			}
-			if a.smallButton(c, iconX, "Close (Esc)") {
+			if a.smallButton(c, iconX, locales.CloseEsc()) {
 				d.peek = -1
 			}
 		})
@@ -311,7 +312,7 @@ func (a *app) hunkPeekView(c *ui.Context, d *editor) {
 					Padding(0, 10)
 			}
 			if h.ALen > most {
-				ui.Text(c, fmt.Sprintf("… %s more", plural(h.ALen-most, "line"))).FontSize(11.5).TextColor(p.faint).Padding(2, 10)
+				ui.Text(c, locales.MoreLines(h.ALen-most)).FontSize(11.5).TextColor(p.faint).Padding(2, 10)
 			}
 		})
 	})

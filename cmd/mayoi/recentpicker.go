@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/workspace"
+	"mayoi/locales"
 )
 
 // recentPicker is the box of the recent folders, found by path: but the
@@ -80,12 +81,12 @@ func (a *app) recentPickerView(c *ui.Context) {
 		back := a.dialogBack(c, "recent")
 		back.Children(func() {
 			box := a.floating(c, ui.Column(c).Width(560).MaxWidthPercent(92).Margin(titleBarH+8, 0, 0, 0).Radius(10), true).Clip().
-				Role(ui.RoleDialog).Label("Open Recent")
+				Role(ui.RoleDialog).Label(locales.RecentLabel())
 			box.Children(func() {
 				ui.Row(c).Padding(10, 14).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.border).Children(func() {
 					ui.Icon(c, iconFolderOpen).FontSize(15).TextColor(p.muted)
 					in := a.textKeys(ui.TextInputBase(c.Key("recent-input"), &r.query)).Grow(1).FontSize(14).AutoFocus().
-						Placeholder("Open a recent folder").Label("Open Recent")
+						Placeholder(locales.RecentPlaceholder()).Label(locales.RecentLabel())
 					if in.Shortcut(0, ui.KeyDown) {
 						r.sel, r.moved = min(r.sel+1, len(r.results)-1), true
 					}
@@ -107,14 +108,14 @@ func (a *app) recentPickerView(c *ui.Context) {
 						}
 					})
 				} else {
-					msg := "No matching folders"
+					msg := locales.RecentNoMatches()
 					if len(r.dirs) == 0 {
-						msg = "No recent folders"
+						msg = locales.RecentNone()
 					}
 					ui.Text(c, msg).FontSize(13).TextColor(p.muted).Padding(12, 16)
 				}
 				r.moved = false
-				a.quickFooter(c, false, "open", keyText("CmdOrCtrl+Enter")+" in a new window", false)
+				a.quickFooter(c, false, locales.QuickOpenAction(), locales.RecentNewWindowTip(keyText("CmdOrCtrl+Enter")), false)
 			})
 			if box.PressedOutside() || back.OverlayShortcut(0, ui.KeyEscape) {
 				a.closeRecentPicker()
@@ -132,11 +133,8 @@ func (a *app) recentRow(c *ui.Context, i int) {
 	m := r.results[i]
 	name := r.names[m.Index]
 	row := ui.ButtonBase(c.Key("recent:"+name)).Padding(5, 10).Gap(10).Radius(6).Justify(ui.Start).AlignItems(ui.Center).
-		Label("Open " + r.dirs[m.Index])
-	switch {
-	case i == r.sel:
-		row.Background(p.active)
-	case row.Hovered():
+		Label(locales.RecentOpenLabel(r.dirs[m.Index]))
+	if i != r.sel && row.Hovered() {
 		row.Background(p.hover)
 	}
 	if i == r.sel && r.moved {
@@ -146,7 +144,9 @@ func (a *app) recentRow(c *ui.Context, i int) {
 		newWin := row.ClickModifiers()&ui.Cmd != 0
 		a.post(func() { a.chooseRecent(i, newWin) })
 	}
+	row.Transition(hoverFade)
 	row.Children(func() {
+		a.pickMark(c, i == r.sel, "recent")
 		ui.Icon(c, iconFolder).FontSize(15).TextColor(p.accent)
 		base := strings.LastIndexByte(name, '/') + 1
 		ui.RichText(c, a.matchSpans(name[base:], base, m.Positions, p.text)...).FontSize(13).SingleLine().Shrink(0)

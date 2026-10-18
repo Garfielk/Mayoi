@@ -20,6 +20,7 @@ const (
 	rowNote                   // why the lines of a file do not show
 	rowSpace                  // the room between two files
 	rowCommit                 // the message of the commit a diff shows
+	rowComment                // the card of a note, n of the review's
 )
 
 // diffRow is a row of a diff as it shows, of file, one of the diff's.
@@ -30,7 +31,8 @@ const (
 // it was modified from, or into, -1 for none.
 //
 // gap is the key of the gap a gap row folds, or that a line row shows as
-// it opened, -1 for none, and n the lines the gap folds. label is what a
+// it opened, -1 for none, and n the lines the gap folds, or for the card
+// of a note, the note's number, as review.noteAt takes it. label is what a
 // header or a note says, and h how many lines tall the row is, as its
 // line wraps.
 type diffRow struct {

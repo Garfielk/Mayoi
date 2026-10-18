@@ -82,7 +82,7 @@ func TestTypingInLargeTrackedFile(t *testing.T) {
 	const n = 100
 	for range n {
 		hs.tt.Type("a")
-		hs.tt.Frame()
+		step(hs.tt)
 	}
 	t.Logf("type in a tracked file: %.2f ms/frame", float64(time.Since(start).Microseconds())/1000/n)
 	hs.settle()

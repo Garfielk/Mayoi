@@ -248,7 +248,7 @@ func TestMarkdownPreviewRestoreAndReopen(t *testing.T) {
 	bt := ui.NewTester(b.view, 1200, 760)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		bt.Frame()
+		step(bt)
 		if b.activeEditor() != nil && b.activeEditor().preview != nil && b.activeEditor().preview.loaded {
 			break
 		}
@@ -259,7 +259,7 @@ func TestMarkdownPreviewRestoreAndReopen(t *testing.T) {
 	}
 	b.run("file.close")
 	b.run("file.reopenClosed")
-	bt.Frame()
+	step(bt)
 	if b.activeEditor() == nil || b.activeEditor().preview == nil {
 		t.Fatal("closed preview was not reopened")
 	}

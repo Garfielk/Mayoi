@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"mayoi/internal/git"
 	"mayoi/internal/remote"
+	"mayoi/locales"
 )
 
 // gitState is what the window knows of the Git work tree its folder is
@@ -64,6 +66,8 @@ type gitState struct {
 	// commands running, named or not.
 	busy    string
 	pending int
+	// writing is set while the AI writes the commit message.
+	writing *aiWriting
 	// message is the commit message being written, and amend set while
 	// it is to amend the last commit.
 	message string
@@ -126,23 +130,28 @@ func (a *app) lookUpRepo() {
 
 // refreshGit runs once a frame: it looks up the work tree, notices HEAD
 // moving, and reads the status again when it may have changed.
-func (a *app) refreshGit() {
-	a.lookUpRepo()
-	g := &a.git
-	if g.repo == nil || !a.online() {
+func (a *gitContext) refreshGit() {
+	if !a.live() {
+		return
+	}
+	g := a.git
+	if g.repo == nil || !a.app.online() {
 		return
 	}
 	switch {
-	case a.conn != nil:
+	case a.app.conn != nil:
 		// On the host, at one round trip, in the background.
 		if !g.metaRunning && time.Since(g.checked) >= remoteMetaEvery {
 			g.checked, g.metaRunning = time.Now(), true
 			r := g.repo
 			go func() {
 				t, refs, err := remoteGitMeta(r)
-				a.post(func() {
+				a.app.post(func() {
+					if g.repo != r {
+						return
+					}
 					g.metaRunning = false
-					if g.repo == r && err == nil {
+					if err == nil {
 						a.tookGitMeta(t, refs)
 					}
 				})
@@ -170,11 +179,11 @@ func (a *app) refreshGit() {
 		if readRemotes {
 			remotes, remotesErr = r.Remotes()
 		}
-		a.post(func() {
-			g.running, g.read = false, time.Now()
+		a.app.post(func() {
 			if g.repo != r {
 				return
 			}
+			g.running, g.read = false, time.Now()
 			if err != nil {
 				return
 			}
@@ -189,20 +198,23 @@ func (a *app) refreshGit() {
 
 // historyKey names the state the history is read for: where HEAD and its
 // upstream are, and how many commits are asked for.
-func (a *app) historyKey() string {
-	g := &a.git
+func (a *gitContext) historyKey() string {
+	g := a.git
 	st := g.status
 	if st == nil {
 		return ""
 	}
 	return fmt.Sprintf("%s|%s|%d|%d|%d|%d|%t|%d", st.Head, st.Upstream, st.Ahead, st.Behind, max(g.historyN, historyPage),
-		len(g.remotes), a.settings.ScmAllBranches, g.refsGen)
+		len(g.remotes), a.app.settings.ScmAllBranches, g.refsGen)
 }
 
 // refreshHistory reads the last commits again in the background when HEAD
 // or its upstream moved, or more are asked for.
-func (a *app) refreshHistory() {
-	g := &a.git
+func (a *gitContext) refreshHistory() {
+	if !a.live() {
+		return
+	}
+	g := a.git
 	st := g.status
 	if g.repo == nil || st == nil || g.loadingHistory {
 		return
@@ -214,7 +226,7 @@ func (a *app) refreshHistory() {
 	}
 	g.loadingHistory = true
 	// Without a remote nothing is pushed or not: no commit is marked.
-	r, remotes, all := g.repo, len(g.remotes) > 0, a.settings.ScmAllBranches
+	r, remotes, all := g.repo, len(g.remotes) > 0, a.app.settings.ScmAllBranches
 	go func() {
 		cs, err := r.Log(n, all)
 		var unpushed map[string]bool
@@ -222,11 +234,11 @@ func (a *app) refreshHistory() {
 			unpushed = r.Unpushed(n)
 		}
 		tags, _ := r.Tags()
-		a.post(func() {
-			g.loadingHistory = false
+		a.app.post(func() {
 			if g.repo != r {
 				return
 			}
+			g.loadingHistory = false
 			g.historyOf = key
 			if err != nil {
 				return
@@ -240,9 +252,10 @@ func (a *app) refreshHistory() {
 // tookGitMeta takes when the files HEAD moving changes last changed, and
 // the refs: as they change, the documents compare their lines again, and
 // the history is read again.
-func (a *app) tookGitMeta(t, refs time.Time) {
-	g := &a.git
+func (a *gitContext) tookGitMeta(t, refs time.Time) {
+	g := a.git
 	if !t.Equal(g.meta) {
+		a.app.repositories.dirty = true
 		if !g.meta.IsZero() {
 			a.gitChanged()
 		}
@@ -268,7 +281,7 @@ func remoteGitMeta(r *git.Repo) (head, refs time.Time, err error) {
 	if !ok {
 		return head, refs, errors.New("not remote")
 	}
-	heads := []string{dir + "/index", dir + "/HEAD", dir + "/logs/HEAD", common + "/FETCH_HEAD"}
+	heads := []string{dir + "/index", dir + "/HEAD", dir + "/logs/HEAD", common + "/FETCH_HEAD", common + "/config", hostPath(r.Root) + "/.gitmodules"}
 	infos, err := c.StatUnder(append(slices.Clone(heads), common+"/packed-refs"), common+"/refs")
 	if err != nil {
 		return head, refs, err
@@ -292,7 +305,7 @@ func remoteGitMeta(r *git.Repo) (head, refs time.Time, err error) {
 func gitMeta(r *git.Repo) (head, refs time.Time) {
 	for _, p := range []string{
 		filepath.Join(r.Dir, "index"), filepath.Join(r.Dir, "HEAD"), filepath.Join(r.Dir, "logs", "HEAD"),
-		filepath.Join(r.Common, "FETCH_HEAD"),
+		filepath.Join(r.Common, "FETCH_HEAD"), filepath.Join(r.Common, "config"), r.Abs(".gitmodules"),
 	} {
 		if info, err := os.Stat(p); err == nil && info.ModTime().After(head) {
 			head = info.ModTime()
@@ -318,8 +331,8 @@ func gitMeta(r *git.Repo) (head, refs time.Time) {
 // status that says what the last did is dropped, so that what is worked
 // out from it, from the rows of source control to those of the diff, is
 // kept.
-func (a *app) setStatus(st *git.Status) {
-	g := &a.git
+func (a *gitContext) setStatus(st *git.Status) {
+	g := a.git
 	if g.status.Equal(st) {
 		return
 	}
@@ -359,7 +372,7 @@ func letterRank(l byte) int {
 
 // branch is the branch checked out, or the commit when HEAD is detached,
 // "" outside a work tree.
-func (a *app) branch() string {
+func (a *gitContext) branch() string {
 	st := a.git.status
 	switch {
 	case st == nil:
@@ -374,25 +387,39 @@ func (a *app) branch() string {
 
 // gitChanged has the documents read their bases again, and the status be
 // read again, as when a commit may have been made.
-func (a *app) gitChanged() {
-	for _, d := range a.docs {
-		d.git.HeadMoved()
+func (a *gitContext) gitChanged() {
+	if !a.live() {
+		return
 	}
-	a.diffsChanged()
+	a.invalidateScmPanels()
+	for _, d := range a.app.docs {
+		if a.owns(d.path) {
+			d.git.HeadMoved()
+		}
+	}
+	a.app.diffsChanged(a.git.repo.Root)
 	a.git.stale, a.git.remotesStale = true, true
+	for _, ctx := range a.app.repositories.contexts {
+		if ctx.git.repo != nil && a.git.repo != nil && ctx.git.repo.Root != a.git.repo.Root && ctx.git.repo.Contains(a.git.repo.Root) {
+			ctx.git.stale = true
+		}
+	}
 }
 
 // gitDo runs a command on the work tree in the background, naming it
 // busy while it runs when busy is set, then reads the status again and
 // calls then, unless it failed: then it says why.
-func (a *app) gitDo(busy string, fn func(r *git.Repo) error, then func()) {
-	g := &a.git
+func (a *gitContext) gitDo(busy string, fn func(r *git.Repo) error, then func()) {
+	if !a.live() {
+		return
+	}
+	g := a.git
 	r := g.repo
 	if r == nil {
 		return
 	}
-	if !a.online() {
-		a.fail("Not connected to %s", a.conn.Host)
+	if !a.app.online() {
+		a.app.fail("%s", locales.NotConnectedTo(a.app.conn.Host))
 		return
 	}
 	if busy != "" {
@@ -404,7 +431,10 @@ func (a *app) gitDo(busy string, fn func(r *git.Repo) error, then func()) {
 	g.pending++
 	go func() {
 		err := fn(r)
-		a.post(func() {
+		a.app.post(func() {
+			if g.repo != r {
+				return
+			}
 			g.pending--
 			if busy != "" {
 				g.busy = ""
@@ -422,7 +452,7 @@ func (a *app) gitDo(busy string, fn func(r *git.Repo) error, then func()) {
 }
 
 // gitFailed says why a git command failed.
-func (a *app) gitFailed(err error) {
+func (a *gitContext) gitFailed(err error) {
 	var occupied *git.WorktreeInUse
 	if errors.As(err, &occupied) {
 		a.askOpenWorktree(occupied.Branch, occupied.Path)
@@ -433,22 +463,22 @@ func (a *app) gitFailed(err error) {
 		msg = msg[:400] + "…"
 	}
 	if git.NeedsAuth(err) {
-		msg += "\nGit needs to sign in: run the command in the terminal once."
+		msg += "\n" + locales.GitNeedsAuth()
 	}
-	a.fail("%s", msg)
+	a.app.fail("%s", msg)
 }
 
 // fetch fetches from the remotes, which tells how far behind the branch
 // is.
-func (a *app) fetch() {
-	a.gitDo("Fetching…", func(r *git.Repo) error { return r.Fetch() }, nil)
+func (a *gitContext) fetch() {
+	a.gitDo(locales.BusyFetching(), func(r *git.Repo) error { return r.Fetch() }, nil)
 }
 
 // pull brings in the upstream's commits, when the branch has none of its
 // own that it lacks.
-func (a *app) pull() {
+func (a *gitContext) pull() {
 	pulled := 0
-	a.gitDo("Pulling…", func(r *git.Repo) error {
+	a.gitDo(locales.BusyPulling(), func(r *git.Repo) error {
 		before := r.Head()
 		if err := r.Pull(); err != nil {
 			return err
@@ -459,27 +489,27 @@ func (a *app) pull() {
 		return nil
 	}, func() {
 		if pulled > 0 {
-			a.tell(note{message: "Pulled " + plural(pulled, "commit")})
+			a.app.tell(note{message: locales.PulledCommits(pulled)})
 		} else {
-			a.tell(note{message: "Already up to date"})
+			a.app.tell(note{message: locales.AlreadyUpToDate()})
 		}
 	})
 }
 
 // push pushes the branch to its upstream, or to a remote, which becomes
 // its upstream.
-func (a *app) push() {
+func (a *gitContext) push() {
 	st := a.git.status
 	if st == nil || st.Branch == "" {
-		a.fail("Check out a branch to push.")
+		a.app.fail("%s", locales.CheckOutToPush())
 		return
 	}
 	branch, upstream := st.Branch, st.Upstream != ""
-	a.gitDo("Pushing…", func(r *git.Repo) error { return r.Push(branch, upstream) }, func() {
+	a.gitDo(locales.BusyPushing(), func(r *git.Repo) error { return r.Push(branch, upstream) }, func() {
 		if upstream {
-			a.tell(note{message: "Pushed " + branch + " to " + st.Upstream})
+			a.app.tell(note{message: locales.PushedTo(branch, st.Upstream)})
 		} else {
-			a.tell(note{message: "Published " + branch})
+			a.app.tell(note{message: locales.Published(branch)})
 		}
 	})
 }
@@ -487,19 +517,22 @@ func (a *app) push() {
 // switchBranch checks out a branch, or makes it first when create is set,
 // once the documents are saved: Git keeps the changes of the work tree
 // when they do not clash with the branch's.
-func (a *app) switchBranch(branch string, create bool) {
-	if !a.docsSaved("switching branches") {
+func (a *gitContext) switchBranch(branch string, create bool) {
+	if !a.docsSaved(locales.BeforeSwitching()) {
 		return
 	}
-	a.gitDo("Switching to "+branch+"…", func(r *git.Repo) error { return r.Switch(branch, create) }, nil)
+	a.gitDo(locales.BusySwitchingTo(branch), func(r *git.Repo) error { return r.Switch(branch, create) }, nil)
 }
 
 // docsSaved reports whether the documents of the work tree are saved,
 // saying which is not when one is not, before what doing names.
-func (a *app) docsSaved(doing string) bool {
-	for _, d := range a.docs {
+func (a *gitContext) docsSaved(doing string) bool {
+	if !a.live() {
+		return false
+	}
+	for _, d := range a.app.docs {
 		if d.dirty() && d.path != "" && a.git.repo != nil && a.git.repo.Contains(d.path) {
-			a.fail("Save the changes of %s before %s.", d.name(), doing)
+			a.app.fail("%s", locales.SaveBefore(d.name(), doing))
 			return false
 		}
 	}
@@ -509,19 +542,19 @@ func (a *app) docsSaved(doing string) bool {
 // checkOutCommit checks out a commit of the history: its branch when it
 // has one local branch, or else the commit itself, once asked, as that
 // detaches HEAD.
-func (a *app) checkOutCommit(cm git.Commit) {
+func (a *gitContext) checkOutCommit(cm git.Commit) {
 	if b := localBranch(cm); b != "" {
 		a.switchBranch(b, false)
 		return
 	}
-	a.confirm = &confirm{title: "Check out " + cm.Short() + "?", ok: "Check Out",
-		message: "HEAD will be detached at the commit: commits made there belong to no branch until you create one.",
+	a.app.confirm = &confirm{title: locales.CheckOutQuestion(cm.Short()), ok: locales.CheckOutButton(),
+		message: locales.CheckOutDetached(),
 		run: func() {
-			if !a.docsSaved("checking out a commit") {
+			if !a.docsSaved(locales.BeforeCheckout()) {
 				return
 			}
 			hash := cm.Hash
-			a.gitDo("Checking out "+cm.Short()+"…", func(r *git.Repo) error { return r.Checkout(hash) }, nil)
+			a.gitDo(locales.BusyCheckingOut(cm.Short()), func(r *git.Repo) error { return r.Checkout(hash) }, nil)
 		}}
 }
 
@@ -540,14 +573,28 @@ func localBranch(cm git.Commit) string {
 	return name
 }
 
+// opArg is op as the messages of the catalogs select it.
+func opArg(op git.Op) string {
+	if op == git.OpCherryPick {
+		return "cherrypick"
+	}
+	return string(op)
+}
+
+// opTitle names op as a title, "Cherry-Pick", in the language shown.
+func opTitle(op git.Op) string { return locales.OpTitle(opArg(op)) }
+
+// opNoun names op inside a sentence, "cherry-pick", in the language shown.
+func opNoun(op git.Op) string { return locales.OpNoun(opArg(op)) }
+
 // revOf names a commit for a command: by its one local branch, so that
 // a merge's message names the branch, or else by its hash.
 func revOf(cm git.Commit) string { return cmp.Or(localBranch(cm), cm.Hash) }
 
 // inHead reports whether HEAD has commit hash, by the commits of the
 // history read: one read before them counts as not.
-func (a *app) inHead(hash string) bool {
-	g := &a.git
+func (a *gitContext) inHead(hash string) bool {
+	g := a.git
 	if g.status == nil || g.status.Head == "" {
 		return false
 	}
@@ -575,8 +622,8 @@ func (a *app) inHead(hash string) bool {
 // runOp runs a command that moves HEAD by commits, once the documents
 // are saved, then says done. When it stops for conflicts it says how to
 // go on, and the message it proposes goes in the box.
-func (a *app) runOp(op git.Op, busy, done string, fn func(r *git.Repo) error) {
-	if !a.docsSaved("a " + strings.ToLower(op.Title())) {
+func (a *gitContext) runOp(op git.Op, busy, done string, fn func(r *git.Repo) error) {
+	if !a.docsSaved(locales.BeforeOp(opNoun(op))) {
 		return
 	}
 	stopped, msg := false, ""
@@ -588,117 +635,123 @@ func (a *app) runOp(op git.Op, busy, done string, fn func(r *git.Repo) error) {
 		}
 		return err
 	}, func() {
-		g := &a.git
+		g := a.git
 		g.refsGen++
 		if !stopped {
-			a.tell(note{message: done})
+			a.app.tell(note{message: done})
 			return
 		}
 		if op != git.OpRebase && strings.TrimSpace(g.message) == "" {
 			g.message, g.amend = msg, false
 		}
-		a.showSourceControl()
-		a.openConflicts()
-		a.tell(note{message: op.Title() + " stopped for conflicts: resolve and stage them, then continue",
-			label: "Abort", action: func() { a.abortOpOf(op) }})
+		a.app.showSourceControl()
+		a.app.openConflicts()
+		a.app.tell(note{message: opTitle(op) + " stopped for conflicts: resolve and stage them, then continue",
+			label: locales.ButtonAbort(), action: func() { a.abortOpOf(op) }})
 	})
 }
 
 // mergeCommit merges a commit of the history into the branch checked
 // out, once asked.
-func (a *app) mergeCommit(cm git.Commit) {
+func (a *gitContext) mergeCommit(cm git.Commit) {
 	rev, into := revOf(cm), a.branch()
-	a.confirm = &confirm{title: fmt.Sprintf("Merge %s into %s?", cmp.Or(localBranch(cm), cm.Short()), into), ok: "Merge",
+	a.app.confirm = &confirm{title: locales.MergeQuestion(cmp.Or(localBranch(cm), cm.Short()), into), ok: locales.MergeButton(),
 		message: ellipsize(cm.Subject, 80),
 		run: func() {
-			a.runOp(git.OpMerge, "Merging…", "Merged "+cmp.Or(localBranch(cm), cm.Short())+" into "+into,
+			a.runOp(git.OpMerge, locales.BusyMerging(), locales.MergedInto(cmp.Or(localBranch(cm), cm.Short()), into),
 				func(r *git.Repo) error { return r.Merge(rev) })
 		}}
 }
 
 // rebaseOnto moves the commits of the branch checked out that a commit
 // of the history lacks on top of it, once asked.
-func (a *app) rebaseOnto(cm git.Commit) {
+func (a *gitContext) rebaseOnto(cm git.Commit) {
 	rev, branch, onto := revOf(cm), a.branch(), cmp.Or(localBranch(cm), cm.Short())
-	a.confirm = &confirm{title: fmt.Sprintf("Rebase %s onto %s?", branch, onto), ok: "Rebase",
-		message: "The commits of " + branch + " that " + onto + " lacks are made again on top of it. " +
-			"Rebasing commits already pushed rewrites history others may have.",
+	a.app.confirm = &confirm{title: locales.RebaseQuestion(branch, onto), ok: locales.RebaseButton(),
+		message: locales.RebaseDetail(branch, onto),
 		run: func() {
-			a.runOp(git.OpRebase, "Rebasing…", "Rebased "+branch+" onto "+onto,
+			a.runOp(git.OpRebase, locales.BusyRebasing(), locales.RebasedOnto(branch, onto),
 				func(r *git.Repo) error { return r.Rebase(rev) })
 		}}
 }
 
 // cherryPick makes a commit of a commit's changes on the branch checked
 // out.
-func (a *app) cherryPick(cm git.Commit) {
+func (a *gitContext) cherryPick(cm git.Commit) {
 	hash, merge := cm.Hash, len(cm.Parents) > 1
-	a.runOp(git.OpCherryPick, "Cherry-picking…", "Cherry-picked “"+ellipsize(cm.Subject, 48)+"”",
+	a.runOp(git.OpCherryPick, locales.BusyCherryPicking(), locales.CherryPicked(ellipsize(cm.Subject, 48)),
 		func(r *git.Repo) error { return r.CherryPick(hash, merge) })
 }
 
 // revertCommit makes a commit that takes back a commit's changes, once
 // asked.
-func (a *app) revertCommit(cm git.Commit) {
+func (a *gitContext) revertCommit(cm git.Commit) {
 	hash, merge := cm.Hash, len(cm.Parents) > 1
-	msg := "A new commit takes back the changes of “" + ellipsize(cm.Subject, 60) + "”."
+	msg := locales.RevertDetail(ellipsize(cm.Subject, 60))
 	if merge {
-		msg += " Those of a merge are taken back against its first parent."
+		msg += " " + locales.RevertMergeDetail()
 	}
-	a.confirm = &confirm{title: "Revert " + cm.Short() + "?", ok: "Revert", message: msg, run: func() {
-		a.runOp(git.OpRevert, "Reverting…", "Reverted “"+ellipsize(cm.Subject, 48)+"”",
+	a.app.confirm = &confirm{title: locales.RevertQuestion(cm.Short()), ok: locales.RevertButton(), message: msg, run: func() {
+		a.runOp(git.OpRevert, locales.BusyReverting(), locales.Reverted(ellipsize(cm.Subject, 48)),
 			func(r *git.Repo) error { return r.Revert(hash, merge) })
 	}}
 }
 
-// resetModes are the ways a reset may go, as the dialog offers them.
-var resetModes = []confirmChoice{
-	{label: "Soft", message: "Keep the changes of the commits after it staged, and the work tree as it is."},
-	{label: "Mixed", message: "Keep the changes of the commits after it, and the work tree's, unstaged."},
-	{label: "Hard", message: "Discard the commits after it and every change of the work tree.", danger: true},
+// resetModes are the ways a reset may go, in the order resetChoices offers
+// them.
+var resetModes = []git.ResetMode{git.ResetSoft, git.ResetMixed, git.ResetHard}
+
+// resetChoices are the ways a reset may go, as the dialog offers them.
+func resetChoices() []confirmChoice {
+	return []confirmChoice{
+		{label: locales.ResetSoft(), message: locales.ResetSoftDetail()},
+		{label: locales.ResetMixed(), message: locales.ResetMixedDetail()},
+		{label: locales.ResetHard(), message: locales.ResetHardDetail(), danger: true},
+	}
 }
 
 // resetTo moves the branch checked out to a commit of the history, in
 // the mode chosen in the dialog.
-func (a *app) resetTo(cm git.Commit) {
+func (a *gitContext) resetTo(cm git.Commit) {
 	branch, hash := a.branch(), cm.Hash
-	cf := &confirm{title: fmt.Sprintf("Reset %s to %s?", branch, cm.Short()), ok: "Reset",
-		choices: resetModes, choice: 1}
+	choices := resetChoices()
+	cf := &confirm{title: a.repositoryQuestion(locales.ResetQuestion(branch, cm.Short())), ok: locales.ResetButton(),
+		choices: choices, choice: 1}
 	cf.run = func() {
-		mode := git.ResetMode(strings.ToLower(resetModes[cf.choice].label))
-		if mode == git.ResetHard && !a.docsSaved("a hard reset") {
+		mode := resetModes[cf.choice]
+		if mode == git.ResetHard && !a.docsSaved(locales.BeforeHardReset()) {
 			return
 		}
-		a.gitDo("Resetting…", func(r *git.Repo) error { return r.Reset(hash, mode) }, func() {
+		a.gitDo(locales.BusyResetting(), func(r *git.Repo) error { return r.Reset(hash, mode) }, func() {
 			a.git.refsGen++
-			a.tell(note{message: fmt.Sprintf("Reset %s to %s (%s)", branch, git.ShortHash(hash), mode)})
+			a.app.tell(note{message: locales.ResetDone(branch, git.ShortHash(hash), strings.ToLower(choices[cf.choice].label))})
 		})
 	}
-	a.confirm = cf
+	a.app.confirm = cf
 }
 
 // continueOp goes on with the command stopped for conflicts, once they
 // are resolved and staged: a merge, cherry-pick or revert with the
 // message written, when one is.
-func (a *app) continueOp() {
-	g := &a.git
+func (a *gitContext) continueOp() {
+	g := a.git
 	if g.status == nil || g.status.Op == "" || g.busy != "" {
 		return
 	}
 	op := g.status.Op
 	if len(a.groupEntries()[groupMerge]) > 0 {
-		a.fail("Resolve the conflicts and stage the files first.")
+		a.app.fail("%s", locales.ResolveConflictsFirst())
 		return
 	}
 	if op != git.OpRebase && strings.TrimSpace(g.message) != "" {
 		a.commit(false)
 		return
 	}
-	if !a.docsSaved("continuing") {
+	if !a.docsSaved(locales.BeforeContinuing()) {
 		return
 	}
 	stopped := false
-	a.gitDo("Continuing the "+strings.ToLower(op.Title())+"…", func(r *git.Repo) error {
+	a.gitDo(locales.BusyContinuing(opNoun(op)), func(r *git.Repo) error {
 		err := r.Continue(op)
 		if err != nil && r.InProgress() == op {
 			// A rebase stops again at the next commit that conflicts.
@@ -711,28 +764,28 @@ func (a *app) continueOp() {
 	}, func() {
 		g.refsGen++
 		if stopped {
-			a.tell(note{message: op.Title() + " stopped again for conflicts: resolve and stage them, then continue",
-				label: "Abort", action: func() { a.abortOpOf(op) }})
+			a.app.tell(note{message: locales.OpStoppedAgain(opTitle(op)),
+				label: locales.ButtonAbort(), action: func() { a.abortOpOf(op) }})
 			return
 		}
-		a.tell(note{message: op.Title() + " done"})
+		a.app.tell(note{message: locales.OpDone(opTitle(op))})
 	})
 }
 
 // abortOp undoes the command stopped for conflicts, once asked.
-func (a *app) abortOp() {
+func (a *gitContext) abortOp() {
 	if st := a.git.status; st != nil && st.Op != "" {
 		a.abortOpOf(st.Op)
 	}
 }
 
 // abortOpOf undoes op, stopped for conflicts, once asked.
-func (a *app) abortOpOf(op git.Op) {
-	g := &a.git
-	a.confirm = &confirm{title: "Abort the " + strings.ToLower(op.Title()) + "?", ok: "Abort", danger: true,
-		message: "HEAD, the staged changes and the files go back to how they were before it.",
+func (a *gitContext) abortOpOf(op git.Op) {
+	g := a.git
+	a.app.confirm = &confirm{title: locales.AbortQuestion(opNoun(op)), ok: locales.ButtonAbort(), danger: true,
+		message: locales.AbortDetail(),
 		run: func() {
-			a.gitDo("Aborting…", func(r *git.Repo) error { return r.Abort(op) }, func() {
+			a.gitDo(locales.BusyAborting(), func(r *git.Repo) error { return r.Abort(op) }, func() {
 				g.refsGen++
 				if op != git.OpRebase {
 					g.message = ""
@@ -743,49 +796,50 @@ func (a *app) abortOpOf(op git.Op) {
 
 // askRefAt asks for the name of a branch, or a tag, to make at a commit
 // of the history, without checking it out.
-func (a *app) askRefAt(cm git.Commit, tag bool) {
-	g := &a.git
+func (a *gitContext) askRefAt(cm git.Commit, tag bool) {
+	g := a.git
 	if g.repo == nil {
 		return
 	}
-	what, title, names := "branch", "Create Branch…", g.branches
+	title, names := locales.CreateBranchEllipsis(), g.branches
 	if tag {
-		what, title, names = "tag", "Create Tag…", g.tags
+		title, names = locales.CreateTagEllipsis(), g.tags
 	}
+	isTag := strconv.FormatBool(tag)
 	hash := cm.Hash
-	a.prompt = &prompt{title: title, hint: "at " + cm.Short() + " " + ellipsize(cm.Subject, 32), done: func(name string) string {
+	a.app.prompt = &prompt{title: title, hint: locales.RefAt(cm.Short(), ellipsize(cm.Subject, 32)), done: func(name string) string {
 		name = strings.TrimSpace(name)
 		if name == "" || strings.ContainsAny(name, " ~^:?*[\\") {
-			return "Enter a " + what + " name without spaces."
+			return locales.RefNameNoSpaces(isTag)
 		}
 		if slices.Contains(names, name) {
-			return "A " + what + " with that name exists."
+			return locales.RefExists(isTag)
 		}
-		a.gitDo("Creating "+what+" "+name+"…", func(r *git.Repo) error {
+		a.gitDo(locales.BusyCreatingRef(isTag, name), func(r *git.Repo) error {
 			if tag {
 				return r.CreateTag(name, hash, "")
 			}
 			return r.CreateBranch(name, hash)
 		}, func() {
 			g.refsGen++
-			a.tell(note{message: fmt.Sprintf("Created %s %s at %s", what, name, git.ShortHash(hash))})
+			a.app.tell(note{message: locales.CreatedRef(isTag, name, git.ShortHash(hash))})
 		})
 		return ""
 	}}
 }
 
 // askNewBranch asks for the name of a branch to make and check out.
-func (a *app) askNewBranch() {
+func (a *gitContext) askNewBranch() {
 	if a.git.repo == nil {
 		return
 	}
-	a.prompt = &prompt{title: "Create Branch…", hint: "from " + a.branch(), done: func(name string) string {
+	a.app.prompt = &prompt{title: locales.CreateBranchEllipsis(), hint: locales.BranchFrom(a.branch()), done: func(name string) string {
 		name = strings.TrimSpace(name)
 		if name == "" || strings.ContainsAny(name, " ~^:?*[\\") {
-			return "Enter a branch name without spaces."
+			return locales.RefNameNoSpaces("false")
 		}
 		if slices.Contains(a.git.branches, name) {
-			return "A branch with that name exists."
+			return locales.RefExists("false")
 		}
 		a.switchBranch(name, true)
 		return ""
@@ -794,39 +848,39 @@ func (a *app) askNewBranch() {
 
 // branchMenu is the menu of the branch in the status bar: the branches to
 // switch to, and the commands of the remotes.
-func (a *app) branchMenu(m *ui.Menu) {
-	g := &a.git
+func (a *gitContext) branchMenu(m *ui.Menu) {
+	g := a.git
 	cur := a.branch()
-	if m.Item("Switch Branch…").Disabled(g.busy != "").Chosen() {
-		a.post(a.openBranchPicker)
+	if m.Item(locales.CmdGitSwitchBranch()).Disabled(g.busy != "").Chosen() {
+		a.app.post(a.openBranchPicker)
 	}
 	m.Separator()
 	for _, b := range g.branches {
 		if m.Item(b).Checked(b == cur).Disabled(g.busy != "").Chosen() && b != cur {
-			a.post(func() { a.switchBranch(b, false) })
+			a.app.post(func() { a.switchBranch(b, false) })
 		}
 	}
 	if len(g.branches) > 0 {
 		m.Separator()
 	}
-	if m.Item("Create Branch…").Disabled(g.busy != "").Chosen() {
-		a.post(a.askNewBranch)
+	if m.Item(locales.CreateBranchEllipsis()).Disabled(g.busy != "").Chosen() {
+		a.app.post(a.askNewBranch)
 	}
 	m.Separator()
-	if m.Item("Fetch").Disabled(g.busy != "").Chosen() {
-		a.post(a.fetch)
+	if m.Item(locales.CmdGitFetch()).Disabled(g.busy != "").Chosen() {
+		a.app.post(a.fetch)
 	}
-	if m.Item("Pull").Disabled(g.busy != "").Chosen() {
-		a.post(a.pull)
+	if m.Item(locales.CmdGitPull()).Disabled(g.busy != "").Chosen() {
+		a.app.post(a.pull)
 	}
-	if m.Item("Push").Disabled(g.busy != "").Chosen() {
-		a.post(a.push)
+	if m.Item(locales.CmdGitPush()).Disabled(g.busy != "").Chosen() {
+		a.app.post(a.push)
 	}
 }
 
 // branchLabel is what the status bar says of the branch: its name, and
 // how far it is ahead of its upstream and behind it.
-func (a *app) branchLabel() string {
+func (a *gitContext) branchLabel() string {
 	label := a.branch()
 	if st := a.git.status; st != nil && st.Upstream != "" {
 		if st.Behind > 0 {

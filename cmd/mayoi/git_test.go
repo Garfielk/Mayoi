@@ -104,7 +104,11 @@ func TestSourceControlStagesAndCommits(t *testing.T) {
 	os.Remove(hs.path("go.mod"))
 	a.run("view.scm")
 	hs.settleGit()
-	for _, s := range []string{"SOURCE CONTROL", "CHANGES", "UNTRACKED", "main.go", "notes.txt", "go.mod"} {
+	// The title is GIT where the font leaves no room for the whole.
+	if !hs.tt.HasText("SOURCE CONTROL") && !hs.tt.HasText("GIT") {
+		t.Errorf("no title: %q", hs.tt.Texts())
+	}
+	for _, s := range []string{"CHANGES", "UNTRACKED", "main.go", "notes.txt", "go.mod"} {
 		if !hs.tt.HasText(s) {
 			t.Errorf("no %q: %q", s, hs.tt.Texts())
 		}
@@ -283,7 +287,7 @@ func TestBranchesAndBlame(t *testing.T) {
 	d.selectRange(2, 2, false)
 	hs.settle()
 	hs.until("the line is blamed", func() bool {
-		hs.tt.Frame()
+		step(hs.tt)
 		return d.blame.done
 	})
 	if !strings.HasPrefix(d.blame.text, "t, just now · first") {
@@ -294,7 +298,7 @@ func TestBranchesAndBlame(t *testing.T) {
 	a.queueEdit(d, func(d *editor) { d.edit(d.sel, textEdit{0, 0, "new\n"}) })
 	hs.settle()
 	hs.until("the new line is blamed", func() bool {
-		hs.tt.Frame()
+		step(hs.tt)
 		return d.blame.done
 	})
 	if d.blame.text != "" {
@@ -367,7 +371,7 @@ func TestPushPullFetch(t *testing.T) {
 			break
 		}
 	}
-	hs.tt.Frame()
+	step(hs.tt)
 	if !slices.ContainsFunc(hs.tt.Texts(), func(s string) bool { return strings.Contains(s, "nonexistent") }) {
 		t.Errorf("no toast: %q", hs.tt.Texts())
 	}
@@ -448,7 +452,7 @@ func diffFileOf(v *diffView, path string, base diffBase) *diffFile {
 func kinds(v *diffView) string {
 	var s strings.Builder
 	for _, r := range v.rows {
-		s.WriteByte("LGHSFNsC"[r.kind])
+		s.WriteByte("LGHSFNsCc"[r.kind])
 	}
 	return s.String()
 }

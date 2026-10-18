@@ -15,6 +15,8 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/remote"
+	"mayoi/internal/vfs"
+	"mayoi/locales"
 )
 
 // ⌘C in the explorer puts the file chosen on the clipboard as the Finder
@@ -69,7 +71,7 @@ func (a *app) copyFiles(paths ...string) {
 		return
 	}
 	if err := a.host.copyFiles(paths); err != nil {
-		a.fail("Could not copy: %v", err)
+		a.fail("%s", locales.FailCopy(err.Error()))
 	}
 }
 
@@ -107,7 +109,7 @@ func (a *app) copyPathsInto(srcs []string, dir string) {
 	for _, p := range srcs {
 		to, err := copyInto(p, dir)
 		if err != nil {
-			a.fail("Could not paste %s: %v", filepath.Base(p), err)
+			a.fail("%s", locales.FailPasteItem(filepath.Base(p), err.Error()))
 			continue
 		}
 		if first == "" {
@@ -134,16 +136,34 @@ func (a *app) pasted(dir, first string) {
 // other is on a host, and says how it goes in the status bar.
 func (a *app) pasteAcross(srcs []string, dir string) {
 	if c, _, ok := remote.Lookup(dir); ok && !c.Connected() {
-		a.fail("Could not paste: %s is not connected", c.Host)
+		a.fail("%s", locales.FailPasteNotConnected(c.Host))
 		return
 	}
 	x := a.startTransfer(transferLabel(srcs, dir))
 	go func() {
 		got, err := transferInto(srcs, dir, x.progress)
 		a.post(func() {
+			if x.progress.Canceled() {
+				// Canceled while the status bar still showed it, though
+				// the copy got to its end, or placed some before it
+				// stopped: what arrived goes, but never a file it
+				// copied, and then the status.
+				go func() {
+					for _, p := range got {
+						if !slices.Contains(srcs, p) {
+							vfs.RemoveAll(p)
+						}
+					}
+					a.post(func() {
+						a.endTransfer(x)
+						a.transferFailed(locales.FailPaste(), remote.ErrCanceled)
+					})
+				}()
+				return
+			}
 			a.endTransfer(x)
 			if err != nil {
-				a.transferFailed("Could not paste", err)
+				a.transferFailed(locales.FailPaste(), err)
 			}
 			if len(got) > 0 {
 				a.pasted(dir, got[0])
@@ -156,16 +176,16 @@ func (a *app) pasteAcross(srcs []string, dir string) {
 func transferLabel(srcs []string, dir string) string {
 	what := filepath.Base(srcs[0])
 	if len(srcs) > 1 {
-		what = fmt.Sprintf("%d items", len(srcs))
+		what = locales.ItemsCount(len(srcs))
 	}
 	to := remote.HostOf(dir)
 	switch {
 	case to == "":
-		return "Downloading " + what + "…"
+		return locales.TransferDownloading(what)
 	case !slices.ContainsFunc(srcs, func(p string) bool { return remote.HostOf(p) != to }):
-		return "Copying " + what + " on " + to + "…"
+		return locales.TransferCopyingOn(what, to)
 	}
-	return "Uploading " + what + " to " + to + "…"
+	return locales.TransferUploadingTo(what, to)
 }
 
 // transferInto copies files of this machine or of hosts into dir, of
@@ -295,7 +315,7 @@ func copyInto(src, dir string) (string, error) {
 		return "", err
 	}
 	if info.IsDir() && (dir == src || strings.HasPrefix(dir, src+string(filepath.Separator))) {
-		return "", errors.New("a folder cannot be pasted into itself")
+		return "", errors.New(locales.ErrPasteIntoItself())
 	}
 	to := freeName(dir, filepath.Base(src), info.IsDir())
 	return to, copyEntry(src, to)

@@ -15,9 +15,11 @@ import (
 
 	"mayoi/internal/highlight"
 	"mayoi/internal/keymap"
+	"mayoi/internal/mon"
 	"mayoi/internal/remote"
 	"mayoi/internal/settings"
 	"mayoi/internal/workspace"
+	"mayoi/locales"
 )
 
 // remoteIndexEvery is the least time between two listings of the files of
@@ -48,18 +50,24 @@ type host interface {
 	// setTheme gives the windows a theme and an appearance of the
 	// settings.
 	setTheme(theme, appearance string)
+	// setLocale shows the windows in the language of tag, or of the
+	// system for "".
+	setLocale(tag string)
 	// showFolder brings the other window that has dir open to the front,
 	// and reports whether there is one.
 	showFolder(dir string) bool
 	// newWindow opens dir in a window of its own, or brings the one that
 	// has it open to the front.
 	newWindow(dir string)
+	// newBlankWindow opens a window that shows nothing.
+	newBlankWindow()
 	// openFolders opens folders as `mayoi <dir>` does: a window that
 	// shows nothing takes one, as may this one.
 	openFolders(dirs []string)
 	// recentChanged shows the recent folders anew, in the menus, once
 	// they change.
 	recentChanged()
+	menuChanged()
 	// fontChanged draws every window anew, in the font the settings
 	// have now.
 	fontChanged()
@@ -67,6 +75,24 @@ type host interface {
 	// path, and take it away, saying how it went.
 	installCLI()
 	uninstallCLI()
+	// account is the name of the person settings sync syncs for, "" when
+	// signed out. signIn signs in, showing the code to approve in the
+	// window, signOut signs out, and syncNow syncs at once.
+	account() string
+	signIn()
+	signOut()
+	syncNow()
+	// syncInfo is how settings sync is, and syncPicture the person's
+	// picture, nil until it is fetched. syncConflictResolved says the
+	// account's keybindings.json kept beside this machine's may be gone.
+	syncInfo() syncInfo
+	syncPicture() *ui.Bitmap
+	syncConflictResolved()
+	// ai is a client of Mon's AI gateway, as the account signed in, nil
+	// while signed out. aiSignedOut says Mon refused its token: the
+	// account was signed out elsewhere.
+	ai() *mon.Client
+	aiSignedOut()
 	// With project tabs, stepProject shows the project by steps along the
 	// rail, showProject the one at i, the last for -1, and closeProject
 	// closes the window's, as the window closes when it is its only one.
@@ -116,6 +142,8 @@ type app struct {
 	// which is done again at most every remoteIndexEvery.
 	indexed time.Time
 	files   ui.OutlineState[string]
+	// crumbs is the box a folder of the breadcrumbs opens.
+	crumbs  crumbsPicker
 	fileRow int
 	// filesView is the explorer's list, which focusFiles has take the
 	// keyboard as it next shows.
@@ -125,6 +153,8 @@ type app struct {
 	// file it should choose once its row shows.
 	treeSynced, selectInTree string
 	git                      gitState
+	repositories             repositoryState
+	commitTools              commitTools
 	scm                      scmState
 
 	// ignored is what Git ignores in the workspace, which the tree shows
@@ -142,9 +172,15 @@ type app struct {
 	// docs are the documents open, each in a tab or several; cols the
 	// columns of the editor area, and col the one that has the keyboard,
 	// or had it last, which commands are for.
-	docs     []*document
-	cols     []*column
-	col      int
+	docs []*document
+	cols []*column
+	col  int
+	// review is the comments on lines of the changes, to send to an agent.
+	review review
+	// fileCol caches the last unlocked column used for files. Removal clears
+	// it; column and activate refresh it. Use fileColumn to resolve a live,
+	// unlocked target before opening files, including during restoration.
+	fileCol  *column
 	nextID   int
 	nextTab  int
 	nextCol  int
@@ -183,6 +219,9 @@ type app struct {
 	frameAt time.Time
 	// dragging is set while a tab is dragged, as the frame before found.
 	dragging, dragNow bool
+	// middle is the tab a middle press is on, until it is let go of: the
+	// press closes it rather than shows it.
+	middle *colTab
 
 	quick      quickOpen
 	palette    []paletteEntry    // the commands of the command palette, made as it first opens
@@ -195,6 +234,11 @@ type app struct {
 	inFiles    searchState // search in the files, of the sidebar
 	prompt     *prompt
 	confirm    *confirm
+	signin     *signin
+	// syncOpen shows the account's panel above its part of the status
+	// bar, and tickAt is when a countdown shown repaints next.
+	syncOpen bool
+	tickAt   time.Time
 	// dialog is the dialog shown, which came in as it showed, and
 	// dialogBuilt says a build of the view built one.
 	dialog      string
@@ -212,10 +256,11 @@ type app struct {
 	// strokes of a chord of them typed so far. keyFocus is the place the
 	// keyboard is in as the view was built, placeNone where the window
 	// takes their keys, and keyTerm the terminal that took a key last.
-	keys     *keymap.Map
-	chord    []keymap.Stroke
-	keyFocus keyPlace
-	keyTerm  *session
+	keys        *keymap.Map
+	chord       []keymap.Stroke
+	keyFocus    keyPlace
+	cutInEditor bool
+	keyTerm     *session
 	// held is the key the keymap took last, until it is let go of.
 	held *ui.Key
 	// chain are the commands of runCommands still to run, which stop at
@@ -361,11 +406,12 @@ func (a *app) openFolder(dir string) {
 	a.tree.OnChange = a.diskChanged
 	a.tree.IsOpen = a.files.Open.Has
 	a.tree.Load(dir)
-	a.files = ui.OutlineState[string]{}
+	a.files = ui.OutlineState[string]{Indent: treeStep}
 	a.fileRow = -1
 	a.files.List.Selected = &a.fileRow
 	a.index, a.indexStale = nil, true
 	a.ignored, a.ignoredStale = nil, true
+	a.resetRepositories()
 	a.git = gitState{}
 	a.resetSearch()
 	a.window.Folder = dir
@@ -414,6 +460,7 @@ func (a *app) closeFolder() {
 			a.tree.Close()
 		}
 		a.detachRemote()
+		a.resetRepositories()
 		a.root, a.tree, a.index, a.git = "", nil, nil, gitState{}
 		a.resetSearch()
 		a.closed = nil
@@ -441,7 +488,7 @@ func (a *app) saveDoc(d *document, then func()) {
 	}
 	saved := func() {
 		d.diskGone, d.autoSave.failed = false, false
-		a.git.stale = true
+		a.repositoryForPath(d.path).git.stale = true
 		a.rememberTabs()
 		if then != nil {
 			then()
@@ -450,11 +497,11 @@ func (a *app) saveDoc(d *document, then func()) {
 	if remote.Is(d.path) {
 		// Saved by hand, a file that changed on its host asks again.
 		d.conflict = false
-		a.saveRemote(d, saved, func(err error) { a.fail("Could not save %s: %v", d.name(), err) })
+		a.saveRemote(d, saved, func(err error) { a.fail("%s", locales.FailSave(d.name(), err.Error())) })
 		return
 	}
 	if err := d.save(); err != nil {
-		a.fail("Could not save %s: %v", d.name(), err)
+		a.fail("%s", locales.FailSave(d.name(), err.Error()))
 		return
 	}
 	saved()
@@ -498,6 +545,11 @@ func (a *app) saveAll() {
 // diskChanged follows files changed on disk: an open document without
 // changes of its own shows the file's new text.
 func (a *app) diskChanged(changed, removed []string) {
+	for _, path := range append(slices.Clone(changed), removed...) {
+		if filepath.Base(path) == ".gitmodules" {
+			a.repositories.dirty = true
+		}
+	}
 	a.indexStale, a.ignoredStale = true, true
 	a.diffsOnDisk(append(changed, removed...))
 	a.searchAgain(append(changed, removed...))

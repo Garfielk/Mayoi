@@ -13,7 +13,7 @@ func TestAutoSaveAfterAPause(t *testing.T) {
 	a.openFile(hs.path("README.md"), true)
 	hs.settle()
 	tt.Type("Hello ")
-	tt.Frame()
+	step(tt)
 	d := a.activeEditor()
 	if !d.dirty() {
 		t.Fatal("not changed")
@@ -32,11 +32,11 @@ func TestAutoSaveAsTheTabChanges(t *testing.T) {
 	a.openFile(hs.path("README.md"), true)
 	hs.settle()
 	tt.Type("Hello ")
-	tt.Frame()
+	step(tt)
 	readme := a.activeEditor().document
 	a.openFile(hs.path("go.mod"), true)
-	tt.Frame()
-	tt.Frame()
+	step(tt)
+	step(tt)
 	data, _ := os.ReadFile(hs.path("README.md"))
 	if !strings.HasPrefix(string(data), "Hello # Mayoi") || readme.dirty() {
 		t.Fatalf("after showing another tab: saved %q, dirty %v", data, readme.dirty())
@@ -49,7 +49,7 @@ func TestAutoSaveClosesWithoutAsking(t *testing.T) {
 	a.openFile(hs.path("README.md"), true)
 	hs.settle()
 	tt.Type("Hello ")
-	tt.Frame()
+	step(tt)
 	a.run("file.close")
 	hs.settle()
 	data, _ := os.ReadFile(hs.path("README.md"))
@@ -64,7 +64,7 @@ func TestAutoSaveLeavesUntitledAndTurnsOff(t *testing.T) {
 	a.run("file.new")
 	hs.settle()
 	tt.Type("draft")
-	tt.Frame()
+	step(tt)
 	untitled := a.activeEditor().document
 	a.openFile(hs.path("README.md"), true)
 	hs.settle()
@@ -73,7 +73,7 @@ func TestAutoSaveLeavesUntitledAndTurnsOff(t *testing.T) {
 		t.Fatal("still on")
 	}
 	tt.Type("Hello ")
-	tt.Frame()
+	step(tt)
 	readme := a.activeEditor().document
 	a.openFile(hs.path("go.mod"), true)
 	time.Sleep(autoSaveDelay + 200*time.Millisecond)
@@ -97,7 +97,7 @@ func TestAutoSaveFailureSaysOnce(t *testing.T) {
 	a.openFile(hs.path("README.md"), true)
 	hs.settle()
 	tt.Type("Hello ")
-	tt.Frame()
+	step(tt)
 	d := a.activeEditor().document
 	os.Chmod(hs.path("README.md"), 0o444)
 	os.Chmod(hs.root, 0o555)

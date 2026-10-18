@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -34,6 +35,9 @@ type Settings struct {
 	// stateWritten what they last wrote to the state's.
 	written      []byte
 	stateWritten []byte
+	// prefsWritten is called, on a goroutine of its own, each time the
+	// settings write a change of the preferences to their file.
+	prefsWritten func()
 }
 
 // State is what Mayoi keeps itself, not what a person chooses: the
@@ -138,6 +142,10 @@ type Prefs struct {
 	// ScmAllBranches has the commits of source control show every branch
 	// and tag, not only the history of the branch checked out.
 	ScmAllBranches bool `json:"scmAllBranches,omitempty"`
+	// ScmRepositoryOpen remembers whether the repository panel is expanded.
+	ScmRepositoryOpen bool `json:"scmRepositoryOpen,omitempty"`
+	// ScmRemotes selects Remotes instead of Branches in the repository panel.
+	ScmRemotes bool `json:"scmRemotes,omitempty"`
 	// Blame shows who last changed the caret's line, and when, after it.
 	Blame bool `json:"blame"`
 	// Vim edits with vim's keys: the editors start in normal mode.
@@ -153,12 +161,86 @@ type Prefs struct {
 	Theme string `json:"theme,omitempty"`
 	// SidebarRight puts the sidebar right of the editors, rather than left.
 	SidebarRight bool `json:"sidebarRight,omitempty"`
+	// PanelPosition is where the terminal panel is: "" or "bottom"
+	// below the editors, "left" or "right" at the window's side, past
+	// the sidebar.
+	PanelPosition string `json:"panelPosition,omitempty"`
 	// ProjectTabs keeps the folders open in one window, a rail on its left
 	// choosing which shows, rather than a window for each.
 	ProjectTabs bool `json:"projectTabs,omitempty"`
-	// ProjectIcons shows each project's favicon or logo on the rail,
-	// rather than its initials.
-	ProjectIcons bool `json:"projectIcons,omitempty"`
+	// ProjectTabStyle is a project's own label, color and icon on the rail
+	// of project tabs, by its folder.
+	ProjectTabStyle map[string]TabStyle `json:"projectTabStyle,omitempty"`
+	// Locale is the language Mayoi shows, as "en", "zh-Hans" or "ja", or ""
+	// for the one the system's languages prefer.
+	Locale string `json:"locale,omitempty"`
+	// AIModel is the model of Mon's AI gateway that writes commit
+	// messages, "" for Mayoi's choice.
+	AIModel string `json:"aiModel,omitempty"`
+	// SyncIgnored is what settings sync leaves on this machine: keys of
+	// the preferences, "settings.json" for all of them, and
+	// "keybindings.json" for the keyboard shortcuts.
+	SyncIgnored []string `json:"syncIgnored,omitempty"`
+}
+
+// TabStyle is a project's own look on the rail: Label, up to two
+// characters, in place of its initials or logo, Color, a name of the
+// terminal's colors as "red" or "cyan", in place of its own, and Icon, the
+// name of a picture in the project-icons folder beside the settings, in
+// place of its logo. Each is "" for the project's own.
+type TabStyle struct {
+	Label string `json:"label,omitempty"`
+	Color string `json:"color,omitempty"`
+	Icon  string `json:"icon,omitempty"`
+}
+
+// SetTabStyle keeps st as the look of the project of folder, forgetting
+// it when st is the project's own.
+func (s *Settings) SetTabStyle(folder string, st TabStyle) {
+	if st == (TabStyle{}) {
+		delete(s.ProjectTabStyle, folder)
+		if len(s.ProjectTabStyle) == 0 {
+			s.ProjectTabStyle = nil
+		}
+	} else {
+		if s.ProjectTabStyle == nil {
+			s.ProjectTabStyle = map[string]TabStyle{}
+		}
+		s.ProjectTabStyle[folder] = st
+	}
+	s.Changed()
+}
+
+// SyncIgnored's names of all the preferences, and of the keyboard
+// shortcuts.
+const (
+	SyncSettings    = "settings.json"
+	SyncKeybindings = "keybindings.json"
+)
+
+// SyncKept returns the keys of the preferences settings sync leaves on
+// this machine, and whether it leaves the keyboard shortcuts.
+func (p Prefs) SyncKept() (keys []string, keybindings bool) {
+	all := slices.Contains(p.SyncIgnored, SyncSettings)
+	for _, k := range PrefKeys {
+		if all && !slices.Contains(unsynced, k) || slices.Contains(p.SyncIgnored, k) {
+			keys = append(keys, k)
+		}
+	}
+	return keys, slices.Contains(p.SyncIgnored, SyncKeybindings)
+}
+
+// SyncIgnoring returns SyncIgnored with name, a key or SyncSettings or
+// SyncKeybindings, in it or out of it.
+func (p Prefs) SyncIgnoring(name string, ignore bool) []string {
+	out := slices.DeleteFunc(slices.Clone(p.SyncIgnored), func(k string) bool { return k == name })
+	if ignore {
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Window is a window as the settings keep it: its folder, and its
@@ -177,15 +259,38 @@ type Session struct {
 	Layout
 	Columns      []Column `json:"columns,omitempty"`
 	Column       int      `json:"column,omitempty"`
+	FileColumn   int      `json:"fileColumn,omitempty"`
 	PanelOpen    bool     `json:"panelOpen,omitempty"`
 	TerminalOpen bool     `json:"terminalOpen,omitempty"`
 	// Expanded are the explorer's folders showing their files, relative to
 	// the window's folder.
 	Expanded []string `json:"expanded,omitempty"`
+	// Review is the review comments not sent yet.
+	Review []ReviewNote `json:"review,omitempty"`
+}
+
+// ReviewNote is a review comment on lines of a file, as the settings keep
+// it: Commit is the commit whose changes it is on, "" for the work tree,
+// and Staged set for the changes staged. OldSide is set for lines removed,
+// From and To the lines of the side, To after the last. Snippet is what
+// the comment quotes, a diff when Diff is set, and Lines the lines as they
+// were, which the comment finds again as the file changes.
+type ReviewNote struct {
+	Path    string   `json:"path"`
+	Commit  string   `json:"commit,omitempty"`
+	Staged  bool     `json:"staged,omitempty"`
+	OldSide bool     `json:"oldSide,omitempty"`
+	From    int      `json:"from"`
+	To      int      `json:"to"`
+	Diff    bool     `json:"diff,omitempty"`
+	Snippet []string `json:"snippet,omitempty"`
+	Lines   []string `json:"lines,omitempty"`
+	Text    string   `json:"text"`
 }
 
 // Layout is how a window lays its folder out: what its sidebar shows,
-// whether it is closed and how wide it is, and how tall its panel is.
+// whether it is closed and how wide it is, and how tall its panel is at
+// the bottom, or how wide it is at a side.
 type Layout struct {
 	// SidebarView is what the sidebar shows: "" the explorer, "search"
 	// the search in the files, "git" the changes for source control.
@@ -193,10 +298,11 @@ type Layout struct {
 	SidebarClosed bool    `json:"sidebarClosed,omitempty"`
 	SidebarWidth  float32 `json:"sidebarWidth,omitempty"`
 	PanelHeight   float32 `json:"panelHeight,omitempty"`
+	PanelWidth    float32 `json:"panelWidth,omitempty"`
 }
 
 // DefaultLayout is the layout of a first launch.
-var DefaultLayout = Layout{SidebarWidth: 248, PanelHeight: 260}
+var DefaultLayout = Layout{SidebarWidth: 248, PanelHeight: 260, PanelWidth: 400}
 
 // Normalize keeps the layout in its bounds, as base has it where it has
 // none, as a session an older version kept.
@@ -204,7 +310,11 @@ func (l *Layout) Normalize(base Layout) {
 	if l.SidebarWidth == 0 {
 		*l = base
 	}
+	if l.PanelWidth == 0 {
+		l.PanelWidth = base.PanelWidth
+	}
 	l.SidebarWidth = clamp(l.SidebarWidth, 160, 600)
+	l.PanelWidth = clamp(l.PanelWidth, 160, 2000)
 	l.PanelHeight = clamp(l.PanelHeight, 100, 2000)
 }
 
@@ -213,6 +323,7 @@ type Column struct {
 	Tabs   []Tab   `json:"tabs"`
 	Active int     `json:"active"`
 	Weight float32 `json:"weight"`
+	Locked bool    `json:"locked,omitempty"`
 }
 
 // Tab is a tab: the file it shows, or a terminal, which the next
@@ -230,9 +341,10 @@ type Tab struct {
 	// the changes of every file, against that. Layout is the diff's, as
 	// the settings' DiffLayout; Split is what an older version kept for
 	// "split". "commit:" and a hash is the changes of that commit.
-	Diff   string `json:"diff,omitempty"`
-	Layout string `json:"layout,omitempty"`
-	Split  bool   `json:"split,omitempty"`
+	Diff     string `json:"diff,omitempty"`
+	RepoRoot string `json:"repoRoot,omitempty"` // relative to the workspace; empty is its root repository
+	Layout   string `json:"layout,omitempty"`
+	Split    bool   `json:"split,omitempty"`
 	// Full is set for a diff showing every unchanged line.
 	Full bool `json:"full,omitempty"`
 	// Sel is the selection of a file's editor, its caret at Sel[1], and
@@ -350,6 +462,11 @@ func (s *Settings) normalize() {
 		s.DiffWhitespace = ""
 	}
 	s.DiffContext = min(max(s.DiffContext, 0), MaxDiffContext)
+
+	// "" and "bottom" are the same panel position.
+	if s.PanelPosition != "left" && s.PanelPosition != "right" {
+		s.PanelPosition = ""
+	}
 	// The themes were appearances once.
 	if s.Appearance == "matrix" || s.Appearance == "claude" {
 		s.Theme, s.Appearance = s.Appearance, ""
@@ -454,7 +571,7 @@ func (s *Settings) Stash(w *Window) {
 	if !slices.Contains(s.Recent, dir) {
 		return
 	}
-	empty := len(w.Expanded) == 0
+	empty := len(w.Expanded) == 0 && len(w.Review) == 0
 	for _, c := range w.Columns {
 		empty = empty && len(c.Tabs) == 0
 	}
@@ -529,6 +646,12 @@ func (s *Settings) write(prefs, state []byte) {
 	s.mu.Unlock()
 	if !samePrefs {
 		writeFile(s.path, prefs)
+		s.mu.Lock()
+		fn := s.prefsWritten
+		s.mu.Unlock()
+		if fn != nil {
+			fn()
+		}
 	}
 	if !sameState && s.statePath != "" {
 		writeFile(s.statePath, state)
@@ -660,4 +783,94 @@ func (s *Settings) edited() (Prefs, bool) {
 	}
 	f.normalize()
 	return f.Prefs, true
+}
+
+// OnPrefsWritten calls fn, on a goroutine of its own, each time the
+// settings write a change of the preferences to their file, as a menu
+// changing one, though not as the person saves the file: Watch tells of
+// that.
+func (s *Settings) OnPrefsWritten(fn func()) {
+	s.mu.Lock()
+	s.prefsWritten = fn
+	s.mu.Unlock()
+}
+
+// unsynced are the preferences that stay on each machine: what the
+// windows remember of source control's panels rather than what a person
+// chooses, what the person keeps on the machine, and the looks of the
+// projects on the rail, by folders of this machine.
+var unsynced = []string{"scmRepositoryOpen", "scmRemotes", "syncIgnored", "projectTabStyle"}
+
+// PrefKeys are the keys of the preferences in the settings' file.
+var PrefKeys = func() []string {
+	var keys []string
+	t := reflect.TypeFor[Prefs]()
+	for f := range t.Fields() {
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name != "" && name != "-" {
+			keys = append(keys, name)
+		}
+	}
+	return keys
+}()
+
+// Synced returns the preferences that sync between machines, by their
+// keys in the settings' file. Keys at their zero value with omitempty are
+// left out, as the file leaves them out.
+func (p Prefs) Synced() map[string]json.RawMessage {
+	data, _ := json.Marshal(p)
+	var m map[string]json.RawMessage
+	json.Unmarshal(data, &m)
+	for _, k := range unsynced {
+		delete(m, k)
+	}
+	return m
+}
+
+// WithSynced returns the preferences of synced, by their keys in the
+// settings' file, the defaults where it has none, and p's of those that
+// do not sync or that it leaves on this machine.
+func (p Prefs) WithSynced(synced map[string]json.RawMessage) (Prefs, error) {
+	keep, _ := p.SyncKept()
+	keep = append(keep, unsynced...)
+	mine, _ := json.Marshal(p)
+	var own map[string]json.RawMessage
+	json.Unmarshal(mine, &own)
+	m := make(map[string]json.RawMessage, len(synced)+len(keep))
+	for k, v := range synced {
+		if !slices.Contains(keep, k) {
+			m[k] = v
+		}
+	}
+	for _, k := range keep {
+		if v, ok := own[k]; ok {
+			m[k] = v
+		}
+	}
+	f := Default()
+	data, err := json.Marshal(m)
+	if err != nil {
+		return p, err
+	}
+	if err := json.Unmarshal(data, &f.Prefs); err != nil {
+		return p, err
+	}
+	f.normalize()
+	return f.Prefs, nil
+}
+
+// IsDefault reports whether the preferences that sync are those of a
+// first launch.
+func (p Prefs) IsDefault() bool {
+	d := Default().Prefs.Synced()
+	m := p.Synced()
+	if len(d) != len(m) {
+		return false
+	}
+	for k, v := range m {
+		if !bytes.Equal(d[k], v) {
+			return false
+		}
+	}
+	return true
 }

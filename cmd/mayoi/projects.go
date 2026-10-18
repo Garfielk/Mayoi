@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"cmp"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +22,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -28,6 +31,7 @@ import (
 	"mayoi/internal/remote"
 	"mayoi/internal/settings"
 	"mayoi/internal/vfs"
+	"mayoi/locales"
 )
 
 // railW is the width of the rail of project tabs.
@@ -119,7 +123,7 @@ func (m *mayoi) newFrame(h *desktop) *frame {
 		}
 	})
 	// Files dropped where nothing takes them, as on the explorer, open in
-	// the column that has the keyboard.
+	// the file column, avoiding a locked terminal column.
 	win.OnFileDrop(func(e *mygo.FileDropEvent) {
 		h := f.active
 		if h == nil {
@@ -127,7 +131,7 @@ func (m *mayoi) newFrame(h *desktop) *frame {
 		}
 		paths, a := e.Paths, h.a
 		a.post(func() {
-			col := a.column()
+			col := a.fileColumn()
 			a.dropFiles(paths, col, col.active+1)
 		})
 	})
@@ -380,13 +384,14 @@ func (m *mayoi) projectTabsChanged() {
 }
 
 // railView is the rail of project tabs, left of the sidebar: a square of
-// each project's initials, the one shown marked, and after them a button
-// that opens another folder. A window of one project has none. a is the
-// project it is built in, which the frame goes on building as a click
-// shows another. A square is dragged along the rail to reorder it, and a
-// folder dropped on the rail opens as a project.
+// each project's logo or initials, the one shown marked, and after them a
+// button that opens another folder. It shows with Project Tabs on, a
+// window of one project too. a is the project it is built in, which the
+// frame goes on building as a click shows another. A square is dragged
+// along the rail to reorder it, a folder dropped on the rail opens as a
+// project, and a picture dropped on a square shows in it.
 func (f *frame) railView(c *ui.Context, a *app) {
-	if !f.m.s.ProjectTabs || len(f.tabs) < 2 {
+	if !f.m.s.ProjectTabs {
 		return
 	}
 	p := a.pal
@@ -395,11 +400,17 @@ func (f *frame) railView(c *ui.Context, a *app) {
 	f.railDrop(rail, a, nil)
 	_, atEnd := ui.DragOver[railDrag](rail)
 	folders := rail.FileDragOver()
+	tabs := slices.Clone(f.tabs)
+	names := make([]string, len(tabs))
+	for i, h := range tabs {
+		names[i], _ = railName(h.a.folder())
+	}
+	labels := railLabels(names)
 	rail.Children(func() {
 		ui.Scroll(c).Grow(1).MinHeight(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(8, 0, 10, 0).Gap(6).AlignItems(ui.Center).Children(func() {
-				for i, h := range slices.Clone(f.tabs) {
-					f.railTab(c, a, h, i)
+				for i, h := range tabs {
+					f.railTab(c, a, h, i, labels[i])
 				}
 				if atEnd {
 					ui.Box(c).Size(24, 2).Radius(1).Background(p.accent)
@@ -425,9 +436,18 @@ type railDrag struct{ h *desktop }
 
 // railDrop moves the square dropped on e before the project before, at
 // the end for nil, and opens the folders dropped there from another app.
+// A picture dropped on the square of before, from another app or the
+// sidebar, shows in it.
 func (f *frame) railDrop(e ui.Element, a *app, before *desktop) {
 	if it, ok := ui.Drop[railDrag](e); ok {
 		a.post(func() { f.move(it.h, before) })
+	}
+	var dir string
+	if before != nil {
+		dir = before.a.folder()
+		if it, ok := ui.Drop[dragItem](e); ok && it.file != nil && isIconFile(it.file.path) {
+			a.post(func() { f.setProjectIcon(a, dir, it.file.path) })
+		}
 	}
 	if paths := e.DroppedFiles(); paths != nil {
 		var dirs []string
@@ -436,10 +456,41 @@ func (f *frame) railDrop(e ui.Element, a *app, before *desktop) {
 				dirs = append(dirs, path)
 			}
 		}
-		if len(dirs) > 0 {
+		switch {
+		case len(dirs) > 0:
 			a.post(func() { a.host.openFolders(dirs) })
+		case before != nil && len(paths) == 1 && isIconFile(paths[0]):
+			a.post(func() { f.setProjectIcon(a, dir, paths[0]) })
 		}
 	}
+}
+
+// canSetIcon reports whether the project of dir may show a picture of
+// its own: it has a folder, and there are settings to keep it in.
+func (f *frame) canSetIcon(dir string) bool {
+	return dir != "" && f.m.icons != ""
+}
+
+// setProjectIcon shows the picture of path in the square of the project
+// of dir in place of its logo and label, once copied beside the settings
+// in the background. a is the project shown, which tells a picture that
+// does not decode.
+func (f *frame) setProjectIcon(a *app, dir, path string) {
+	if !f.canSetIcon(dir) {
+		return
+	}
+	icons := f.m.icons
+	name, _ := railName(dir)
+	go func() {
+		icon, err := importProjectIcon(icons, path)
+		a.post(func() {
+			if err != nil {
+				a.fail("%s", locales.FailIcon(name, err.Error()))
+				return
+			}
+			f.setTabStyle(dir, func(st *settings.TabStyle) { st.Icon, st.Label = icon, "" })
+		})
+	}()
 }
 
 // move puts h before the project before on the rail, at its end for nil.
@@ -465,16 +516,50 @@ const (
 	railRadius = 9
 )
 
+// railName is the name of the project of dir on the rail, and where its
+// folder is.
+func railName(dir string) (name, where string) {
+	if dir == "" {
+		return locales.RailUntitled(), locales.RailNoFolder()
+	}
+	return filepath.Base(dir), shortenHome(dir)
+}
+
 // railTab is a project's square on the rail, which shows it, with a pill
 // along the rail's edge that grows from under the pointer to the project
-// shown, a dot of unsaved changes, and one of a terminal's bell or
-// notification while the project was out of sight.
-func (f *frame) railTab(c *ui.Context, a *app, h *desktop, i int) {
+// shown, a dot of unsaved changes, one of a terminal's bell or
+// notification while the project was out of sight, and a badge of a
+// remote folder's connection. label is what it shows without a logo,
+// unless the project has a label of its own.
+func (f *frame) railTab(c *ui.Context, a *app, h *desktop, i int, label string) {
 	p := a.pal
 	dir := h.a.folder()
-	name, where := "Untitled", "No folder"
+	name, where := railName(dir)
+	var style settings.TabStyle
 	if dir != "" {
-		name, where = filepath.Base(dir), shortenHome(dir)
+		style = f.m.s.ProjectTabStyle[dir]
+	}
+	own := railLabel(style.Label)
+	if own != "" {
+		label = own
+	}
+	// The connection of a remote folder: its badge's color, and what the
+	// tip says of it.
+	var conn string
+	var connCol ui.Color
+	if host := remote.HostOf(dir); host != "" {
+		state := remote.Offline
+		if h.a.conn != nil {
+			state = h.a.connState
+		}
+		switch state {
+		case remote.Connected:
+			conn, connCol = locales.RemoteConnectedTo(host), p.muted
+		case remote.Connecting:
+			conn, connCol = locales.RemoteConnectingTip(host), p.modifiedFg
+		default:
+			conn, connCol = locales.RemoteDisconnectedTip(host), p.dangerFg
+		}
 	}
 	var keys []string
 	if i < 9 {
@@ -491,14 +576,24 @@ func (f *frame) railTab(c *ui.Context, a *app, h *desktop, i int) {
 	}
 	alert := h.a.alert
 	col := avatarColor(p, dir)
-	if f.m.s.ProjectIcons && dir != "" && h.needsLogoScan(dir) {
-		f.scanProjectLogo(a, h, dir)
+	if k, ok := railColor(p, style.Color); ok {
+		col = k
+	}
+	icon := f.m.iconPath(style.Icon)
+	if dir != "" && h.needsLogoScan(dir, icon) {
+		f.scanProjectLogo(a, h, dir, icon)
 	}
 	b := ui.ButtonBase(c.Key(fmt.Sprintf("project-%d", h.a.window.ID))).Width(railW).Height(railSquare + 4).Shrink(0).
 		Label(name).Description(where).Drag(railDrag{h})
-	f.railTip(c, a, b, name, where, keys, dirty, alert)
+	f.railTip(c, a, b, name, where, keys, dirty, alert, conn, connCol)
 	f.railDrop(b, a, h)
 	_, over := ui.DragOver[railDrag](b)
+	// A picture dragged from the sidebar, or anything from another app,
+	// which may be one: it would show on this square.
+	pic := b.FileDragOver() && f.canSetIcon(dir)
+	if it, ok := ui.DragOver[dragItem](b); ok && it.file != nil && isIconFile(it.file.path) && f.canSetIcon(dir) {
+		pic = true
+	}
 	hovered, pressed, dragged := b.Hovered(), b.Pressed(), b.Dragging()
 	pill, fill := float32(0), float32(0.14)
 	switch {
@@ -510,6 +605,7 @@ func (f *frame) railTab(c *ui.Context, a *app, h *desktop, i int) {
 	pill = b.Animate("pill", pill, 160*time.Millisecond)
 	fill = b.Animate("fill", fill, 120*time.Millisecond)
 	ring := b.Animate("ring", unit(on), 160*time.Millisecond)
+	drop := b.Animate("drop", unit(pic), 120*time.Millisecond)
 	sink := b.Animate("sink", unit(pressed && !dragged), 80*time.Millisecond)
 	ground := railGround(p)
 	b.Draw(func(pt *ui.Painter, r ui.Rect) {
@@ -536,17 +632,30 @@ func (f *frame) railTab(c *ui.Context, a *app, h *desktop, i int) {
 		if ring > 0.01 {
 			pt.Stroke(sq, col.Alpha(0.75*ring*alpha), railRadius, 1.25)
 		}
+		if drop > 0.01 {
+			// A picture dropped here would show in it.
+			pt.Fill(sq, p.accent.Alpha(0.14*drop), railRadius)
+			pt.Stroke(ui.Rect{X: sq.X - 2, Y: sq.Y - 2, W: sq.W + 4, H: sq.H + 4}, p.accent.Alpha(drop), railRadius+2, 1.5)
+		}
 		ink := col
 		if !on && !hovered {
 			ink = col.Mix(p.muted, 0.25)
 		}
-		if src := h.projectLogo(); src != nil && !dragged {
+		if src := h.logoSrc; src != nil && own == "" && !dragged {
 			// Shrinking with the square as it is pressed.
 			ls := sq.W - 8
 			logo := ui.Rect{X: sq.X + (sq.W-ls)/2, Y: sq.Y + (sq.H-ls)/2, W: ls, H: ls}
 			pt.Clip(logo, 6, func() { pt.Image(src, logo, ui.Contain) })
 		} else {
-			paintInitials(pt, sq, projectWords(name), 12, ink.Alpha(alpha))
+			paintLabel(pt, sq, label, 12, ink.Alpha(alpha))
+		}
+		if conn != "" {
+			// At the corner the dots leave, cut out as they are, the
+			// glyph of a server in the rail's ground.
+			d := ui.Rect{X: sq.X - 3, Y: sq.Y + sq.H - 10, W: 13, H: 13}
+			pt.Fill(ui.Rect{X: d.X - 2, Y: d.Y - 2, W: d.W + 4, H: d.H + 4}, ground, 8.5)
+			pt.Fill(d, connCol.Alpha(alpha), 6.5)
+			pt.Icon(iconServer, ui.Rect{X: d.X + 2.5, Y: d.Y + 2.5, W: 8, H: 8}, ground)
 		}
 		if alert != "" {
 			// Below the dot of unsaved changes, in the accent.
@@ -565,14 +674,37 @@ func (f *frame) railTab(c *ui.Context, a *app, h *desktop, i int) {
 		if mn.Item(revealLabel()).Disabled(dir == "" || remote.Is(dir)).Chosen() {
 			a.host.reveal(dir)
 		}
-		if mn.Item("Copy Path").Disabled(dir == "").Chosen() {
+		if mn.Item(locales.CopyPath()).Disabled(dir == "").Chosen() {
 			a.services.WriteClipboard(hostPath(dir))
 		}
 		mn.Separator()
-		if mn.Item("Close Project").Chosen() {
+		if mn.Item(locales.RailRename()).Disabled(dir == "").Chosen() {
+			a.post(func() { f.askRailLabel(a, dir, name) })
+		}
+		mn.Submenu(locales.RailColor(), func(mn *ui.Menu) {
+			if mn.Item(locales.RailColorAuto()).Checked(style.Color == "").Chosen() {
+				f.setTabStyle(dir, func(st *settings.TabStyle) { st.Color = "" })
+			}
+			mn.Separator()
+			for _, rc := range railColors {
+				if mn.Item(rc.label()).Checked(style.Color == rc.name).Chosen() {
+					f.setTabStyle(dir, func(st *settings.TabStyle) { st.Color = rc.name })
+				}
+			}
+		}).Disabled(dir == "")
+		if mn.Item(locales.RailChooseIcon()).Disabled(!f.canSetIcon(dir) || f.active == nil).Chosen() {
+			// The project shown takes the answer, as a hidden one's posts
+			// wait for it to show.
+			f.active.chooseIcon(dir, func(path string) { f.setProjectIcon(f.active.a, dir, path) })
+		}
+		if mn.Item(locales.RailResetIcon()).Disabled(style.Icon == "").Chosen() {
+			f.setTabStyle(dir, func(st *settings.TabStyle) { st.Icon = "" })
+		}
+		mn.Separator()
+		if mn.Item(locales.CmdFileCloseProject()).Chosen() {
 			h.closeProject()
 		}
-		if mn.Item("Close Other Projects").Chosen() {
+		if mn.Item(locales.CloseOtherProjects()).Chosen() {
 			a.post(func() { f.closeOthers(h) })
 		}
 	})
@@ -583,8 +715,9 @@ func (f *frame) railTab(c *ui.Context, a *app, h *desktop, i int) {
 
 // railTip is the tip of a project's square, to its right, where the
 // window's buttons above it leave it room: the project's name, its folder,
-// the keys that show it and whether it has unsaved changes.
-func (f *frame) railTip(c *ui.Context, a *app, b ui.Element, name, where string, keys []string, dirty bool, alert string) {
+// the keys that show it, how a remote folder's host is connected, in the
+// color of its badge, and whether it has unsaved changes.
+func (f *frame) railTip(c *ui.Context, a *app, b ui.Element, name, where string, keys []string, dirty bool, alert, conn string, connCol ui.Color) {
 	p := a.pal
 	ui.TooltipBase(c, b, func(tip ui.Element) {
 		tip.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 4)
@@ -603,14 +736,187 @@ func (f *frame) railTip(c *ui.Context, a *app, b ui.Element, name, where string,
 					ui.Text(c, s).FontSize(11.5).TextColor(p.muted)
 				})
 			}
+			if conn != "" {
+				note(connCol, conn)
+			}
 			if alert != "" {
 				note(p.accent, alert)
 			}
 			if dirty {
-				note(p.text.Alpha(0.85), "Unsaved changes")
+				note(p.text.Alpha(0.85), locales.UnsavedChanges())
 			}
 		})
 	})
+}
+
+// railColorName is a color a project's square may be chosen in: its name
+// in a TabStyle, the terminal's color it is, and its name in the menu.
+type railColorName struct {
+	name  string
+	ansi  int
+	label func() string
+}
+
+// railColors are the colors a project's square may be chosen in, those
+// of the terminal, which each theme gives its own shades.
+var railColors = []railColorName{
+	{"red", 1, locales.RailColorRed},
+	{"green", 2, locales.RailColorGreen},
+	{"yellow", 3, locales.RailColorYellow},
+	{"blue", 4, locales.RailColorBlue},
+	{"magenta", 5, locales.RailColorMagenta},
+	{"cyan", 6, locales.RailColorCyan},
+}
+
+// railColor is the color of name in p, false for "" and names that are
+// none of railColors.
+func railColor(p *palette, name string) (ui.Color, bool) {
+	for _, rc := range railColors {
+		if rc.name == name {
+			return p.ansi[rc.ansi], true
+		}
+	}
+	return ui.Color{}, false
+}
+
+// setTabStyle changes the look of the project of dir on the rail, in the
+// settings, as edit has it, deleting the icon it showed once none shows
+// it.
+func (f *frame) setTabStyle(dir string, edit func(st *settings.TabStyle)) {
+	if dir == "" {
+		return
+	}
+	st := f.m.s.ProjectTabStyle[dir]
+	old := st.Icon
+	edit(&st)
+	f.m.s.SetTabStyle(dir, st)
+	if st.Icon != old {
+		f.m.forgetIcon(old)
+	}
+	if f.win != nil {
+		f.win.Invalidate()
+	}
+}
+
+// askRailLabel asks for the label of the project of dir, named name, on
+// the rail: up to two characters, in place of its icon too, or nothing
+// for its own.
+func (f *frame) askRailLabel(a *app, dir, name string) {
+	a.prompt = &prompt{title: locales.RailRename(), hint: locales.RailRenameHint(name), value: f.m.s.ProjectTabStyle[dir].Label, done: func(v string) string {
+		v = strings.TrimSpace(v)
+		if len(labelChars(v)) > 2 {
+			return locales.RailRenameTooLong()
+		}
+		f.setTabStyle(dir, func(st *settings.TabStyle) {
+			st.Label = v
+			if v != "" {
+				st.Icon = ""
+			}
+		})
+		return ""
+	}}
+	a.invalidate()
+}
+
+// railLabel is a project's own label as the rail shows it: its first two
+// characters, "" for none.
+func railLabel(s string) string {
+	cs := labelChars(strings.TrimSpace(s))
+	return strings.Join(cs[:min(len(cs), 2)], "")
+}
+
+// labelChars splits s into the characters a person sees: a letter with
+// its accents, an emoji with its modifiers and those it joins, a flag of
+// its two letters.
+func labelChars(s string) []string {
+	var out []string
+	var prev rune
+	start, flag := 0, false
+	for i, r := range s {
+		joined := i > 0 && (unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r) ||
+			r == 0x200d || prev == 0x200d || r == 0xfe0f || r == 0xfe0e ||
+			r >= 0x1f3fb && r <= 0x1f3ff || r >= 0xe0020 && r <= 0xe007f)
+		regional := r >= 0x1f1e6 && r <= 0x1f1ff
+		if regional && flag {
+			joined, flag = true, false
+		} else {
+			flag = regional
+		}
+		if i > 0 && !joined {
+			out = append(out, s[start:i])
+			start = i
+		}
+		prev = r
+	}
+	if start < len(s) {
+		out = append(out, s[start:])
+	}
+	return out
+}
+
+// railLabels are the labels of the projects named names on the rail, in
+// their order: the initials of a name of words, the first two letters of
+// a name of one, and where two names would have the same, their first
+// letter and the first after it that tells them apart, as "Dw" and "Dc"
+// for Downloads and Documents. Names the same keep the same label.
+func railLabels(names []string) []string {
+	labels := make([]string, len(names))
+	letters := make([][]rune, len(names))
+	same := map[string][]int{}
+	for i, name := range names {
+		labels[i], letters[i] = railInitials(name)
+		same[labels[i]] = append(same[labels[i]], i)
+	}
+	for _, group := range same {
+		if len(group) < 2 {
+			continue
+		}
+		for _, i := range group {
+			for j := 1; j < len(letters[i]); j++ {
+				r := letters[i][j]
+				clash := false
+				for _, o := range group {
+					// A name the same as this one is labeled alike.
+					if slices.Equal(letters[o], letters[i]) {
+						continue
+					}
+					if j < len(letters[o]) && letters[o][j] == r {
+						clash = true
+						break
+					}
+				}
+				if !clash {
+					labels[i] = string(unicode.ToUpper(letters[i][0])) + string(r)
+					break
+				}
+			}
+		}
+	}
+	return labels
+}
+
+// railInitials is the label of a project named name on its own, and the
+// letters of the name, in lower case, which railLabels tells it apart
+// from others' by.
+func railInitials(name string) (string, []rune) {
+	words := strings.Fields(projectWords(name))
+	var letters []rune
+	for _, w := range words {
+		for _, r := range w {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) {
+				letters = append(letters, unicode.ToLower(r))
+			}
+		}
+	}
+	switch {
+	case len(words) >= 2:
+		return initials(strings.Join(words, " ")), letters
+	case len(letters) >= 2:
+		return string(unicode.ToUpper(letters[0])) + string(letters[1]), letters
+	case len(letters) == 1:
+		return string(unicode.ToUpper(letters[0])), letters
+	}
+	return initials(name), letters
 }
 
 // railAdd is the button after the squares that opens another folder: a
@@ -618,8 +924,8 @@ func (f *frame) railTip(c *ui.Context, a *app, b ui.Element, name, where string,
 // dragged over the rail.
 func (f *frame) railAdd(c *ui.Context, a *app, folders bool) {
 	p := a.pal
-	b := ui.ButtonBase(c.Key("rail-add")).Size(railW, railSquare+4).Shrink(0).Label("Open Folder…").
-		Tooltip(a.withKey("Open Folder…", "file.openFolder"))
+	b := ui.ButtonBase(c.Key("rail-add")).Size(railW, railSquare+4).Shrink(0).Label(locales.CmdFileOpenFolder()).
+		Tooltip(a.withKey(locales.CmdFileOpenFolder(), "file.openFolder"))
 	hot := b.Hovered() || folders
 	k := b.Animate("hot", unit(hot), 120*time.Millisecond)
 	b.Draw(func(pt *ui.Painter, r ui.Rect) {
@@ -1174,12 +1480,17 @@ func loadProjectLogo(dir string) ui.ImageSource {
 
 // decodeProjectLogo decodes one icon file, or nil.
 func decodeProjectLogo(path string) ui.ImageSource {
-	switch strings.ToLower(filepath.Ext(path)) {
+	data, err := readImage(path)
+	if err != nil {
+		return nil
+	}
+	return decodeLogoData(data, filepath.Ext(path))
+}
+
+// decodeLogoData decodes an icon of a file named with ext, or nil.
+func decodeLogoData(data []byte, ext string) ui.ImageSource {
+	switch strings.ToLower(ext) {
 	case ".svg":
-		data, err := readImage(path)
-		if err != nil {
-			return nil
-		}
 		s, err := ui.ParseSVG(data)
 		if err != nil {
 			return nil
@@ -1189,29 +1500,17 @@ func decodeProjectLogo(path string) ui.ImageSource {
 		}
 		return s
 	case ".ico":
-		data, err := readImage(path)
-		if err != nil {
-			return nil
-		}
 		img, err := decodeICO(data)
 		if err != nil {
 			return nil
 		}
 		return logoBitmap(img)
 	case ".icns":
-		data, err := readImage(path)
-		if err != nil {
-			return nil
-		}
 		img, err := decodeICNS(data)
 		if err != nil {
 			return nil
 		}
 		return logoBitmap(img)
-	}
-	data, err := readImage(path)
-	if err != nil {
-		return nil
 	}
 	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err != nil ||
 		cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width) > maxIconPixels/int64(cfg.Height) {
@@ -1222,6 +1521,82 @@ func decodeProjectLogo(path string) ui.ImageSource {
 		return nil
 	}
 	return logoBitmap(img)
+}
+
+// iconExts are the pictures a project's square may show in place of its
+// logo: those decodeLogoData decodes, but a gif's first frame.
+var iconExts = []string{".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".icns"}
+
+// isIconFile reports whether path is a picture a project's square may
+// show, by its extension.
+func isIconFile(path string) bool {
+	return slices.Contains(iconExts, strings.ToLower(filepath.Ext(path)))
+}
+
+// importProjectIcon copies the picture of path, of this machine or of a
+// host, into the folder icons, under a name of its bytes so that the
+// same picture is kept once, and returns that name. A picture that does
+// not decode is not copied.
+func importProjectIcon(icons, path string) (string, error) {
+	data, err := readImage(path)
+	if err != nil {
+		return "", err
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".jpeg" {
+		ext = ".jpg"
+	}
+	if !isIconFile(path) || decodeLogoData(data, ext) == nil {
+		return "", errors.New(locales.ErrNotIcon())
+	}
+	sum := sha256.Sum256(data)
+	name := hex.EncodeToString(sum[:8]) + ext
+	dst := filepath.Join(icons, name)
+	if info, err := os.Stat(dst); err == nil && info.Size() == int64(len(data)) {
+		return name, nil
+	}
+	if err := os.MkdirAll(icons, 0o755); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(icons, ".icon-*")
+	if err != nil {
+		return "", err
+	}
+	_, err = tmp.Write(data)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), dst)
+	}
+	if err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	return name, nil
+}
+
+// iconPath is where the icon of a project named name is kept, "" for
+// none.
+func (m *mayoi) iconPath(name string) string {
+	if name == "" || m.icons == "" {
+		return ""
+	}
+	return filepath.Join(m.icons, filepath.Base(name))
+}
+
+// forgetIcon deletes the icon named name once no project shows it.
+func (m *mayoi) forgetIcon(name string) {
+	path := m.iconPath(name)
+	if path == "" {
+		return
+	}
+	for _, st := range m.s.ProjectTabStyle {
+		if st.Icon == name {
+			return
+		}
+	}
+	os.Remove(path)
 }
 
 // logoSide is the most pixels on a side a logo keeps once decoded: the
@@ -1394,39 +1769,42 @@ func decodeDIB(data []byte) (image.Image, error) {
 	return img, nil
 }
 
-// projectLogo is the project's favicon or logo for the rail, or nil for
-// its initials: when project icons are off, or none was found.
-func (h *desktop) projectLogo() ui.ImageSource {
-	if h.m.s.ProjectIcons {
-		return h.logoSrc
+// needsLogoScan reports whether the logo of dir, or the icon of its own
+// at path icon, is yet to be looked for: it was not, it was for another
+// folder or icon, or none was found a minute ago. A folder of a host
+// that is not connected waits for it, but for an icon of its own, which
+// is this machine's, and for dropping the one it no longer has.
+func (h *desktop) needsLogoScan(dir, icon string) bool {
+	if icon == "" && remote.Is(dir) && !remote.IsConnected(dir) {
+		return h.logoIcon != ""
 	}
-	return nil
-}
-
-// needsLogoScan reports whether the logo of dir is yet to be looked for:
-// it was not, it was for another folder, or none was found a minute ago.
-// A folder of a host that is not connected waits for it.
-func (h *desktop) needsLogoScan(dir string) bool {
-	if remote.Is(dir) && !remote.IsConnected(dir) {
-		return false
-	}
-	return !h.logoDone || h.logoDir != dir ||
+	return !h.logoDone || h.logoDir != dir || h.logoIcon != icon ||
 		h.logoSrc == nil && time.Since(h.logoScannedAt) > time.Minute
 }
 
 // scanProjectLogo finds the project's favicon or logo in the background,
-// showing it on the rail once decoded. a is the project shown, whose
-// frame takes the result: it is the one building, so its services are
-// set, which a hidden project's may not be.
-func (f *frame) scanProjectLogo(a *app, h *desktop, dir string) {
+// the icon of its own at path icon first, showing it on the rail once
+// decoded. a is the project shown, whose frame takes the result: it is
+// the one building, so its services are set, which a hidden project's
+// may not be.
+func (f *frame) scanProjectLogo(a *app, h *desktop, dir, icon string) {
+	if h.logoDir != dir {
+		h.logoSrc = nil // not the logo of the folder it was for
+	}
 	h.logoDone = true
 	h.logoDir = dir
-	h.logoSrc = nil // not the logo of the folder it was for
+	h.logoIcon = icon
 	h.logoScannedAt = time.Now()
 	h.logoGen++
 	gen := h.logoGen
 	go func() {
-		src := loadProjectLogo(dir)
+		var src ui.ImageSource
+		if icon != "" {
+			src = decodeProjectLogo(icon)
+		}
+		if src == nil && (!remote.Is(dir) || remote.IsConnected(dir)) {
+			src = loadProjectLogo(dir)
+		}
 		a.post(func() {
 			if h.logoGen != gen {
 				return

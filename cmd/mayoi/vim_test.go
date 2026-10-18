@@ -18,7 +18,7 @@ func vimHarness(t *testing.T, name, text string) (*harness, *editor) {
 
 func (hs *harness) frames() {
 	for range 4 {
-		hs.tt.Frame()
+		step(hs.tt)
 	}
 }
 
@@ -105,7 +105,7 @@ func expectCursor(t *testing.T, d *editor, at int) {
 
 func TestVimNormalModeTypesNothing(t *testing.T) {
 	hs, d := vimHarness(t, "a.txt", "hello\n")
-	if !hs.tt.HasText("-- NORMAL --") {
+	if !hs.tt.HasText("NORMAL") {
 		t.Fatal("the status bar does not show normal mode")
 	}
 	// A key that types text, as a keyboard sends it: j moves down a line,
@@ -116,7 +116,7 @@ func TestVimNormalModeTypesNothing(t *testing.T) {
 	expectText(t, d, "hello\n")
 	expectCursor(t, d, 1)
 	hs.vim("0i")
-	if !hs.tt.HasText("-- INSERT --") {
+	if !hs.tt.HasText("INSERT") {
 		t.Fatal("i does not show insert mode")
 	}
 	hs.insert("oh ")
@@ -240,7 +240,7 @@ func TestVimTextObjects(t *testing.T) {
 func TestVimVisual(t *testing.T) {
 	hs, d := vimHarness(t, "a.txt", "one two three\nfour\nfive\n")
 	hs.vim("wv")
-	if !hs.tt.HasText("-- VISUAL --") {
+	if !hs.tt.HasText("VISUAL") {
 		t.Fatal("v does not show visual mode")
 	}
 	hs.vim("e")

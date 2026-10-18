@@ -31,18 +31,18 @@ func TestSwitchFolderSwapsSessions(t *testing.T) {
 	s := settings.Default()
 	a := newApp(&fakeHost{}, s, s.NewWindow())
 	tt := ui.NewTester(a.view, 1200, 760)
-	tt.Frame()
+	step(tt)
 	a.openFolder(root)
 	a.openFile(filepath.Join(root, "main.go"), true)
 	a.openFile(filepath.Join(root, "README.md"), true)
-	tt.Frame()
+	step(tt)
 	a.activeEditor().pending = &[2]int{2, 6}
 	a.files.Open.Add(filepath.Join(root, "internal"))
-	tt.Frame()
-	tt.Frame()
+	step(tt)
+	step(tt)
 
 	a.switchFolder(other)
-	tt.Frame()
+	step(tt)
 	if a.root != other || len(allTabNames(a)) != 0 {
 		t.Fatalf("switched: folder %q, tabs %v", a.root, allTabNames(a))
 	}
@@ -51,11 +51,11 @@ func TestSwitchFolderSwapsSessions(t *testing.T) {
 		t.Fatalf("kept %+v", ses)
 	}
 	a.openFile(filepath.Join(other, "go.mod"), true)
-	tt.Frame()
+	step(tt)
 
 	a.switchFolder(root)
-	tt.Frame()
-	tt.Frame()
+	step(tt)
+	step(tt)
 	if a.root != root || !slices.Equal(allTabNames(a), []string{"main.go", "README.md"}) || a.activeEditor().name() != "README.md" {
 		t.Fatalf("back: folder %q, tabs %v", a.root, allTabNames(a))
 	}
@@ -76,17 +76,17 @@ func TestCloseFolderKeepsSession(t *testing.T) {
 	s := settings.Default()
 	a := newApp(&fakeHost{}, s, s.NewWindow())
 	tt := ui.NewTester(a.view, 1200, 760)
-	tt.Frame()
+	step(tt)
 	a.openFolder(root)
 	a.openFile(filepath.Join(root, "go.mod"), true)
-	tt.Frame()
+	step(tt)
 	a.run("file.closeFolder")
-	tt.Frame()
+	step(tt)
 	if a.root != "" || len(allTabNames(a)) != 0 || s.Sessions[root] == nil {
 		t.Fatalf("closed: folder %q, tabs %v, sessions %v", a.root, allTabNames(a), s.Sessions)
 	}
 	a.switchFolder(root)
-	tt.Frame()
+	step(tt)
 	if !slices.Equal(allTabNames(a), []string{"go.mod"}) {
 		t.Fatalf("opened again: tabs %v", allTabNames(a))
 	}
@@ -102,16 +102,16 @@ func TestClosingWindowKeepsItsTabs(t *testing.T) {
 	w := s.NewWindow()
 	a := newApp(h, s, w)
 	tt := ui.NewTester(a.view, 1200, 760)
-	tt.Frame()
+	step(tt)
 	a.openFolder(root)
 	a.openFile(filepath.Join(root, "main.go"), true)
-	tt.Frame()
+	step(tt)
 	ed := a.activeEditor()
 	ed.edit(ed.sel, textEdit{0, 0, "// changed\n"})
-	tt.Frame()
+	step(tt)
 	closed := false
 	a.closeKeeping(func() { closed = true })
-	tt.Frame()
+	step(tt)
 	if !closed || len(allTabNames(a)) != 0 {
 		t.Fatalf("closed %v, tabs %v", closed, allTabNames(a))
 	}
@@ -140,8 +140,8 @@ func TestRestoresWhereTabsWere(t *testing.T) {
 	w.Expanded = []string{"internal/a", "gone"}
 	a := newApp(&fakeHost{folder: root}, s, w)
 	tt := ui.NewTester(a.view, 1200, 760)
-	tt.Frame()
-	tt.Frame()
+	step(tt)
+	step(tt)
 	col := a.cols[0]
 	if len(col.tabs) != 3 {
 		t.Fatalf("tabs %v", allTabNames(a))
@@ -180,7 +180,7 @@ func TestRestoresTheScroll(t *testing.T) {
 	a := newApp(&fakeHost{folder: root}, s, w)
 	tt := ui.NewTester(a.view, 1200, 760)
 	for range 3 {
-		tt.Frame()
+		step(tt)
 	}
 	if y := a.cols[0].tabs[0].ed.vscroll.Y; y != 1200 {
 		t.Errorf("scrolled to %v", y)

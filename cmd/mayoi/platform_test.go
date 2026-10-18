@@ -1,14 +1,32 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/keymap"
 	"mayoi/internal/settings"
 )
+
+// TestMain runs the tests with macOS's keys and names, which they are
+// written for, on any system: those of Windows and Linux ask for theirs
+// with onOS. They read English, whatever languages the system prefers,
+// unless MYGO_LOCALE asks for another, as for shots of a translation.
+// The language is worked out once: with no app running, MyGo would match
+// it again for every message, which the frame benchmarks would measure.
+func TestMain(m *testing.M) {
+	hostOS = "darwin"
+	if os.Getenv("MYGO_LOCALE") == "" {
+		os.Setenv("MYGO_LOCALE", "en")
+	}
+	locale := i18n.Locale()
+	i18n.SetLocaleFunc(func() string { return locale })
+	os.Exit(m.Run())
+}
 
 // onOS has the test run as Mayoi does on goos, its keys and its names.
 func onOS(t *testing.T, goos string) {
@@ -190,5 +208,38 @@ func TestFileManagerLabels(t *testing.T) {
 		if got := [3]string{revealLabel(), trashLabel(), trashName()}; got != want {
 			t.Errorf("%s: %q, want %q", goos, got, want)
 		}
+	}
+}
+
+// The caps of keys are those of the keyboard, as keyText writes them on
+// each system.
+func TestSplitCaps(t *testing.T) {
+	for keys, want := range map[string]string{
+		"⇧⌘P":             "⇧|⌘|P",
+		"⌘K ⌘S":           "⌘|K|⌘|S",
+		"⌘F3":             "⌘|F3",
+		"↑↓":              "↑|↓",
+		"esc":             "esc",
+		"⏎":               "⏎",
+		"Ctrl+O":          "Ctrl|O",
+		"Ctrl+Shift+P":    "Ctrl|Shift|P",
+		"Ctrl+`":          "Ctrl|`",
+		"Ctrl++":          "Ctrl|+",
+		"Shift+F3":        "Shift|F3",
+		"F3":              "F3",
+		"Ctrl+K Ctrl+S":   "Ctrl|K|Ctrl|S",
+		"Ctrl+Alt+Delete": "Ctrl|Alt|Delete",
+	} {
+		if got := strings.Join(splitCaps(keys), "|"); got != want {
+			t.Errorf("splitCaps(%q) = %s, want %s", keys, got, want)
+		}
+	}
+}
+
+// Off macOS the welcome page's keys read as Control's, a cap a key.
+func TestSplitCapsOfKeyText(t *testing.T) {
+	onOS(t, "linux")
+	if got := strings.Join(splitCaps(keyText("CmdOrCtrl+Shift+P")), "|"); got != "Ctrl|Shift|P" {
+		t.Errorf("caps of Command Palette on Linux = %s, want Ctrl|Shift|P", got)
 	}
 }

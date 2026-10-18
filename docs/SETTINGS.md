@@ -20,6 +20,7 @@ All of Mayoi's files are in one data folder:
 | `state.json`        | Mayoi         | Windows, tabs, recent folders and layout                                          |
 | `window-state.json` | Mayoi         | Each window's position and size                                                   |
 | `updater.json`      | Mayoi         | Update choices: automatic checks and downloads, a skipped version, the last check |
+| `sync.json`         | Mayoi         | [Settings sync](#settings-sync): the account, and the settings as last synced     |
 | `crash.log`         | Mayoi         | What ended Mayoi if it crashed, with every goroutine's stack; empty otherwise     |
 | `crashes/`          | Mayoi         | The last 10 crash logs, each named by the time of its crash                       |
 
@@ -37,33 +38,45 @@ MAYOI_DATA_DIR=~/mayoi-test /Applications/Mayoi.app/Contents/MacOS/Mayoi
 **File → Open Settings** (⌘,) opens `settings.json` in a tab. Each key below is optional, and a key you leave out
 takes its default.
 
-| Key                    | Default       | Values                                                      | Also set by                                    |
-| ---------------------- | ------------- | ----------------------------------------------------------- | ---------------------------------------------- |
-| `fontFamily`           | `"monospace"` | Font names, separated by commas                             |                                                |
-| `fontSize`             | `13`          | 9 to 28                                                     | ⌘= and ⌘- change it, and ⌘0 resets it to 13    |
-| `fontWeight`           | `400`         | 100 (thin) to 900 (black)                                   |                                                |
-| `fontFeatures`         | none          | A list of OpenType features                                 |                                                |
-| `lineHeight`           | `1.55`        | 1 to 3, as a multiple of `fontSize`                         |                                                |
-| `terminalFontFamily`   | `""`          | Font names, separated by commas                             |                                                |
-| `terminalFontSize`     | `0`           | 0, or 9 to 28                                               |                                                |
-| `terminalCopyOnSelect` | `true`        | `true`, `false`                                             |                                                |
-| `theme`                | `""`          | `""` (Mayoi), `"matrix"`, `"claude"`, `"qoder"`             | **View → Theme**                               |
-| `appearance`           | `""`          | `""` (follow the system), `"light"`, `"dark"`               | **View → Theme**                               |
-| `sidebarRight`         | `false`       | `true`, `false`                                             | **View → Sidebar on Right**                    |
-| `projectTabs`          | `false`       | `true`, `false`                                             | **View → Project Tabs**                        |
-| `projectIcons`         | `false`       | `true`, `false`                                             | **View → Project Icons**                       |
-| `autoSave`             | `true`        | `true`, `false`                                             | **File → Auto Save**                           |
-| `wordWrap`             | `false`       | `true`, `false`                                             | **View → Word Wrap**                           |
-| `vim`                  | `false`       | `true`, `false`                                             | **View → Vim Mode**                            |
-| `vimCtrlKeys`          | `false`       | `true`, `false`                                             | Only this file                                 |
-| `blame`                | `true`        | `true`, `false`                                             | **Git → Inline Blame**                         |
-| `diffLayout`           | `""`          | `""` (side by side when wide enough), `"split"`, `"inline"` | A diff's **Layout** button                     |
-| `diffCrossFiles`       | `""`          | `""` (say it, and cross on one more step), `"always"`, `"never"` | Only this file                            |
-| `diffHighlight`        | `""`          | `""` (changed words), `"line"`, `"char"`                  | A diff's **Highlight** menu                    |
-| `diffContext`          | `3`           | `0` to `100` unchanged lines around each change             | A diff's **Context** menu                     |
-| `diffSyncScroll`       | `true`        | `true`, `false`                                             | A diff's **Synchronized Scrolling** menu      |
-| `scmTree`              | `false`       | `true`, `false`                                             | **View as Tree** in Source Control's menu      |
-| `scmAllBranches`       | `false`       | `true`, `false`                                             | **Show All Branches** in Source Control's menu |
+| Key                     | Default       | Values                                                      | Also set by                                    |
+| ----------------------- | ------------- | ----------------------------------------------------------- | ---------------------------------------------- |
+| `fontFamily`            | `"monospace"` | Font names, separated by commas                             |                                                |
+| `fontSize`              | `13`          | 9 to 28                                                     | ⌘= and ⌘- change it, and ⌘0 resets it to 13    |
+| `fontWeight`            | `400`         | 100 (thin) to 900 (black)                                   |                                                |
+| `fontFeatures`          | none          | A list of OpenType features                                 |                                                |
+| `lineHeight`            | `1.55`        | 1 to 3, as a multiple of `fontSize`                         |                                                |
+| `terminalFontFamily`    | `""`          | Font names, separated by commas                             |                                                |
+| `terminalFontSize`      | `0`           | 0, or 9 to 28                                               |                                                |
+| `terminalCopyOnSelect`  | `true`        | `true`, `false`                                             |                                                |
+| `theme`                 | `""`          | `""` (Mayoi), `"matrix"`, `"claude"`, `"qoder"`             | **View → Theme**                               |
+| `appearance`            | `""`          | `""` (follow the system), `"light"`, `"dark"`               | **View → Theme**                               |
+| `sidebarRight`          | `false`       | `true`, `false`                                             | **View → Sidebar on Right**                    |
+| `panelPosition`         | `""`          | `""` (bottom), `"left"`, `"right"`                          | **View → Panel Position**                      |
+| `projectTabs`           | `false`       | `true`, `false`                                             | **View → Project Tabs**                        |
+| `projectTabStyle`       | none          | A label, color and icon for each folder                     | A square's context menu on the rail            |
+| `locale`                | `""`          | `""` (follow the system), `"en"`, `"zh-Hans"`, `"ja"`       | **View → Language**                            |
+| `autoSave`              | `true`        | `true`, `false`                                             | **File → Auto Save**                           |
+| `wordWrap`              | `false`       | `true`, `false`                                             | **View → Word Wrap**                           |
+| `vim`                   | `false`       | `true`, `false`                                             | **View → Vim Mode**                            |
+| `vimCtrlKeys`           | `false`       | `true`, `false`                                             | Only this file                                 |
+| `blame`                 | `true`        | `true`, `false`                                             | **Git → Inline Blame**                         |
+| `diffLayout`            | `""`          | `""` (side by side when wide enough), `"split"`, `"inline"` | A diff's **Layout** button                     |
+| `diffCrossFiles`        | `""`          | `""` (say it, and cross on one more step), `"always"`, `"never"` | Only this file                            |
+| `diffHighlight`         | `""`          | `""` (changed words), `"line"`, `"char"`                       | A diff's **Highlight** menu                |
+| `diffContext`           | `3`           | `0` to `100` unchanged lines around each change                | A diff's **Context** menu                  |
+| `diffSyncScroll`        | `true`        | `true`, `false`                                                | A diff's **Synchronized Scrolling** menu   |
+| `scmTree`               | `false`       | `true`, `false`                                             | **View as Tree** in Source Control's menu      |
+| `scmAllBranches`        | `false`       | `true`, `false`                                             | **Show All Branches** in Source Control's menu |
+| `syncIgnored`           | none          | Keys, `"settings.json"`, `"keybindings.json"`               | The [settings sync](#settings-sync) panel      |
+| `aiModel`               | `""`          | `""` (`deepseek-flash`), or a model of the AI gateway       | Only this file                                 |
+
+### Language
+
+- **`locale`** is the language Mayoi shows: English, Simplified Chinese (`"zh-Hans"`) or Japanese (`"ja"`). Left
+  empty, Mayoi shows the first of these that the system's preferred languages list, and English otherwise. Another tag
+  of the same language works too, as `"zh"` or `"ja-JP"`. The menus, the command palette and every window change at
+  once. The command palette also finds commands by their English names. In Japanese, the parts that MyGo draws itself,
+  as the editor's own menu and the native dialogs' buttons, stay in English.
 
 ### Fonts
 
@@ -81,13 +94,19 @@ differ in width lines them up only roughly.
 ### The rest
 
 - **`theme`** is Mayoi's own theme, The Matrix, Claude or Qoder. The Matrix is always dark, so it ignores `appearance`.
+- **`panelPosition`** is where the terminal panel is: `""` or `"bottom"` below the editors, `"left"` or `"right"` at a
+  side of the window. At a side it sits past the sidebar, so with the sidebar on the same side the panel is the outer
+  of the two.
 - **`projectTabs`** keeps every folder open in one window, as project tabs on a rail on its left, rather than a
   window for each. Changing it gathers the windows into one, or parts them, at once.
+- **`projectTabStyle`** gives a project's square on the rail its own label, up to two characters, in place of its
+  initials or logo, and its own color, one of `"red"`, `"green"`, `"yellow"`, `"blue"`, `"magenta"` and `"cyan"`, by
+  the project's folder: `{"/Users/me/Downloads": {"label": "DL", "color": "cyan"}}`. A remote folder's key is
+  `/ssh:host/path`. `"icon"` names a picture in the `project-icons` folder beside `settings.json`, which **Choose
+  Icon…** and dropping a picture on the square copy there, shown in place of the project's logo. It doesn't sync,
+  as the folders and the pictures are this machine's.
 - **`terminalCopyOnSelect`** copies what you select in a terminal to the clipboard as you let go of the pointer,
   and what Select All selects. Changing it applies to the terminals already open.
-- **`projectIcons`** shows each project's favicon or logo on the rail, from its well-known icon files, `favicon.ico`
-  included, a mygo app's icon, the icon its sources declare, or a macOS app's `.icns` or Xcode AppIcon, rather than
-  its initials. A project without one keeps its initials.
 - **`autoSave`** saves a changed file a moment after you stop typing, and when you leave it.
 - **`wordWrap`** wraps long lines at the edge of the editor. **⌥Z** wraps or unwraps one tab only, until this
   setting changes.
@@ -102,6 +121,8 @@ differ in width lines them up only roughly.
 - **`blame`** shows who last changed the caret's line, and when, at the end of the line.
 - **`scmTree`** lists Source Control's changes in a tree of their folders, rather than by path.
 - **`scmAllBranches`** shows the commits of every branch and tag, not only those of the branch checked out.
+- **`aiModel`** is the model of Mon's AI gateway that writes commit messages, `deepseek-flash` when empty. The models
+  your account can use are listed at `https://mon.sorrycc.dev/api/v1/ai/v1/models`.
 
 ### Example
 
@@ -138,13 +159,77 @@ so it overwrites any change you make to one while it's open. To start fresh, qui
 - **`state.json`** holds the open windows with their folders, columns and tabs, each tab with its caret, selection,
   scroll position and own word wrap. It also holds the folders open in the Explorer, the recent folders and the sessions
   Mayoi restores when one opens again, and each window's layout: its sidebar's view, whether it is open and its width,
-  and its panel's height. Deleting it forgets all of
-  that.
+  and its panel's height and, at a side, its width. Deleting it forgets all of that.
 - **`window-state.json`** holds each window's position and size.
 - **`updater.json`** holds your choices in the update window. See [Updates](FEATURES.md#updates).
 
 Versions before 0.5.1 kept the windows and layout in `settings.json`. Mayoi moves them to `state.json` the first time
 it starts.
+
+## Settings sync
+
+**Mayoi → Sign In…** (**Help → Sign In…** on Windows and Linux, or **Account: Sign In…** in the command palette) signs in to your account at [mon.sorrycc.dev](https://mon.sorrycc.dev).
+Mayoi shows a code and opens it in the browser: sign in there with GitHub or Google, check that the page shows the same
+code and approve it. The dialog counts down until the code expires.
+
+What syncs:
+
+- **`settings.json`**: every preference, except `scmRepositoryOpen` and `scmRemotes`, which remember Source Control's
+  panels on each machine, `projectTabStyle`, kept by this machine's folders, and `syncIgnored`. When two machines change different preferences, both changes stay. When
+  they change the same one, the machine that syncs last wins.
+- **`keybindings.json`**, as text, comments and all. When it changed on this machine and on another since they last
+  synced, this machine's stays and the other's is saved beside it as `keybindings.sync-conflict.json`. A toast and the
+  account's panel offer **Compare**, which opens the two side by side to merge by hand, and **Keep Mine**, which
+  deletes the other's.
+
+The windows, tabs and recent folders (`state.json`), window positions and update choices stay on each machine.
+
+### The account's panel
+
+Signed in, a cloud at the right of the status bar shows how settings sync is going: a check once it is up to date, a
+spinner while it syncs, a crossed-out cloud when it couldn't reach the account, and a warning while a
+`keybindings.sync-conflict.json` waits to be merged. Click it, or run **Account: Show Settings Sync**, for the
+account's panel. The panel shows:
+
+- who you are signed in as;
+- when this machine last synced, or why it couldn't and when it tries again, with a button to sync now;
+- a switch each for **Settings** and **Keyboard Shortcuts**, to keep them on this machine;
+- **Manage Account**, which opens mon.sorrycc.dev, and **Sign Out**.
+
+### Keeping settings on one machine
+
+`syncIgnored` lists what stays on this machine, which the switches of the account's panel set too:
+
+```jsonc
+{
+  // This laptop keeps its own font size and keyboard shortcuts.
+  "syncIgnored": ["fontSize", "keybindings.json"]
+}
+```
+
+An entry is the key of a preference, `"settings.json"` for every preference, or `"keybindings.json"` for the keyboard
+shortcuts. What a machine keeps stays as it has it there, and the account keeps its own for the other machines. Take an
+entry out, and the machine's value syncs from its next change. `syncIgnored` itself doesn't sync, so each machine has
+its own.
+
+### When it syncs
+
+A change saves to the account about two seconds after you make it, whether from a menu or by saving the file. A change
+made just before you quit saves as Mayoi quits, waiting three seconds at most. Mayoi fetches the account's changes as it
+starts, as it comes to the front, and with **Sync Settings Now**. Without a connection, nothing is lost: Mayoi tries
+again after 10 seconds, then waits longer each time, up to five minutes, and the next sync merges what changed.
+
+The first time a machine signs in, a machine with Mayoi's default settings takes the account's, and an account with
+none takes the machine's. When both have settings of their own, Mayoi asks once which to keep.
+
+**Sign Out of Settings Sync…** asks first, then stops syncing and signs the machine out. The settings stay as they are
+on the machine and in the account. Each machine signed in shows on your account page at mon.sorrycc.dev, where you can
+sign one out or delete the settings saved there.
+
+The sign-in is kept in the system's credential store: the Keychain on macOS, the Credential Manager on Windows, and the
+Secret Service on Linux (GNOME Keyring, KWallet and others). On Linux without one, settings sync is not available.
+Development builds (`mygo dev`, `go run`) keep it in `mon-token` beside settings.json instead, readable only by you, as
+the Keychain would ask again after every rebuild.
 
 ## keybindings.json
 
@@ -200,4 +285,3 @@ Controls which whitespace participates in diff comparison: `""` for exact,
 or `"blank"` to also treat whitespace-only lines as blank. The filter changes
 the diff display and navigation while file text and block actions keep using
 the original lines.
-

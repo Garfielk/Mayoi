@@ -2,6 +2,7 @@ package main
 
 import (
 	"mayoi/internal/settings"
+	"mayoi/locales"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -50,21 +51,21 @@ func TestRecentFolderOpensInWhichWindow(t *testing.T) {
 	h := &fakeHost{others: []string{other}}
 	a := newApp(h, s, s.NewWindow())
 	tt := ui.NewTester(a.view, 1200, 760)
-	tt.Frame()
+	step(tt)
 	if err := tt.ClickWith(ui.Cmd, "Open "+root); err != nil {
 		t.Fatal(err)
 	}
-	tt.Frame()
+	step(tt)
 	if !slices.Equal(h.windows, []string{root}) || a.root != "" {
 		t.Fatalf("Cmd-click: windows %v, folder %q", h.windows, a.root)
 	}
 	tt.Click("Open " + other)
-	tt.Frame()
+	step(tt)
 	if a.root != "" || len(h.windows) != 1 {
 		t.Fatalf("a folder of another window opened here: %q", a.root)
 	}
 	tt.Click("Open " + root)
-	tt.Frame()
+	step(tt)
 	if a.root != root || a.window.Folder != root {
 		t.Fatalf("click: folder %q", a.root)
 	}
@@ -77,23 +78,45 @@ func TestRecentFolderCmdEnter(t *testing.T) {
 	h := &fakeHost{}
 	a := newApp(h, s, s.NewWindow())
 	tt := ui.NewTester(a.view, 1200, 760)
-	tt.Frame()
+	step(tt)
 	label := "Open " + root
 	for range 12 {
 		if tt.Focused(label) {
 			break
 		}
 		tt.Key(0, ui.KeyTab)
-		tt.Frame()
+		step(tt)
 	}
 	if !tt.Focused(label) {
 		t.Fatal("Tab never reached the recent folder")
 	}
 	tt.Key(ui.Cmd, ui.KeyEnter)
-	tt.Frame()
-	tt.Frame()
+	step(tt)
+	step(tt)
 	if !slices.Equal(h.windows, []string{root}) || a.root != "" {
 		t.Fatalf("Cmd+Enter: windows %v, folder %q", h.windows, a.root)
+	}
+}
+
+// The welcome page lists six recent folders, and More… opens the picker
+// of them all.
+func TestWelcomeMoreRecent(t *testing.T) {
+	s := settings.Default()
+	for range 8 {
+		s.Recent = append(s.Recent, t.TempDir())
+	}
+	a := newApp(&fakeHost{}, s, s.NewWindow())
+	tt := ui.NewTester(a.view, 1200, 760)
+	step(tt)
+	if _, ok := tt.Find("Open " + s.Recent[6]); ok {
+		t.Fatal("the welcome page lists a seventh recent folder")
+	}
+	if err := tt.Click(locales.MenuOpenRecentMore()); err != nil {
+		t.Fatal(err)
+	}
+	step(tt)
+	if !a.recents.open {
+		t.Fatal("More… does not open the recent folders")
 	}
 }
 
@@ -110,27 +133,27 @@ func TestOpenRecentPicker(t *testing.T) {
 		t.Fatalf("opening a folder: %d changes, recent %v", h.recentChanges, s.Recent)
 	}
 	tt := ui.NewTester(a.view, 1200, 760)
-	tt.Frame()
+	step(tt)
 	tt.Key(ui.Ctrl, ui.KeyR)
-	tt.Frame()
-	tt.Frame()
+	step(tt)
+	step(tt)
 	if !a.recents.open || !slices.Equal(a.recents.dirs, []string{third, other}) {
 		t.Fatalf("⌃R: open %v, folders %v", a.recents.open, a.recents.dirs)
 	}
 	tt.Type(filepath.Base(other))
-	tt.Frame()
+	step(tt)
 	tt.Key(ui.Cmd, ui.KeyEnter)
-	tt.Frame()
-	tt.Frame()
+	step(tt)
+	step(tt)
 	if a.recents.open || !slices.Equal(h.windows, []string{other}) || a.root != root {
 		t.Fatalf("⌘⏎: open %v, windows %v, folder %q", a.recents.open, h.windows, a.root)
 	}
 	tt.Key(ui.Ctrl, ui.KeyR)
-	tt.Frame()
-	tt.Frame()
+	step(tt)
+	step(tt)
 	tt.Key(0, ui.KeyEnter)
-	tt.Frame()
-	tt.Frame()
+	step(tt)
+	step(tt)
 	if a.recents.open || a.root != third || len(h.windows) != 1 {
 		t.Fatalf("⏎: open %v, folder %q, windows %v", a.recents.open, a.root, h.windows)
 	}

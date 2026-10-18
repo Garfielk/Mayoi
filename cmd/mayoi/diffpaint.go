@@ -16,6 +16,7 @@ import (
 	"mayoi/internal/git"
 	"mayoi/internal/highlight"
 	"mayoi/internal/linediff"
+	"mayoi/locales"
 )
 
 // diffGeometry is where a diff's columns are, for its width.
@@ -87,8 +88,8 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 			ui.Box(c).Size(52, 52).Radius(26).Background(p.added.Alpha(0.13)).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, iconCheck).FontSize(24).TextColor(p.added)
 			})
-			ui.Text(c, "No Changes").FontSize(14).FontWeight(600).TextColor(p.text).Margin(8, 0, 0, 0)
-			ui.Text(c, "The working tree matches the last commit.").FontSize(12.5).TextColor(p.muted)
+			ui.Text(c, locales.DiffNoChanges()).FontSize(14).FontWeight(600).TextColor(p.text).Margin(8, 0, 0, 0)
+			ui.Text(c, locales.DiffTreeMatches()).FontSize(12.5).TextColor(p.muted)
 		})
 	}
 	if cm := v.commit; cm != nil && len(v.files) == 0 {
@@ -97,16 +98,18 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 			ui.Box(c).Fill().Background(p.editor)
 		case cm.err != "":
 			message(cm.err)
+		case cm.from != "":
+			message(locales.NoDifferencesBetween(git.ShortHash(cm.from), git.ShortHash(cm.hash)))
 		default:
-			message("The commit changes no files.")
+			message(locales.DiffCommitNoFiles())
 		}
 		return
 	}
 	if len(v.files) == 0 {
 		switch {
-		case a.git.looked && a.git.repo == nil:
-			message("The folder is not in a Git repository.")
-		case a.git.status != nil:
+		case a.diffContext(v).git.looked && a.diffContext(v).git.repo == nil:
+			message(locales.DiffNotRepo())
+		case a.diffContext(v).git.status != nil:
 			clean()
 		default:
 			ui.Box(c).Fill().Background(p.editor)
@@ -220,7 +223,7 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 	sticky, stickyY := v.stickyHeader(lineH)
 	focused := v.pane.FocusWithin(c)
 	pane := ui.ScrollBoth(c.Key("diff")).TrackScroll(&v.scroll).Bind(&v.pane).Fill().Background(p.editor).
-		Focusable().FocusRing(false).Label("Diff of the Changes")
+		Focusable().FocusRing(false).Label(locales.DiffPaneLabel())
 	// While the working tree side is edited, the input methods type for
 	// the caret the diff paints.
 	if e := v.editing; e != nil {
@@ -248,7 +251,7 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 				}
 			}
 		}
-		var buttons, hunkButtons, cardRect ui.Rect
+		var buttons, hunkButtons, cardRect, commentButton ui.Rect
 		var arrowRects []ui.Rect
 		box.Children(func() {
 			if card != nil && first == 0 && rows[0].kind == rowCommit {
@@ -264,6 +267,32 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 					y = stickyY
 				}
 				buttons = a.fileButtons(c, v, v.files[rows[i].file], v.scroll.X+view.W, y)
+			}
+			// The cards of the notes in view.
+			for i := first; i <= last; i++ {
+				if rows[i].kind != rowComment {
+					continue
+				}
+				if n := a.review.noteAt(rows[i].n); n != nil {
+					y := editorPadY + float32(v.tops[i])*lineH
+					noteX, noteW := noteGeometry(l, v.split, n.oldSide)
+					card := a.noteCardBox(c, fmt.Sprintf("note:%p", n), v.scroll.X+noteX, y+noteInset, noteW, float32(rows[i].h)*lineH-2*noteInset)
+					card.Children(func() { a.noteCard(c, n, nil, noteTextW(noteW)) })
+				}
+			}
+			// A button by the line under the pointer comments on it, unless
+			// the pointer chooses rows.
+			if hovered >= first && hovered <= last && hovered != sticky && rows[hovered].kind == rowLine && !v.dragged {
+				row := rows[hovered]
+				x := diffRailW + 2*l.numW + 3
+				if v.split {
+					x = diffRailW + l.numW + 3
+					if row.new >= 0 {
+						x += l.half
+					}
+				}
+				y := editorPadY + float32(v.tops[hovered])*lineH + (lineH-lineCommentSize)/2
+				commentButton = a.lineCommentButton(c, v, hovered, v.scroll.X+x, y)
 			}
 			// The buttons of the run of changes under the pointer, or chosen.
 			for _, i := range []int{hovered, v.cursor} {
@@ -286,23 +315,60 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 				}
 			}
 		})
+		// Dragging from a row chooses the rows to the one under the pointer.
+		if box.Pressed() {
+			if _, y, ok := box.PointerPosition(); ok && len(rows) > 0 && !onSticky(y) {
+				i := v.rowAt(y, lineH)
+				switch {
+				case v.press < 0:
+					v.press, v.dragged = i, false
+				case i != v.press || v.dragged:
+					if v.press < len(rows) && rows[v.press].kind == rowLine && i != v.cursor {
+						v.dragged = true
+						v.anchor = v.press
+						v.setCursor(i)
+						v.jumpRow(i, jumpReveal)
+					}
+				}
+			}
+		} else {
+			v.press = -1
+		}
 		// A click chooses a row, and opens a gap or folds a file; a double
 		// click opens the file at a line, unless its first click did that.
+		// Shift chooses the rows from the one chosen to it.
 		arrowed := func(x, y float32) bool {
 			return slices.ContainsFunc(arrowRects, func(r ui.Rect) bool { return r.Contains(x, y) })
 		}
 		if clicked, double := box.Clicked(), box.DoubleClicked(); clicked || double {
-			if x, y, ok := box.PointerPosition(); ok && len(rows) > 0 && !buttons.Contains(x, y) && !hunkButtons.Contains(x, y) && !cardRect.Contains(x, y) && !arrowed(x, y) {
+			if x, y, ok := box.PointerPosition(); ok && len(rows) > 0 && !buttons.Contains(x, y) && !hunkButtons.Contains(x, y) && !cardRect.Contains(x, y) &&
+				!commentButton.Contains(x, y) && !arrowed(x, y) {
 				i := a.rowUnder(v, x, y, l)
 				stuck := onSticky(y)
 				if stuck {
 					i = sticky
 				}
+				shift := box.ClickModifiers()&ui.Shift != 0
+				dragged := v.dragged
+				v.dragged = false
 				a.post(func() {
-					v.pane.Focus()
-					if i >= len(v.rows) {
+					if i >= len(v.rows) || !stuck && v.rows[i].kind == rowComment {
 						return
 					}
+					v.pane.Focus()
+					if dragged {
+						return
+					}
+					if shift && !stuck && !double {
+						at := v.anchor
+						if at < 0 {
+							at = max(v.cursor, 0)
+						}
+						v.setCursor(i)
+						v.anchor = at
+						return
+					}
+					v.anchor = -1
 					if stuck {
 						// The file folds under its header, which shows at the top.
 						v.setCursor(i)
@@ -342,6 +408,13 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 			}
 			dim := func(col ui.Color) ui.Color { return col.Mix(p.editor, 0.55) }
 			neutral := p.gutter.Alpha(0.45)
+			// A bar by the rail along the lines of each note.
+			notes := a.diffNotes(v)
+			noted := func(x, y, h float32, row diffRow, old bool) {
+				if notedLine(v, notes, row, old) {
+					pt.Fill(ui.Rect{X: x + diffRailW + 1, Y: y, W: 2, H: h}, p.accent, 0)
+				}
+			}
 			for i := paintFirst; i <= paintLast; i++ {
 				row := &rows[i]
 				file := v.files[row.file]
@@ -351,6 +424,16 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 				switch row.kind {
 				case rowSpace:
 					continue
+				case rowComment:
+					rail(vx, y, h, neutral)
+					if i == v.cursor {
+						pt.Fill(ui.Rect{X: vx, Y: y, W: diffRailW, H: h}, p.accent, 0)
+					}
+					if v.split {
+						// The sides go on past the card, under one of them.
+						rail(vx+l.half, y, h, neutral)
+						pt.Fill(ui.Rect{X: vx + l.half - 0.5, Y: y, W: 1, H: h}, p.border, 0)
+					}
 				case rowCommit:
 					a.paintCommitCard(pt, full)
 				case rowFile:
@@ -383,7 +466,7 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 					}
 					at := vx + diffRailW + 10
 					pt.Icon(iconUnfold, ui.Rect{X: at, Y: y + h/2 - 6, W: 12, H: 12}, col)
-					uiText(pt, at+18, y, h, "Show "+plural(row.n, "unchanged line"), headerFontSize, 400, col)
+					uiText(pt, at+18, y, h, locales.DiffShowUnchanged(row.n), headerFontSize, 400, col)
 				case rowLine:
 					if v.split {
 						for side := range 2 {
@@ -432,6 +515,7 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 									rail(x0, ys, h, neutral)
 								}
 								number(n, x0+diffRailW+l.numW, ys, numCol)
+								noted(x0, ys, h, *row, side == 0)
 								if changed {
 									mark := "-"
 									if side == 1 {
@@ -472,6 +556,7 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 					default:
 						rail(vx, y, h, neutral)
 					}
+					noted(vx, y, h, *row, row.new < 0)
 					if row.old >= 0 {
 						number(row.old, vx+diffRailW+l.numW, y, numCol)
 					}
@@ -486,7 +571,11 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 						txt(vx+diffRailW+2*l.numW+8, y, mark, tint)
 					}
 				}
-				if i == v.cursor {
+				if v.selected(i) && row.kind != rowComment {
+					pt.Fill(full, p.accent.Alpha(0.12), 0)
+					pt.Fill(ui.Rect{X: vx, Y: y, W: diffRailW, H: h}, p.accent.Alpha(0.6), 0)
+				}
+				if i == v.cursor && row.kind != rowComment {
 					col := p.text.Alpha(0.05)
 					if focused {
 						col = p.text.Alpha(0.09)
@@ -543,6 +632,11 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 					}
 					pt.Fill(ui.Rect{X: right, Y: y0, W: 3, H: hh}, col, 0)
 				}
+				// And the cards of the notes.
+				for _, at := range v.cards {
+					y0 := vy + float32(v.tops[at])/float32(total)*view.H
+					pt.Fill(ui.Rect{X: right + 4, Y: y0 - 1, W: 5, H: 3}, p.accent, 1)
+				}
 			}
 		})
 	})
@@ -552,19 +646,19 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 func statusWord(letter byte) string {
 	switch letter {
 	case 'M':
-		return "Modified"
+		return locales.StatusModified()
 	case 'A':
-		return "Added"
+		return locales.StatusAdded()
 	case 'D':
-		return "Deleted"
+		return locales.StatusDeleted()
 	case 'R':
-		return "Renamed"
+		return locales.StatusRenamed()
 	case 'C':
-		return "Conflict"
+		return locales.StatusConflict()
 	case 'T':
-		return "Type Changed"
+		return locales.StatusTypeChanged()
 	case 'U':
-		return "Untracked"
+		return locales.StatusUntracked()
 	}
 	return ""
 }
@@ -742,7 +836,11 @@ func (a *app) layOutCommitCard(c *ui.Context, v *diffView, w float32) *commitCar
 		_, h := c.MeasureText(0, s)
 		return h
 	}
-	k.subject = ui.Span{Text: info.Subject, Size: 15, Weight: 600, Color: p.text}
+	subject := info.Subject
+	if cm.from != "" {
+		subject = locales.ChangesFromTo(a.diffContext(v).revisionLabel(cm.from), a.diffContext(v).revisionLabel(cm.hash))
+	}
+	k.subject = ui.Span{Text: subject, Size: 15, Weight: 600, Color: p.text}
 	_, k.subjectH = c.MeasureText(w, k.subject)
 	if one := lineOf(k.subject); k.subjectH > maxCardSubject*one+0.5 {
 		k.subjectH, k.cut = maxCardSubject*one, true
@@ -760,7 +858,28 @@ func (a *app) layOutCommitCard(c *ui.Context, v *diffView, w float32) *commitCar
 			ui.RichText(c, s).SingleLine().Shrink(1).MinWidth(0)
 		}}
 	}
+	hashChip := func(h string, dot bool) cardPiece {
+		hash := ui.Span{Text: git.ShortHash(h), Font: a.font.family, Size: a.font.size - 1, Color: p.accent}
+		return cardPiece{w: measure(hash) + 12, dot: dot, show: func() {
+			b := ui.ButtonBase(c.Key("card-hash:"+h)).Height(18).Padding(0, 6).Radius(5).AlignItems(ui.Center).
+				Background(p.accent.Alpha(0.1)).Label(locales.CopyCommitHash()).Tooltip(locales.CopyCommitHash())
+			if b.Hovered() {
+				b.Background(p.accent.Alpha(0.2))
+			}
+			if b.Clicked() {
+				a.post(func() { a.copyCommitHash(h) })
+			}
+			b.Transition(hoverFade)
+			b.Children(func() { ui.RichText(c, hash).SingleLine() })
+		}}
+	}
 	var pieces []cardPiece
+	if cm.from != "" {
+		// A comparison: its two commits, and what changed between them.
+		pieces = append(pieces, hashChip(cm.from, false), text(label("→", 400, p.muted), false), hashChip(cm.hash, false),
+			text(label(locales.CardFilesChanged(len(v.files)), 400, p.muted), true))
+		return a.finishCommitCard(c, v, k, w, pieces)
+	}
 	author := label(info.Author, 600, p.text)
 	col := avatarColor(p, info.Email+info.Author)
 	pieces = append(pieces, cardPiece{w: 18 + 6 + measure(author), show: func() {
@@ -773,26 +892,10 @@ func (a *app) layOutCommitCard(c *ui.Context, v *diffView, w float32) *commitCar
 		})
 	}})
 	if !info.Time.IsZero() {
-		when := "committed " + ago(info.Time, time.Now()) + " · " + info.Time.Format("Jan 2, 2006 15:04")
+		when := locales.CardCommitted(ago(info.Time, time.Now())) + " · " + dateTime(info.Time)
 		pieces = append(pieces, text(label(when, 400, p.muted), false))
 	}
-	// What the diff of a commit compares: its first parent's version into
-	// its own, which the hash piece finishes.
-	if len(info.Parents) > 0 {
-		pieces = append(pieces, text(label(git.ShortHash(info.Parents[0])+" →", 400, p.faint), true))
-	}
-	hash := ui.Span{Text: git.ShortHash(cm.hash), Font: a.font.family, Size: a.font.size - 1, Color: p.accent}
-	pieces = append(pieces, cardPiece{w: measure(hash) + 12, dot: len(info.Parents) == 0, show: func() {
-		b := ui.ButtonBase(c.Key("card-hash")).Height(18).Padding(0, 6).Radius(5).AlignItems(ui.Center).
-			Background(p.accent.Alpha(0.1)).Label("Copy Commit Hash").Tooltip("Copy Commit Hash")
-		if b.Hovered() {
-			b.Background(p.accent.Alpha(0.2))
-		}
-		if b.Clicked() {
-			a.post(func() { a.copyCommitHash(cm.hash) })
-		}
-		b.Children(func() { ui.RichText(c, hash).SingleLine() })
-	}})
+	pieces = append(pieces, hashChip(cm.hash, true))
 	for i, b := range refBadges(info.Refs) {
 		fg, bg := p.accent, p.accent.Alpha(0.14)
 		switch b.Kind {
@@ -817,10 +920,25 @@ func (a *app) layOutCommitCard(c *ui.Context, v *diffView, w float32) *commitCar
 		}})
 	}
 	if len(info.Parents) > 1 {
-		pieces = append(pieces, text(label("merge of "+plural(len(info.Parents), "parent"), 400, p.muted), true))
+		pieces = append(pieces, text(label(locales.CardMergeOf(len(info.Parents)), 400, p.muted), true))
 	}
-	pieces = append(pieces, text(label(plural(len(v.files), "file")+" changed", 400, p.muted), true))
-	dotW := measure(label("·", 400, p.faint))
+	pieces = append(pieces, text(label(locales.CardFilesChanged(len(v.files)), 400, p.muted), true))
+	return a.finishCommitCard(c, v, k, w, pieces)
+}
+
+// finishCommitCard wraps the pieces of a card's lines to its width w,
+// lays out the rest of its message, and works out how tall it is.
+func (a *app) finishCommitCard(c *ui.Context, v *diffView, k *commitCard, w float32, pieces []cardPiece) *commitCard {
+	p := a.pal
+	cm := v.commit
+	info := cm.info
+	lineOf := func(s ui.Span) float32 {
+		s.Text = "M"
+		_, h := c.MeasureText(0, s)
+		return h
+	}
+	dot, _ := c.MeasureText(0, ui.Span{Text: "·", Size: headerFontSize, Color: p.faint})
+	dotW := dot
 	var line []cardPiece
 	lineW := float32(0)
 	for _, pc := range pieces {
@@ -856,10 +974,19 @@ func (a *app) layOutCommitCard(c *ui.Context, v *diffView, w float32) *commitCar
 	return k
 }
 
+// revisionLabel is how a comparison's card names a commit: HEAD while it
+// is the one checked out, else its short hash.
+func (a *gitContext) revisionLabel(hash string) string {
+	if st := a.git.status; st != nil && st.Head == hash {
+		return "HEAD"
+	}
+	return git.ShortHash(hash)
+}
+
 // copyCommitHash puts the hash of a commit on the clipboard.
 func (a *app) copyCommitHash(hash string) {
 	a.services.WriteClipboard(hash)
-	a.tell(note{message: "Copied " + git.ShortHash(hash)})
+	a.tell(note{message: locales.CopiedText(git.ShortHash(hash))})
 }
 
 // commitCardUI shows the card at the top of a commit's diff at (x, y), w
@@ -872,7 +999,7 @@ func (a *app) commitCardUI(c *ui.Context, v *diffView, k *commitCard, x, y, w, h
 		Padding(cardPadY, cardPadX, cardPadY, diffRailW+cardPadX).Justify(ui.Center).AlignItems(ui.Start).Selectable().Children(func() {
 		subject := ui.RichText(c, k.subject).Width(k.w).MaxLines(maxCardSubject).Shrink(0)
 		if k.cut {
-			subject.Tooltip(cm.info.Subject)
+			subject.Tooltip(k.subject.Text)
 		}
 		ui.Box(c).Height(cardGap).Shrink(0)
 		dot := ui.Span{Text: "·", Size: headerFontSize, Color: p.faint}
@@ -897,9 +1024,9 @@ func (a *app) commitCardUI(c *ui.Context, v *diffView, k *commitCard, x, y, w, h
 		if !k.folds {
 			return
 		}
-		label := "Show More"
+		label := locales.ShowMore()
 		if cm.unfolded {
-			label = "Show Less"
+			label = locales.ShowLess()
 		}
 		b := ui.ButtonBase(c.Key("card-more")).Height(cardMoreH).AlignItems(ui.Center).Shrink(0).Label(label)
 		col := p.accent
@@ -931,8 +1058,14 @@ func avatarColor(p *palette, who string) ui.Color {
 // bold font of size. It shapes them in their own font: RichText lays a
 // small span on a line of the theme's font, whose baseline sits too low.
 func paintInitials(pt *ui.Painter, b ui.Rect, who string, size float32, col ui.Color) {
+	paintLabel(pt, b, initials(who), size, col)
+}
+
+// paintLabel paints s in the middle of b, as paintInitials paints
+// initials.
+func paintLabel(pt *ui.Painter, b ui.Rect, s string, size float32, col ui.Color) {
 	f := ui.Font{Size: size, Weight: 700}
-	gs := ui.Shape(initials(who), f)
+	gs := ui.Shape(s, f)
 	var w float32
 	for _, g := range gs {
 		w += g.Advance
@@ -1135,6 +1268,7 @@ func (a *app) paintDiffLine(pt *ui.Painter, file *diffFile, newSide bool, n, pee
 // and top at y in the diff's content: opening the file, staging or
 // unstaging it, and discarding its changes. It returns where they are.
 func (a *app) fileButtons(c *ui.Context, v *diffView, f *diffFile, right, y float32) ui.Rect {
+	ctx := a.diffContext(v)
 	e := f.entry
 	type button struct {
 		icon  *ui.SVG
@@ -1154,18 +1288,18 @@ func (a *app) fileButtons(c *ui.Context, v *diffView, f *diffFile, right, y floa
 	case f.base == diffLocal:
 	case f.base == diffCommit:
 	case f.base == diffStaged:
-		bs = append(bs, button{iconMinus, "Unstage Changes", func() { a.unstage(entryPaths(e, true)...) }})
+		bs = append(bs, button{iconMinus, locales.UnstageChanges(), func() { ctx.unstage(entryPaths(e, true)...) }})
 	default:
 		if !e.Submodule() {
 			if f.letter == 'D' && !e.Untracked() {
 				bs = append(bs, button{iconUndo, "Restore File", func() { a.restoreDeletedFile(e) }})
 			} else if e.Untracked() {
-				bs = append(bs, button{iconUndo, "Remove File…", func() { a.discard(e) }})
+				bs = append(bs, button{iconUndo, "Remove File…", func() { ctx.discard(e) }})
 			} else {
-				bs = append(bs, button{iconUndo, "Discard Changes…", func() { a.discard(e) }})
+				bs = append(bs, button{iconUndo, locales.DiscardChangesEllipsis(), func() { ctx.discard(e) }})
 			}
 		}
-		bs = append(bs, button{iconPlus, "Stage Changes", func() { a.stage(e.Path) }})
+		bs = append(bs, button{iconPlus, locales.StageChanges(), func() { ctx.stage(e.Path) }})
 	}
 	if len(bs) == 0 {
 		return ui.Rect{}

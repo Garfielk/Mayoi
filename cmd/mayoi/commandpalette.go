@@ -4,23 +4,51 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/workspace"
+	"mayoi/locales"
 )
 
 // paletteEntry is a command as the command palette lists it: its title,
-// as "View: Toggle Sidebar", and the keys of its shortcut.
+// as "View: Toggle Sidebar", and the keys of its shortcut. en is its title
+// in English, which the palette matches too, when the language shown is
+// another.
 type paletteEntry struct {
-	id, title string
-	group     int // the length of the title's "View: "
-	caps      []string
+	id, title, en string
+	group         int // the length of the title's "View: "
+	caps          []string
 }
 
-// commandGroups names the menus of the commands, by the prefix of their
-// ids.
-var commandGroups = map[string]string{
-	"file": "File", "edit": "Edit", "sel": "Selection", "go": "Go", "view": "View", "git": "Git",
+// commandGroup names the menu of a command, by the prefix of its id, in
+// the language of t.
+func commandGroup(t locales.Messages, id string) string {
+	switch {
+	case strings.HasPrefix(id, "view.appearance."), strings.HasPrefix(id, "view.theme."):
+		return t.MenuTheme()
+	case strings.HasPrefix(id, localeCommand):
+		return t.MenuLanguage()
+	}
+	switch id[:strings.IndexByte(id, '.')] {
+	case "file":
+		return t.MenuFile()
+	case "edit":
+		return t.MenuEdit()
+	case "sel":
+		return t.MenuSelection()
+	case "go":
+		return t.MenuGo()
+	case "view":
+		return t.MenuView()
+	case "git":
+		return t.MenuGit()
+	case "review":
+		return t.MenuReview()
+	case "account":
+		return t.MenuAccount()
+	}
+	return ""
 }
 
 // viewKeys are the keys of the commands that the editor or the view
@@ -34,22 +62,28 @@ var viewKeys = map[string]string{
 }
 
 // paletteEntries are the commands the palette runs, by title, made once
-// for the window: the commands do not change.
+// for the window, and again when the language changes: the commands do
+// not change.
 func (a *app) paletteEntries() []paletteEntry {
 	if a.palette != nil {
 		return a.palette
 	}
-	for _, cmd := range a.commands() {
+	shown, en := locales.In(i18n.Locale()), locales.In("en")
+	english := map[string]string{}
+	for _, cmd := range a.commandsIn(en) {
+		english[cmd.id] = commandGroup(en, cmd.id) + ": " + cmd.label
+	}
+	for _, cmd := range a.commandsIn(shown) {
 		if cmd.id == "go.commands" {
 			continue
 		}
-		group := commandGroups[cmd.id[:strings.IndexByte(cmd.id, '.')]]
-		if strings.HasPrefix(cmd.id, "view.appearance.") || strings.HasPrefix(cmd.id, "view.theme.") {
-			group = "Theme"
-		}
+		group := commandGroup(shown, cmd.id)
 		title := group + ": " + cmd.label
-		caps := a.commandCaps(cmd)
-		a.palette = append(a.palette, paletteEntry{id: cmd.id, title: title, group: len(group) + 2, caps: caps})
+		e := paletteEntry{id: cmd.id, title: title, group: len(group) + 2, caps: a.commandCaps(cmd)}
+		if english[cmd.id] != title {
+			e.en = english[cmd.id]
+		}
+		a.palette = append(a.palette, e)
 	}
 	slices.SortStableFunc(a.palette, func(x, y paletteEntry) int { return strings.Compare(x.title, y.title) })
 	return a.palette
@@ -74,6 +108,12 @@ func (a *app) commandOn(id string) bool {
 		return s.Appearance == ""
 	case "view.theme.mayoi":
 		return s.Theme == ""
+	}
+	if pos, ok := strings.CutPrefix(id, "view.panelPosition."); ok {
+		return a.panelSide() == pos
+	}
+	if tag, ok := strings.CutPrefix(id, localeCommand); ok {
+		return a.localeOn(tag)
 	}
 	if ap, ok := strings.CutPrefix(id, "view.appearance."); ok {
 		return s.Appearance == ap
@@ -169,11 +209,7 @@ func (a *app) quickCommands(c *ui.Context, query string) {
 	entries := a.paletteEntries()
 	key := ">" + query
 	if q.stale || q.shown != key {
-		titles := make([]string, len(entries))
-		for i, e := range entries {
-			titles[i] = e.title
-		}
-		q.results = workspace.Fuzzy(titles, strings.TrimSpace(query), len(entries))
+		q.results = paletteMatches(entries, strings.TrimSpace(query))
 		if strings.TrimSpace(query) == "" {
 			var first []workspace.Match
 			for _, id := range q.used {
@@ -190,6 +226,7 @@ func (a *app) quickCommands(c *ui.Context, query string) {
 	}
 	choose := func(i int) {
 		if i < 0 || i >= len(q.results) {
+			q.shook = c.Now()
 			return
 		}
 		id := entries[q.results[i].Index].id
@@ -200,13 +237,15 @@ func (a *app) quickCommands(c *ui.Context, query string) {
 	ui.Overlay(c, func() {
 		back := a.dialogBack(c, "quick")
 		back.Children(func() {
-			box := a.floating(c, ui.Column(c).Width(600).MaxWidthPercent(92).Margin(titleBarH+8, 0, 0, 0).Radius(10), true).Clip().
-				Role(ui.RoleDialog).Label("Command Palette")
+			box := a.floating(c, ui.Column(c).Width(600).MaxWidthPercent(92).Margin(titleBarH+8, 0, 0, 0).Radius(10), true).Clip()
+			shake(c, box, q.shook)
+			box.
+				Role(ui.RoleDialog).Label(locales.PaletteLabel())
 			box.Children(func() {
 				ui.Row(c).Padding(10, 14).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.border).Children(func() {
-					ui.Icon(c, iconChevronRight).FontSize(15).TextColor(p.muted)
+					ui.Icon(c, iconCommand).FontSize(15).TextColor(p.muted)
 					in := a.textKeys(ui.TextInputBase(c.Key("quick-input"), &q.query)).Grow(1).FontSize(14).AutoFocus().
-						Placeholder("Run a command by name").Label("Command Palette")
+						Placeholder(locales.PalettePlaceholder()).Label(locales.PaletteLabel())
 					if in.Shortcut(0, ui.KeyDown) {
 						q.sel, q.moved = min(q.sel+1, len(q.results)-1), true
 					}
@@ -218,7 +257,7 @@ func (a *app) quickCommands(c *ui.Context, query string) {
 					}
 				})
 				if len(q.results) == 0 {
-					ui.Text(c, "No matching commands").FontSize(13).TextColor(p.muted).Padding(12, 16)
+					ui.Text(c, locales.PaletteNoMatches()).FontSize(13).TextColor(p.muted).Padding(12, 16)
 				} else {
 					ui.Scroll(c.Key("quick-commands")).MaxHeight(380).Padding(6).Children(func() {
 						for i, m := range q.results {
@@ -226,10 +265,7 @@ func (a *app) quickCommands(c *ui.Context, query string) {
 							// As tall with keys as without.
 							row := ui.ButtonBase(c.Key("cmd:"+e.id)).MinHeight(30).Padding(5, 10).Gap(10).Radius(6).
 								Justify(ui.Start).AlignItems(ui.Center).Label(e.title)
-							switch {
-							case i == q.sel:
-								row.Background(p.active)
-							case row.Hovered():
+							if i != q.sel && row.Hovered() {
 								row.Background(p.hover)
 							}
 							if i == q.sel && q.moved {
@@ -238,18 +274,47 @@ func (a *app) quickCommands(c *ui.Context, query string) {
 							if row.Clicked() {
 								choose(i)
 							}
-							row.Children(func() { a.commandRow(c, e, m.Positions) })
+							row.Transition(hoverFade)
+							row.Children(func() { a.pickMark(c, i == q.sel, "commands"); a.commandRow(c, e, m.Positions) })
 						}
 					})
 				}
 				q.moved = false
-				a.quickFooter(c, false, "run", "", false)
+				a.quickFooter(c, false, locales.QuickRunAction(), "", false)
 			})
 			if box.PressedOutside() || back.OverlayShortcut(0, ui.KeyEscape) {
 				a.closeQuick()
 			}
 		})
 	})
+}
+
+// paletteMatches are the commands that query matches, best first: by their
+// titles, or by their English ones, whose matched characters do not show.
+func paletteMatches(entries []paletteEntry, query string) []workspace.Match {
+	titles := make([]string, len(entries))
+	english := make([]string, len(entries))
+	other := false
+	for i, e := range entries {
+		titles[i], english[i] = e.title, e.en
+		other = other || e.en != ""
+	}
+	matches := workspace.Fuzzy(titles, query, len(entries))
+	if !other || query == "" {
+		return matches
+	}
+	found := map[int]bool{}
+	for _, m := range matches {
+		found[m.Index] = true
+	}
+	for _, m := range workspace.Fuzzy(english, query, len(entries)) {
+		if !found[m.Index] && english[m.Index] != "" {
+			m.Positions = nil
+			matches = append(matches, m)
+		}
+	}
+	slices.SortStableFunc(matches, func(x, y workspace.Match) int { return y.Score - x.Score })
+	return matches
 }
 
 // commandRow shows a command of the results: its menu, its name with the

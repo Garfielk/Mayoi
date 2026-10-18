@@ -1,11 +1,39 @@
 {
   "name": "Mayoi",
   "identifier": "dev.mayoi.editor",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "main": "./cmd/mayoi",
   "out": "build",
+  "i18n": {
+    "dir": "locales",
+    "source": "en"
+  },
   "macos": {
-    "minimumSystemVersion": "13.0"
+    "minimumSystemVersion": "13.0",
+    "infoPlist": {
+      "CFBundleDocumentTypes": [
+        {
+          "CFBundleTypeName": "Document",
+          "CFBundleTypeRole": "Editor",
+          "LSHandlerRank": "Alternate",
+          "LSItemContentTypes": ["public.data"]
+        },
+        {
+          "CFBundleTypeName": "Folder",
+          "CFBundleTypeRole": "Editor",
+          "LSHandlerRank": "Alternate",
+          "LSItemContentTypes": ["public.folder"]
+        }
+      ]
+    }
+  },
+  "linux": {
+    "command": "mayoi",
+    "comment": "A small, fast code editor",
+    "categories": [
+      "Development",
+      "TextEditor"
+    ]
   },
   "updates": {
     "publicKey": "kW6/B4DkWNQdyHkFOrU6tpvLfb5xGVvyYhrIQF7Bct4=",

@@ -36,8 +36,36 @@ func TestSidebarTitleFits(t *testing.T) {
 	}
 	a.run("view.scm")
 	hs.settleGit()
+	// A wider interface font, as DejaVu Sans, has the whole title in a
+	// wider sidebar.
+	if !tt.HasText("SOURCE CONTROL") {
+		a.window.SidebarWidth = 320
+		hs.settle()
+	}
 	whole("SOURCE CONTROL")
 	a.window.SidebarWidth = 180
 	hs.settle()
 	whole("GIT")
+}
+
+// The guides of a row go down the middle of the arrows of the folders
+// above it, as the outline places them treeStep apart.
+func TestTreeGuidesFollowTheArrows(t *testing.T) {
+	const arrow, gap, left = 16, 4, 10
+	// arrowAt is where the arrow of a row depth deep starts: its
+	// indentation and a gap after the row's start, on deeper rows.
+	arrowAt := func(depth int) float32 {
+		if depth == 0 {
+			return left
+		}
+		return left + float32(depth)*treeStep + gap
+	}
+	for depth := 1; depth <= 5; depth++ {
+		content := arrowAt(depth) + arrow + gap
+		for k, x := range treeGuideX(content, depth, arrow, gap) {
+			if want := arrowAt(k) + arrow/2; x != want {
+				t.Errorf("depth %d, guide %d at %v, want %v", depth, k, x, want)
+			}
+		}
+	}
 }

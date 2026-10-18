@@ -57,8 +57,10 @@ if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
     echo "main differs from origin/main. Pull or push first." >&2
     exit 1
 fi
-if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null \
-    || [ -n "$(git ls-remote --tags origin "refs/tags/$TAG")" ]; then
+# Assigned on its own, so that set -e stops the script when origin can't be
+# reached instead of taking the empty output for a missing tag.
+REMOTE_TAG="$(git ls-remote --tags origin "refs/tags/$TAG")"
+if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null || [ -n "$REMOTE_TAG" ]; then
     echo "Tag $TAG exists already." >&2
     exit 1
 fi
@@ -82,14 +84,17 @@ else
 fi
 
 echo "==> $CURRENT -> $VERSION"
+# Rewrites only the version line, so the rest of mygo.json keeps its
+# formatting.
 /usr/bin/python3 - "$VERSION" <<'PY'
-import json, sys
+import re, sys
 with open("mygo.json") as f:
-    config = json.load(f)
-config["version"] = sys.argv[1]
+    text = f.read()
+text, n = re.subn(r'^(  "version": )"[^"]*"', r'\g<1>"%s"' % sys.argv[1], text, count=1, flags=re.M)
+if n != 1:
+    sys.exit('mygo.json has no top-level "version" line to change.')
 with open("mygo.json", "w") as f:
-    json.dump(config, f, indent=2, ensure_ascii=False)
-    f.write("\n")
+    f.write(text)
 PY
 FILES=mygo.json
 if [ -n "$RENAME_UNRELEASED" ]; then

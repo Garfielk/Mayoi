@@ -5,6 +5,9 @@ import (
 	"time"
 
 	"mayoi/internal/git"
+	"mayoi/locales"
+
+	"github.com/egoist/mygo/i18n"
 )
 
 // blameState is who last changed the caret's line of an editor, which
@@ -31,11 +34,12 @@ const blamePause = 350 * time.Millisecond
 // changed it last, when, and in what commit, "" for nothing. It blames
 // the line in the background once the caret rests there.
 func (a *app) blameLine(d *editor, line int, version uint64, focused bool) string {
-	r := a.git.repo
+	ctx := a.repositoryForPath(d.path)
+	r := ctx.git.repo
 	if !a.settings.Blame || !focused || r == nil || d.path == "" || !r.Contains(d.path) {
 		return ""
 	}
-	if e, ok := a.git.entries[d.path]; ok && e.Untracked() {
+	if e, ok := ctx.git.entries[d.path]; ok && e.Untracked() {
 		return ""
 	}
 	b := &d.blame
@@ -80,17 +84,23 @@ func ago(t, now time.Time) string {
 	d := now.Sub(t)
 	switch {
 	case d < time.Minute:
-		return "just now"
+		return locales.AgoJustNow()
 	case d < time.Hour:
-		return plural(int(d/time.Minute), "minute") + " ago"
+		return locales.AgoMinutes(int(d / time.Minute))
 	case d < 24*time.Hour:
-		return plural(int(d/time.Hour), "hour") + " ago"
+		return locales.AgoHours(int(d / time.Hour))
 	case d < 30*24*time.Hour:
-		return plural(int(d/(24*time.Hour)), "day") + " ago"
+		return locales.AgoDays(int(d / (24 * time.Hour)))
 	case d < 365*24*time.Hour:
-		return plural(int(d/(30*24*time.Hour)), "month") + " ago"
+		return locales.AgoMonths(int(d / (30 * 24 * time.Hour)))
 	}
-	return plural(int(d/(365*24*time.Hour)), "year") + " ago"
+	return locales.AgoYears(int(d / (365 * 24 * time.Hour)))
+}
+
+// dateTime is a date and time to the minute, in the language shown, as
+// "Jan 2, 2006, 15:04" in English.
+func dateTime(t time.Time) string {
+	return i18n.FormatDate(i18n.Locale(), t, i18n.DateOptions{Skeleton: "yMMMdHm"})
 }
 
 // toggleBlame shows the blame of the caret's line, or stops.

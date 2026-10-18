@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"mayoi/locales"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
@@ -36,8 +38,13 @@ type findState struct {
 	pending    uint64
 	pendingDoc int
 
-	input  ui.Handle
+	input ui.Handle
+	// shook is when Return found no match, which shakes the box.
+	shook  time.Time
 	reveal bool // select the current match
+	// back is set when the last step went to the match before, which
+	// rolls the count down.
+	back bool
 }
 
 func (f *findState) pattern() string {
@@ -162,7 +169,7 @@ func (a *app) searchIn(d *editor, async bool) {
 	}
 	re, err := f.compile()
 	if err != nil {
-		f.version, f.err, f.cur = snap.Version(), "Invalid expression", -1
+		f.version, f.err, f.cur = snap.Version(), locales.FindInvalid(), -1
 		return
 	}
 	f.re = re
@@ -204,7 +211,7 @@ func (a *app) step(d *editor, by int) {
 	} else {
 		f.cur = (f.cur + by + len(f.matches)) % len(f.matches)
 	}
-	f.reveal = true
+	f.reveal, f.back = true, by < 0
 }
 
 // replaceOne replaces the current match, and goes to the next.
@@ -253,7 +260,7 @@ func (a *app) replaceAll(d *editor) {
 		d.edit(d.sel, textEdit{0, d.buf.Len(), f.re.ReplaceAllString(text, with)})
 	}
 	a.search(d)
-	a.fail("Replaced %d occurrences", n)
+	a.fail("%s", locales.FindReplaced(n))
 }
 
 // replacement is the text a match is replaced with: as typed, or with
@@ -327,27 +334,25 @@ func (a *app) findView(c *ui.Context, d *editor) {
 			f.stale = true
 		}
 	}
-	box := a.floating(c, ui.Column(c).Absolute().Top(4).Right(22).Width(430).Padding(5, 6).Gap(4).Radius(8), false).Transition(popIn).
-		Role(ui.RoleToolbar).Label("Find")
+	box := a.floating(c, ui.Column(c).Absolute().Top(4).Right(22).Width(430).Padding(5, 6).Gap(4).Radius(8), false).Transition(popIn)
+	shake(c, box, f.shook)
+	box.Role(ui.RoleToolbar).Label(locales.FindLabel())
 	box.Children(func() {
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-			arrow := iconChevronRight
-			if f.replacing {
-				arrow = iconChevronDown
-			}
-			b := ui.ButtonBase(c).Size(18, 22).Radius(4).Justify(ui.Center).AlignItems(ui.Center).Label("Toggle Replace")
+			b := ui.ButtonBase(c).Size(18, 22).Radius(4).Justify(ui.Center).AlignItems(ui.Center).Label(locales.FindToggleReplace())
 			if b.Hovered() {
 				b.Background(p.hover)
 			}
-			b.Children(func() { ui.Icon(c, arrow).FontSize(13).TextColor(p.muted) })
+			b.Transition(hoverFade)
+			b.Children(func() { chevron(c, f.replacing).FontSize(13).TextColor(p.muted) })
 			if b.Clicked() {
 				f.replacing = !f.replacing
 			}
 			field := ui.Row(c).Grow(1).Height(26).Padding(0, 4, 0, 8).Gap(2).AlignItems(ui.Center).Radius(5).
-				Background(p.editor).Border(1, p.border)
+				Background(p.editor).Border(1, p.border).Transition(fieldFocus)
 			field.Children(func() {
 				in := a.textKeys(ui.TextInputBase(c.Key("find-query"), &f.query)).Bind(&f.input).Grow(1).FontSize(12.5).
-					Placeholder("Find").Label("Find")
+					Placeholder(locales.FindLabel()).Label(locales.FindLabel())
 				if in.Focused() {
 					field.Border(1, p.accentDim)
 				}
@@ -357,35 +362,40 @@ func (a *app) findView(c *ui.Context, d *editor) {
 				if in.Shortcut(ui.Shift, ui.KeyEnter) {
 					a.step(d, -1)
 				} else if in.Submitted() {
+					if len(f.matches) == 0 && f.query != "" {
+						f.shook = c.Now()
+					}
 					a.step(d, 1)
 				}
-				toggle(iconCase, "Match Case", &f.matchCase)
-				toggle(iconWord, "Match Whole Word", &f.word)
-				toggle(iconRegex, "Use Regular Expression", &f.regex)
+				toggle(iconCase, locales.FindMatchCase(), &f.matchCase)
+				toggle(iconWord, locales.FindWholeWord(), &f.word)
+				toggle(iconRegex, locales.FindRegex(), &f.regex)
 			})
-			count := "No results"
+			count, none := locales.FindNoResults(), true
 			switch {
 			case f.err != "":
 				count = f.err
 			case f.query == "":
-				count = ""
+				count, none = "", false
 			case len(f.matches) >= maxMatches:
-				count = fmt.Sprintf("%d of %d+", f.cur+1, maxMatches)
+				count, none = locales.FindCountMore(f.cur+1, maxMatches), false
 			case len(f.matches) > 0:
-				count = fmt.Sprintf("%d of %d", f.cur+1, len(f.matches))
+				count, none = locales.FindCount(f.cur+1, len(f.matches)), false
 			}
 			col := p.muted
-			if count == "No results" || f.err != "" {
-				col = p.danger
+			if none || f.err != "" {
+				col = p.dangerFg
 			}
-			ui.Text(c, count).FontSize(11.5).TextColor(col).Width(findCountW).SingleLine().TextAlign(ui.Center)
-			if a.iconButton(c, iconArrowUp, "Previous Match ("+keyText("Shift+Enter")+")", false).Disabled(len(f.matches) == 0).Clicked() {
+			// The count rolls from match to match, down going back.
+			ui.Text(c, count).FontSize(11.5).TextColor(col).Width(findCountW).SingleLine().TextAlign(ui.Center).
+				ContentTransition(ui.ContentTransition{Numeric: true, Down: f.back})
+			if a.iconButton(c, iconArrowUp, locales.FindPrevMatch(keyText("Shift+Enter")), false).Disabled(len(f.matches) == 0).Clicked() {
 				a.step(d, -1)
 			}
-			if a.iconButton(c, iconArrowDown, "Next Match (⏎)", false).Disabled(len(f.matches) == 0).Clicked() {
+			if a.iconButton(c, iconArrowDown, locales.FindNextMatch(), false).Disabled(len(f.matches) == 0).Clicked() {
 				a.step(d, 1)
 			}
-			if a.iconButton(c, iconX, "Close (Esc)", false).Clicked() {
+			if a.iconButton(c, iconX, locales.CloseEsc(), false).Clicked() {
 				a.closeFind()
 			}
 		})
@@ -394,9 +404,9 @@ func (a *app) findView(c *ui.Context, d *editor) {
 		}
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Padding(0, 0, 0, 22).Children(func() {
 			field := ui.Row(c).Grow(1).Height(26).Padding(0, 8).AlignItems(ui.Center).Radius(5).
-				Background(p.editor).Border(1, p.border)
+				Background(p.editor).Border(1, p.border).Transition(fieldFocus)
 			field.Children(func() {
-				in := a.textKeys(ui.TextInputBase(c.Key("find-with"), &f.with)).Grow(1).FontSize(12.5).Placeholder("Replace").Label("Replace")
+				in := a.textKeys(ui.TextInputBase(c.Key("find-with"), &f.with)).Grow(1).FontSize(12.5).Placeholder(locales.FindReplace()).Label(locales.FindReplace())
 				if in.Focused() {
 					field.Border(1, p.accentDim)
 				}
@@ -404,10 +414,10 @@ func (a *app) findView(c *ui.Context, d *editor) {
 					a.replaceOne(d)
 				}
 			})
-			if a.iconButton(c, iconReplace, "Replace (⏎)", false).Disabled(len(f.matches) == 0).Clicked() {
+			if a.iconButton(c, iconReplace, locales.FindReplaceOne(), false).Disabled(len(f.matches) == 0).Clicked() {
 				a.replaceOne(d)
 			}
-			if a.iconButton(c, iconReplaceAll, "Replace All", false).Disabled(len(f.matches) == 0).Clicked() {
+			if a.iconButton(c, iconReplaceAll, locales.FindReplaceAll(), false).Disabled(len(f.matches) == 0).Clicked() {
 				a.replaceAll(d)
 			}
 			// Under the count and the buttons after it, so that the fields
@@ -432,6 +442,8 @@ func (a *app) optionToggle(c *ui.Context, icon *ui.SVG, label string, on *bool) 
 	} else if b.Hovered() {
 		b.Background(p.hover)
 	}
+	b.Transition(hoverFade)
+	pressPose(b)
 	b.Children(func() { ui.Icon(c, icon).FontSize(13).TextColor(col) })
 	if b.Clicked() {
 		*on = !*on

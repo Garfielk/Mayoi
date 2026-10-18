@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/remote"
+	"mayoi/locales"
 )
 
 // The ports of a host forward to this machine, so that a server running
@@ -23,10 +25,10 @@ func (a *app) askForwardPort() {
 		return
 	}
 	host := a.conn.Host
-	a.prompt = &prompt{title: "Forward a Port", hint: "of " + host, done: func(v string) string {
+	a.prompt = &prompt{title: locales.PortForwardTitle(), hint: locales.PortOfHost(host), done: func(v string) string {
 		port, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(v), ":")))
 		if err != nil || port < 1 || port > 65535 {
-			return "Enter a port, from 1 to 65535."
+			return locales.PortEnter()
 		}
 		if _, err := a.forwardPort(port); err != nil {
 			return err.Error()
@@ -40,7 +42,7 @@ func (a *app) askForwardPort() {
 func (a *app) forwardPort(port int) (*remote.Forward, error) {
 	c := a.conn
 	if c == nil {
-		return nil, fmt.Errorf("not a remote folder")
+		return nil, errors.New(locales.ErrNotRemoteFolder())
 	}
 	was := c.LocalPort(port)
 	f, err := c.Forward(port)
@@ -48,8 +50,8 @@ func (a *app) forwardPort(port int) (*remote.Forward, error) {
 		return nil, err
 	}
 	if was == 0 {
-		msg := fmt.Sprintf("Port %d of %s is at localhost:%d", port, c.Host, f.Local)
-		a.tell(note{message: msg, label: "Open in Browser", action: func() { a.services.OpenURL(f.URL()) }})
+		msg := locales.PortIsAt(port, c.Host, f.Local)
+		a.tell(note{message: msg, label: locales.OpenInBrowser(), action: func() { a.services.OpenURL(f.URL()) }})
 	}
 	return f, nil
 }
@@ -74,7 +76,7 @@ func (a *app) localLink(link string) (string, bool) {
 	}
 	f, err := a.forwardPort(port)
 	if err != nil {
-		a.fail("Could not forward port %d: %v", port, err)
+		a.fail("%s", locales.FailForwardPort(port, err.Error()))
 		return "", false
 	}
 	u.Host = net.JoinHostPort("localhost", strconv.Itoa(f.Local))
@@ -107,15 +109,16 @@ func (a *app) portsStatus(c *ui.Context, text func(string) ui.Element) {
 	}
 	p := a.pal
 	label := portsLabel(fs)
-	tip := fmt.Sprintf("%d ports of %s forwarded", len(fs), a.conn.Host)
+	tip := locales.PortsForwarded(len(fs), a.conn.Host)
 	if len(fs) == 1 {
-		tip = fmt.Sprintf("Port %d of %s is at localhost:%d", fs[0].Port, a.conn.Host, fs[0].Local)
+		tip = locales.PortIsAt(fs[0].Port, a.conn.Host, fs[0].Local)
 	}
 	b := ui.ButtonBase(c.Key("status:ports")).Height(statusBarH-6).Padding(0, 6).Gap(5).Radius(4).
 		AlignItems(ui.Center).Label(tip).Tooltip(tip)
 	if b.Hovered() {
 		b.Background(p.hover)
 	}
+	b.Transition(hoverFade)
 	b.Children(func() {
 		ui.Icon(c, iconPlug).FontSize(12).TextColor(p.statusFg)
 		text(label)
@@ -145,14 +148,14 @@ func (a *app) portsMenu(m *ui.Menu) {
 	}
 	for _, f := range a.conn.Forwards() {
 		m.Submenu(fmt.Sprintf("%d → localhost:%d", f.Port, f.Local), func(m *ui.Menu) {
-			if m.Item("Open in Browser").Chosen() {
+			if m.Item(locales.OpenInBrowser()).Chosen() {
 				a.services.OpenURL(f.URL())
 			}
-			if m.Item("Copy Address").Chosen() {
+			if m.Item(locales.CopyAddress()).Chosen() {
 				a.services.WriteClipboard(f.URL())
 			}
 			m.Separator()
-			if m.Item("Stop Forwarding").Chosen() {
+			if m.Item(locales.StopForwarding()).Chosen() {
 				f.Close()
 			}
 		})
@@ -160,7 +163,7 @@ func (a *app) portsMenu(m *ui.Menu) {
 	if len(a.conn.Forwards()) > 0 {
 		m.Separator()
 	}
-	if m.Item("Forward a Port…").Chosen() {
+	if m.Item(locales.ForwardPortEllipsis()).Chosen() {
 		a.post(a.askForwardPort)
 	}
 }

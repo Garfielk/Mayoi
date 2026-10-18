@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"mayoi/locales"
 	"path/filepath"
 	"strings"
 
@@ -53,7 +54,7 @@ func (a *app) promptView(c *ui.Context) {
 				}
 				if pr.err != "" {
 					in.Error(pr.err)
-					ui.Text(c, pr.err).FontSize(12).TextColor(p.danger)
+					ui.Text(c, pr.err).FontSize(12).TextColor(p.dangerFg)
 				}
 				if in.Changed() {
 					pr.err = ""
@@ -62,7 +63,7 @@ func (a *app) promptView(c *ui.Context) {
 					submit()
 				}
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-					if ui.Button(c, "Cancel").Clicked() {
+					if ui.Button(c, locales.ButtonCancel()).Clicked() {
 						a.prompt = nil
 					}
 					if ui.PrimaryButton(c, strings.TrimSuffix(pr.title, "…")).Disabled(strings.TrimSpace(pr.value) == "").Clicked() {
@@ -138,13 +139,13 @@ func (a *app) confirmView(c *ui.Context) {
 					ch := cf.choices[min(max(cf.choice, 0), len(cf.choices)-1)]
 					col := p.muted
 					if ch.danger {
-						col = p.danger
+						col = p.dangerFg
 					}
 					ui.Text(c, ch.message).FontSize(12.5).TextColor(col).ClipX()
 				}
 				buttons := ui.Row(c).Gap(8).Justify(ui.End)
 				buttons.Children(func() {
-					cancel := ui.Button(c, "Cancel")
+					cancel := ui.Button(c, locales.ButtonCancel())
 					if compact {
 						cancel.FontSize(12).Padding(6, 8)
 					}

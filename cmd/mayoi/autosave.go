@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"mayoi/internal/remote"
+	"mayoi/locales"
 )
 
 // autoSaveDelay is how long after the last edit a changed file saves.
@@ -74,7 +75,7 @@ func (a *app) autoSaveDoc(d *document) {
 	failed := func(err error) {
 		if !d.autoSave.failed {
 			d.autoSave.failed = true
-			a.fail("Could not save %s: %v", d.name(), err)
+			a.fail("%s", locales.FailSave(d.name(), err.Error()))
 		}
 	}
 	if remote.Is(d.path) {

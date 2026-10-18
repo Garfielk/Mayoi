@@ -7,7 +7,7 @@
 <p align="center">迷い — a small, fast code editor written in Go. It draws a native UI on the GPU with
 <a href="https://github.com/egoist/mygo">MyGo</a>, with no webview and no Electron, and the packaged app is about 18 MB.</p>
 
-<img alt="Mayoi editing its own source in two columns, with a terminal below" src="docs/screenshots/hero.png">
+https://github.com/user-attachments/assets/673e7907-2b2c-4ed6-9093-1ba9633cd61c
 
 ## Features
 
@@ -23,7 +23,7 @@
 - **Git:** a source control view to stage, commit, amend, undo, pull and push, every change in one diff, folded
   around the changes, inline or side by side, a graph of the commits with their branches and tags, each with its own
   diff, gutter marks that revert or stage a change, branches and blame
-- **Terminal:** Ghostty's emulator (libghostty-vt), in the bottom panel or in a tab
+- **Terminal:** Ghostty's emulator (libghostty-vt), in the bottom panel, at a side of the window, or in a tab
 - **Remote SSH:** open a folder on another machine with the system's `ssh`, nothing installed there: the Explorer,
   search, Git and terminals run on the host, and its ports forward to this machine
 - **Image viewer:** PNG, JPEG, GIF, WebP and BMP
@@ -34,6 +34,8 @@
 - **Auto save,** and every window reopened as you left it, with its columns, tabs and carets
 - **Settings:** JSON files applied as you save them, with the code's and the terminal's fonts, weight, ligatures and
   line height, and keyboard shortcuts in VS Code's format (see [docs/SETTINGS.md](docs/SETTINGS.md))
+- **AI commit messages:** signed in, write the commit message from the changes with Mon's AI gateway
+- **Settings sync:** sign in with GitHub or Google, and your settings and keyboard shortcuts follow you between machines
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the details, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a tour of the
 source and how fast it runs, and [CONTRIBUTING.md](CONTRIBUTING.md) to build, test and release Mayoi.
@@ -81,10 +83,13 @@ source and how fast it runs, and [CONTRIBUTING.md](CONTRIBUTING.md) to build, te
 
 ## Requirements
 
-- macOS 13 or later
+- macOS 13 or later, or Linux with GTK 3, such as Ubuntu 22.04 or later
 - Go 1.27 or later
 
-Mayoi also builds for Linux and Windows.
+Mayoi also builds for Windows.
+
+On Linux, `curl -fsSL https://github.com/sorrycc/Mayoi/releases/latest/download/install.sh | sh` installs the latest
+release for you in `~/.local`, with the `mayoi` command and an entry in the applications menu.
 
 ## Getting started
 
@@ -93,7 +98,8 @@ go run ./cmd/mayoi ~/some/project    # open a folder or a file
 go tool mygo build                   # build build/darwin-arm64/Mayoi.app and a .dmg
 ```
 
-To open folders from a shell, choose **File → Install 'mayoi' Command**, then run `mayoi .` or `mayoi <file>`.
+To open folders from a shell, choose **File → Install 'mayoi' Command** (on Linux the installer adds it), then run
+`mayoi .` or `mayoi <file>`.
 
 ## Keyboard shortcuts
 

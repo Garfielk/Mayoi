@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io/fs"
 	"path"
 	"path/filepath"
@@ -16,6 +15,7 @@ import (
 
 	"mayoi/internal/remote"
 	"mayoi/internal/vfs"
+	"mayoi/locales"
 )
 
 // remoteSupported is whether Mayoi reaches folders over SSH here: the
@@ -188,7 +188,10 @@ func (a *app) reconnected() {
 	if a.git.repo == nil {
 		a.git.looked = false
 	}
-	a.git.meta, a.git.refsMeta = time.Time{}, time.Time{}
+	for _, ctx := range a.rootRepositoryList() {
+		ctx.git.meta, ctx.git.refsMeta = time.Time{}, time.Time{}
+	}
+	a.repositories.dirty = true
 	a.indexStale, a.ignoredStale = true, true
 	a.gitChanged()
 	a.restartTerminals()
@@ -260,9 +263,9 @@ func (a *app) remoteLoaded(d *document, path string, info fs.FileInfo, data []by
 		}
 		switch {
 		case errors.Is(err, errBinary):
-			a.fail("%s is a binary file", filepath.Base(path))
+			a.fail("%s", locales.FailBinary(filepath.Base(path)))
 		case !errors.Is(err, fs.ErrNotExist) || !d.restored:
-			a.fail("Could not open %s: %v", filepath.Base(path), err)
+			a.fail("%s", locales.FailOpen(filepath.Base(path), err.Error()))
 		}
 		a.dropDocTabs(d)
 		return
@@ -343,7 +346,7 @@ func (a *app) saveRemote(d *document, done func(), failed func(error)) {
 		return
 	}
 	if !remote.IsConnected(d.path) {
-		failed(fmt.Errorf("not connected to %s", remote.HostOf(d.path)))
+		failed(errors.New(locales.ErrNotConnectedTo(remote.HostOf(d.path))))
 		return
 	}
 	d.saving = true
@@ -398,10 +401,10 @@ func (a *app) askSavePath(name string, done func(path string)) {
 		return
 	}
 	host, root, _ := remote.Split(a.root)
-	a.prompt = &prompt{title: "Save As…", hint: "on " + host, value: path.Join(root, name), done: func(p string) string {
+	a.prompt = &prompt{title: locales.SaveAsEllipsis(), hint: locales.OnHost(host), value: path.Join(root, name), done: func(p string) string {
 		p = strings.TrimSpace(p)
 		if !strings.HasPrefix(p, "/") {
-			return "Enter a path from /."
+			return locales.EnterPathFromRoot()
 		}
 		done(remote.Path(host, p))
 		return ""
@@ -430,27 +433,34 @@ func (a *app) remoteBanner(c *ui.Context) {
 	plain := func(t string) ui.Span { return ui.Span{Text: t, Color: p.text} }
 	faint := func(t string) ui.Span { return ui.Span{Text: t, Color: p.muted} }
 	tint, icon, iconCol := p.hover, iconServer, p.muted
+	// A message of the catalogs, with the host in it in bold.
+	about := func(msg string) []ui.Span {
+		before, after, ok := strings.Cut(msg, host)
+		if !ok {
+			return []ui.Span{plain(msg)}
+		}
+		return []ui.Span{plain(before), bold(host), plain(after)}
+	}
 	var spans []ui.Span
-	button := "Reconnect"
+	button := locales.RemoteReconnect()
 	switch {
 	case a.connState == remote.Connecting && a.retries > 0:
-		spans = []ui.Span{plain("Reconnecting to "), bold(host), plain("…"), faint(fmt.Sprintf("  attempt %d", a.retries+1))}
+		spans = append(about(locales.RemoteReconnectingTo(host)), faint(locales.RemoteAttempt(a.retries+1)))
 	case a.connState == remote.Connecting:
-		spans = []ui.Span{plain("Connecting to "), bold(host), plain("…")}
+		spans = about(locales.RemoteConnectingTo(host))
 	case remote.Refused(a.connErr):
 		tint, icon, iconCol = p.danger.Alpha(0.10), iconLock, p.danger
-		spans = []ui.Span{bold(host), plain(" refused the connection. "), faint(a.connErr.Error())}
-		button = "Try Again"
+		spans = append(about(locales.RemoteRefused(host)), faint(a.connErr.Error()))
+		button = locales.RemoteTryAgain()
 	case a.connErr != nil:
 		tint, icon, iconCol = p.danger.Alpha(0.08), iconWifiOff, p.danger
-		spans = []ui.Span{plain("Lost the connection to "), bold(host), plain(". ")}
+		spans = about(locales.RemoteLostTo(host))
 		if !errors.Is(a.connErr, remote.ErrLost) {
 			spans = append(spans, faint(a.connErr.Error()))
 		}
-		button = "Reconnect Now"
+		button = locales.RemoteReconnectNow()
 	default:
-		spans = []ui.Span{plain("Disconnected from "), bold(host), plain(". "),
-			faint("The files are read-only until it connects again.")}
+		spans = append(about(locales.RemoteDisconnectedFrom(host)), faint(locales.RemoteReadOnly()))
 	}
 	full := ""
 	for _, sp := range spans {
@@ -470,7 +480,7 @@ func (a *app) remoteBanner(c *ui.Context) {
 		}
 		if a.retry != nil {
 			left := max(time.Until(a.retryAt).Round(time.Second), time.Second)
-			ui.Text(c, fmt.Sprintf("Retrying in %ds", int(left.Seconds()))).FontSize(12).TextColor(p.muted).SingleLine().Shrink(0)
+			ui.Text(c, locales.RemoteRetryingIn(int(left.Seconds()))).FontSize(12).TextColor(p.muted).SingleLine().Shrink(0)
 			// Again as the count goes down.
 			time.AfterFunc(max(time.Until(a.retryAt)%time.Second, 0)+20*time.Millisecond, a.invalidate)
 		}
@@ -486,22 +496,22 @@ func (a *app) remoteTreeWaits(c *ui.Context) {
 	p := a.pal
 	host := a.conn.Host
 	ui.Column(c).Padding(28, 20, 16, 20).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Size(44, 44).Radius(22).Background(p.text.Alpha(0.06)).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+		popUp(ui.Box(c.Key("badge")).Size(44, 44).Radius(22).Background(p.text.Alpha(0.06)).Justify(ui.Center).AlignItems(ui.Center)).Children(func() {
 			if a.connState == remote.Connecting {
 				ui.Spinner(c).Size(18, 18)
 			} else {
 				ui.Icon(c, iconWifiOff).FontSize(20).TextColor(p.muted)
 			}
 		})
-		title, msg := "Connecting…", "The files show once "+host+" answers."
+		title, msg := locales.RemoteConnecting(), locales.RemoteFilesShowOnce(host)
 		if a.connState == remote.Offline {
-			title, msg = "Not Connected", "The files of "+host+" show once it connects."
+			title, msg = locales.RemoteNotConnected(), locales.RemoteFilesOfShow(host)
 		}
 		ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(p.text).Margin(4, 0, 0, 0)
 		ui.Text(c, msg).FontSize(12).TextColor(p.muted).TextAlign(ui.Center).LineHeight(1.45)
 		if a.connState == remote.Offline {
 			ui.Box(c).Height(4)
-			if ui.Button(c.Key("tree-reconnect"), "Reconnect").FillWidth().Clicked() {
+			if ui.Button(c.Key("tree-reconnect"), locales.RemoteReconnect()).FillWidth().Clicked() {
 				a.reconnect()
 			}
 		}
@@ -519,6 +529,8 @@ func (a *app) barButton(c *ui.Context, key, label string) ui.Element {
 	case b.Hovered():
 		b.Background(p.surfaceHover)
 	}
+	b.Transition(hoverFade)
+	pressPose(b)
 	b.Children(func() {
 		ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.text).SingleLine()
 	})
@@ -533,18 +545,18 @@ func (a *app) remoteStatus(c *ui.Context, text func(string) ui.Element) {
 	}
 	p := a.pal
 	host := a.conn.Host
-	label, tip, tint := "SSH: "+host, "Connected to "+host, p.accent
+	label, tip, tint := "SSH: "+host, locales.RemoteConnectedTo(host), p.accent
 	switch {
 	case a.connState == remote.Connected:
 		if info := a.conn.Info(); info.OS != "" {
 			tip += " (" + info.OS + ")"
 		}
 	case a.connState == remote.Connecting:
-		tip = "Connecting to " + host
+		tip = locales.RemoteConnectingTip(host)
 	case a.retry != nil:
-		tip, tint = "Lost the connection to "+host+": reconnecting", p.danger
+		tip, tint = locales.RemoteLostReconnecting(host), p.danger
 	default:
-		tip, tint = "Disconnected from "+host, p.danger
+		tip, tint = locales.RemoteDisconnectedTip(host), p.danger
 	}
 	b := ui.ButtonBase(c.Key("status:ssh")).Height(statusBarH-6).Padding(0, 7).Gap(5).Radius(4).
 		AlignItems(ui.Center).Label(tip).Tooltip(tip)
@@ -552,6 +564,7 @@ func (a *app) remoteStatus(c *ui.Context, text func(string) ui.Element) {
 	if b.Hovered() {
 		b.Background(tint.Alpha(0.26))
 	}
+	b.Transition(hoverFade)
 	b.Children(func() {
 		if a.connState == remote.Connecting {
 			ui.Spinner(c).Size(11, 11)
@@ -565,23 +578,23 @@ func (a *app) remoteStatus(c *ui.Context, text func(string) ui.Element) {
 		text(label)
 	})
 	b.Menu(func(m *ui.Menu) {
-		if m.Item("Reconnect").Disabled(a.connState != remote.Offline).Chosen() {
+		if m.Item(locales.RemoteReconnect()).Disabled(a.connState != remote.Offline).Chosen() {
 			a.reconnect()
 		}
-		if m.Item("Disconnect").Disabled(a.connState == remote.Offline).Chosen() {
+		if m.Item(locales.RemoteDisconnect()).Disabled(a.connState == remote.Offline).Chosen() {
 			a.disconnect()
 		}
 		m.Separator()
-		m.Submenu("Ports", a.portsMenu)
+		m.Submenu(locales.RemotePorts(), a.portsMenu)
 		m.Separator()
-		if m.Item("Open Remote Folder…").Chosen() {
+		if m.Item(locales.CmdRemoteOpenFolder()).Chosen() {
 			a.post(a.openRemoteFolder)
 		}
-		if m.Item("Connect to Host…").Chosen() {
+		if m.Item(locales.CmdRemoteConnect()).Chosen() {
 			a.post(a.openRemotePicker)
 		}
 		m.Separator()
-		if m.Item("Close Remote Folder").Chosen() {
+		if m.Item(locales.RemoteCloseFolder()).Chosen() {
 			a.post(a.closeFolder)
 		}
 	})
@@ -595,16 +608,16 @@ func (a *app) loadingView(c *ui.Context, d *editor) {
 	ui.Column(c).Fill().Center().Gap(10).Background(p.editor).Padding(24).Children(func() {
 		if d.loading {
 			ui.Spinner(c).Size(16, 16)
-			ui.Text(c, "Reading "+d.name()+"…").FontSize(13).TextColor(p.muted)
+			ui.Text(c, locales.RemoteReading(d.name())).FontSize(13).TextColor(p.muted)
 			return
 		}
 		ui.Icon(c, iconServer).FontSize(20).TextColor(p.muted)
-		msg := "Could not read " + d.name() + ": " + d.loadErr.Error()
+		msg := locales.RemoteCouldNotRead(d.name(), d.loadErr.Error())
 		if errors.Is(d.loadErr, remote.ErrOffline) {
-			msg = d.name() + " shows once " + remote.HostOf(d.path) + " is connected."
+			msg = locales.RemoteShowsOnce(d.name(), remote.HostOf(d.path))
 		}
 		ui.Text(c, msg).FontSize(13).TextColor(p.muted).MaxWidth(420)
-		if !errors.Is(d.loadErr, remote.ErrOffline) && ui.Button(c.Key("retry:"+d.path), "Try Again").Clicked() {
+		if !errors.Is(d.loadErr, remote.ErrOffline) && ui.Button(c.Key("retry:"+d.path), locales.RemoteTryAgain()).Clicked() {
 			a.loadRemote(d.document)
 		}
 	})
@@ -631,14 +644,14 @@ func (a *app) saveConflict(d *document, done func(), failed func(error)) {
 	d.conflict = true
 	host := remote.HostOf(d.path)
 	a.confirm = &confirm{
-		title:   d.name() + " changed on " + host,
-		message: "It changed on " + host + " since it was opened here. Overwrite it with your changes, or revert to the file on the host? Undo brings your changes back after a revert.",
-		ok:      "Overwrite", danger: true, okShort: "Overwrite",
+		title:   locales.RemoteChangedOn(d.name(), host),
+		message: locales.RemoteChangedDetail(host),
+		ok:      locales.RemoteOverwrite(), danger: true, okShort: locales.RemoteOverwrite(),
 		run: func() {
 			d.conflict, d.stamp = false, nil
 			a.saveRemote(d, done, failed)
 		},
-		alternate: "Revert to the File", alternateShort: "Revert",
+		alternate: locales.RemoteRevertToFile(), alternateShort: locales.RemoteRevert(),
 		runAlternate: func() {
 			d.conflict = false
 			a.revertRemote(d)
@@ -657,11 +670,11 @@ func (a *app) revertRemote(d *document) {
 				return
 			}
 			if err != nil {
-				a.fail("Could not read %s: %v", d.name(), err)
+				a.fail("%s", locales.RemoteCouldNotRead(d.name(), err.Error()))
 				return
 			}
 			if isBinary(data) {
-				a.fail("%s is a binary file now", d.name())
+				a.fail("%s", locales.FailBinaryNow(d.name()))
 				return
 			}
 			d.takeText(data)

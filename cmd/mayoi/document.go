@@ -14,6 +14,7 @@ import (
 	"mayoi/internal/highlight"
 	"mayoi/internal/settings"
 	"mayoi/internal/vfs"
+	"mayoi/locales"
 )
 
 // maxOpenBytes is the largest file the editor opens.
@@ -209,7 +210,7 @@ func readDocument(id int, path string, notify func()) (*document, error) {
 		return nil, err
 	}
 	if info.Size() > maxOpenBytes {
-		return nil, errors.New("file is too large to open")
+		return nil, errors.New(locales.ErrTooLarge())
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

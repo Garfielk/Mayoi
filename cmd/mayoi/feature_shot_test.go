@@ -30,6 +30,9 @@ func featDir(t *testing.T) string {
 
 // featShell makes terminals start a zsh with a short, colorful prompt.
 func featShell(t *testing.T) {
+	if _, err := os.Stat("/bin/zsh"); err != nil {
+		t.Skip("no zsh")
+	}
 	z := t.TempDir()
 	os.WriteFile(filepath.Join(z, ".zshrc"), []byte(`
 PROMPT='%F{cyan}%1~%f %F{magenta}main%f %F{green}❯%f '
@@ -311,7 +314,7 @@ func TestFeatGutter(t *testing.T) {
 		hs.settleGit()
 		d := a.activeEditor()
 		hs.caretAt(d, "return a.settings.WordWrap", 0, 0)
-		hs.until("blame", func() bool { hs.tt.Frame(); return d.blame.done })
+		hs.until("blame", func() bool { step(hs.tt); return d.blame.done })
 		hs.settle()
 		hs.fshot("07-blame-gutter", dark)
 		s := d.buf.String()
@@ -634,7 +637,7 @@ func TestFeatProjectTabs(t *testing.T) {
 		r, _ := tt.Find("website")
 		tt.Move(r.X+r.W/2, r.Y+r.H/2)
 		for range 40 {
-			tt.Frame()
+			step(tt)
 			time.Sleep(10 * time.Millisecond)
 		}
 		h.fshot("17-project-tabs", dark)

@@ -182,7 +182,7 @@ func TestImageTabsMoveAndRestore(t *testing.T) {
 	tt := ui.NewTester(b.view, 1200, 760)
 	deadline := time.Now().Add(5 * time.Second)
 	for (b.activeViewer() == nil || b.activeViewer().src == nil) && time.Now().Before(deadline) {
-		tt.Frame()
+		step(tt)
 		time.Sleep(5 * time.Millisecond)
 	}
 	if v := b.activeViewer(); v == nil || v.src == nil || v.path != path {
@@ -256,8 +256,8 @@ func TestSVGPreview(t *testing.T) {
 	a.saveAll()
 	b := newApp(&fakeHost{folder: hs.root}, a.settings, a.window)
 	bt := ui.NewTester(b.view, 1200, 760)
-	bt.Frame()
-	bt.Frame()
+	step(bt)
+	step(bt)
 	if e := b.activeEditor(); e == nil || e.preview == nil || e.preview.src == nil {
 		t.Fatalf("restored %v", b.activeTab())
 	}

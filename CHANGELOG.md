@@ -96,6 +96,277 @@ needs a `## <version>` section here, or its build fails.
   list. The list shows of itself when a command stops for conflicts, and
   the merge goes on once every file of it stands resolved.
 
+- Find, quick open and the command palette shake their heads when
+  Return finds nothing to go to, as a Mac's password field does.
+- The find box goes back up as it fades out when closed, as do the peek
+  of a change and the box of a review comment.
+- The fields of find and search fade their accent border in and out as
+  they take and leave the keyboard.
+- The rows of quick open, the command palette and the pickers, the
+  buttons of Source Control, its commit button and branch, the buttons
+  of diffs and reviews, and the sync panel fade their hovers rather than
+  blink, and their small buttons sink as they are pressed.
+- The buttons that show only under the pointer, as those of a group of
+  changes or the Explorer's folder row, fade in and out.
+- The line along a splitter shows once the pointer rests on it, and
+  fades, rather than flashing as the pointer crosses it; a drag shows it
+  at once.
+- The badges of an empty folder, of no folder, of a folder with no
+  repository and of No Changes pop in, so a commit that leaves nothing
+  to commit ends with a check.
+- Switching between Explorer, Search and Source Control fades the view
+  in.
+- The counts of Source Control's groups roll to their new numbers.
+- Tabs move: a new tab grows in, a closed one folds away while the
+  others slide over, the line over the tab shown slides to the next one,
+  the cross fades in under the pointer, and the dot of unsaved changes
+  pops in. Terminal chips in the panel grow and fold the same way.
+- Buttons, tabs, breadcrumbs, the status bar and the welcome page fade
+  their hover colors in and out rather than blink, and icon buttons sink
+  a little as they are pressed.
+- The mark under the sidebar's view switches slides to the view chosen,
+  and the mark of the row chosen in quick open, the command palette and
+  the pickers slides as the arrow keys move it.
+- Chevrons turn as their sections, folders and the replace fields open
+  and close, rather than swap.
+- Counts roll to their new numbers: the changes on the Source Control
+  switch, and find's match count, down when going back.
+- The Vim badge fades between its modes' colors, and the name of the
+  branch, the preview's icon and the name in the title bar cross-fade as
+  they change.
+- The welcome page's logo, Start and Recent rise in one after another.
+- Going back to a wrapped file's tab no longer jumps it up the file at
+  times; it shows where it was left.
+- The box in the middle of the title bar no longer leaves a gap after a
+  short name, as a terminal's `zsh`, before the folder.
+- The welcome page's rows are all one height, with keys or without, so
+  Start and Recent keep one rhythm.
+- In Vim mode, the status bar shows the mode as a badge, colored by
+  mode: plain in normal mode, the accent color in insert mode, and amber in visual
+  mode, in place of `-- NORMAL --`.
+- The command palette and the welcome page's Command Palette… row show a
+  ⌘ icon instead of a chevron, and the welcome page's logo lines up with
+  the icons of the rows below it.
+- With more than six recent folders, the welcome page ends its list with
+  More…, which opens Open Recent (⌃R) to show the rest.
+- Source Control's message box starts one line high and grows with the
+  message, up to eight lines; a hint that wraps in a narrow sidebar shows
+  whole.
+- Cut with no selection cuts the caret's entire line,
+  and can be undone in one step.
+- Splitting a diff to the right no longer closes the window (#20, #39).
+- Quick open and the command palette match a run of letters together:
+  `git` lights up the whole of **Git** in "Git: Fetch", rather than its
+  last t, and such names rank higher.
+- The Markdown preview draws a line under the largest headings and mutes
+  quotes, as GitHub does.
+- The welcome page gives Quick Open an icon of its own, apart from Find in
+  Files.
+- **Breadcrumb folders:** click a folder in the breadcrumbs to browse its
+  files in a tree below it, without the sidebar. Its folders open in
+  place, and the file you choose shows in that column; the arrows, Enter
+  and Esc work too. It works for files outside the folder and on SSH
+  hosts, and leaves the Explorer as it was (#38).
+- In light themes, the names of changed, added and deleted files, and
+  error messages, are drawn darker so they meet WCAG AA contrast (4.5:1);
+  the gutter marks keep their brighter colors.
+- A `fontFamily` that isn't installed falls back to the system's
+  monospaced font, not to its proportional one; so does
+  `terminalFontFamily`.
+- The breadcrumbs of a file outside the folder no longer start with an
+  empty segment, and show the home folder as `~`.
+- Typing in a long file highlights with less work: only the lines near the
+  edit go to the lexer, not the rest of the file, and a keystroke within a
+  line updates the colors in place rather than copying those of every line.
+
+- **Submodules in Source Control:** each initialized submodule, nested ones
+  and those of linked worktrees too, lists its own changes to stage and
+  commit. A picker in the commits header and the status bar shows another
+  repository's history, or, on Auto, the one of the active file.
+- **AI commit messages:** signed in to your mon.sorrycc.dev account, the ✨
+  button at the corner of Source Control's message box writes the commit
+  message from the staged changes, or from every change when nothing is
+  staged, in the style of the last commits. It streams into the box, and a
+  second click stops it; text already in the box goes along as notes.
+  **Git: Write Commit Message with AI** in the command palette does the same,
+  and the `aiModel` setting picks another of Mon's models.
+- **Mayoi → Sign In…** is the new name of **Sign In to Sync Settings…**, as
+  the account now does more than sync.
+
+## 0.10.0
+
+- **Settings sync:** **Mayoi → Sign In to Sync Settings…** (**Help** on
+  Windows and Linux) signs in to a mon.sorrycc.dev account with GitHub or
+  Google, and syncs `settings.json` and `keybindings.json` between your
+  machines. Changes merge setting by setting; `keybindings.json` changed on
+  two machines keeps this one's and saves the other's beside it.
+- **Settings sync** shows how it's going: a cloud at the right of the
+  status bar opens the account's panel, with your name and picture, when
+  the machine last synced, **Sync Now**, and **Manage Account** and **Sign
+  Out**. The sign-in dialog walks through the steps, shows the code in large
+  tiles and counts down until it expires. The welcome page offers to sign
+  in.
+- Settings sync keeps what you choose on one machine: switches in the
+  account's panel, or `syncIgnored` in `settings.json`, as
+  `["fontSize", "keybindings.json"]`.
+- Settings sync tries again by itself when it can't reach the account, says
+  why in plain words, and saves a change made just before you quit.
+- `keybindings.json` changed on two machines opens side by side with the
+  other's to merge, from the toast or the account's panel, or **Keep Mine**
+  drops the other's. **Sign Out of Settings Sync…** asks first.
+- Mayoi speaks Simplified Chinese and Japanese as well as English (#33):
+  the menus, the command palette, the panels, the dialogs and the messages
+  follow the system's languages, and **View → Language**, the command
+  palette's **Language** commands and the `locale` setting choose one. The
+  command palette still finds commands by their English names.
+- **Compare HEAD to Here**, **Compare Here to HEAD** and **Compare with
+  Selected** open the changes in a diff tab, inline or side by side, with
+  changed words tinted and unchanged lines folded, rather than as a patch
+  in a text tab; a card names the two commits, and the tab comes back with
+  the window.
+- The terminal panel's header has a menu: right-click it to move the panel
+  to the bottom, left or right, maximize it or hide it.
+- Source Control's **Remotes** shows each remote with a cloud and where it
+  points, as `github.com/owner/repo`, before you expand it.
+- Switching Source Control's **Repository** back to **Remotes** no longer
+  shows "No remotes" for a moment while it reads them again.
+- A commit in Source Control keeps its time in view in a narrow sidebar or
+  under an expanded branch: its branch and tag badges narrow, or count the
+  rest, before they push the time out.
+- The terminal panel can sit at the bottom, left or right of the window:
+  **View → Panel Position**, the command palette's **Move Panel to Left**,
+  **Right** and **Bottom**, the `panelPosition` setting and
+  `keybindings.json`'s `workbench.action.positionPanelLeft` and its
+  neighbours choose where, and a panel still starts at the bottom. At a side
+  it sits past the sidebar, so with both on a side the panel is the outer
+  one, and dragging its inner edge sizes it. The title bar's panel button is
+  a terminal now, and it follows the panel's side: at the left of the bar
+  when the panel is there, past the sidebar's button when the sidebar is
+  there too, at the right otherwise.
+- The Explorer and the Source Control tree indent each folder level less,
+  as VS Code does, so deeply nested files keep room for their names.
+- Linux: Mayoi no longer sometimes crashes as it starts on machines that
+  draw with the GPU (#24).
+- Linux: text shows dark and crisp again where the desktop antialiases text
+  by its subpixels, as on Ubuntu 22.04, where it was faint and tinted.
+- Linux: tabs indent code to their tab stops; they took no room, so
+  indented code lost its indentation and the caret stood off its text.
+- Linux: a submenu of the menu bar, such as **View → Theme**, opens under
+  the pointer rather than closing the menu.
+- Shortcuts read as their keys on Windows and Linux, a cap for Ctrl, Shift
+  and the key, on the welcome page and in Quick Open, rather than a cap
+  for each letter.
+- Linux: `install.sh` and the Debian package add the `mayoi` command, and
+  `mayoi .` in a terminal gives the prompt back at once, leaving Mayoi
+  open when the terminal closes.
+- Opening a branch checked out in another worktree works with Git before
+  2.36, as on Ubuntu 22.04.
+- A paste to or from a remote host canceled as it finishes leaves nothing
+  behind.
+- A paste to or from a remote host canceled before it starts copies
+  nothing; a small one could still arrive.
+- Git work still running in a folder you switch away from no longer lands
+  in the new folder's Source Control, where it cleared its busy message or
+  loading state and ran its follow-ups.
+- Source Control has a **Repository** section below the commits, closed at
+  first, whose **Branches** and **Remotes** list each branch with its
+  upstream and history, and each remote with its URLs and branches; their
+  menus check out, pull, create, rename, delete, merge and rebase branches,
+  and add, edit, fetch, prune and remove remotes.
+- Selecting a file anywhere in its Explorer row switches to its editor,
+  including clicks in the space beside its name, and moving through the
+  Explorer with the arrow keys previews each file in turn.
+- Review comments: choose lines in a diff (Shift-click, a drag or
+  Shift+J/K) and press C, or select lines in a file and press ⇧⌘M, to
+  comment on them. **Send Review Comments to Terminal** pastes them all
+  into the terminal used last, for the agent there, each with its path,
+  line numbers and lines; ⌘C in a diff copies the lines chosen so.
+- A **+** button by the line under the pointer in a diff comments on it,
+  or on the lines chosen with it, and a bar marks the lines of each
+  comment, with a mark on the scroll bar.
+- A diff with review comments offers **Send N Comments** in its toolbar,
+  and Delete deletes the comment chosen in it.
+- A file shows each review comment after the last of its lines; click it
+  to edit the comment, or hover it to read it all.
+- Review comment cards are redrawn: a stripe of the accent down their
+  edge, an **Outdated** badge when their lines changed, and a Comment
+  button that stays off until there is something to say.
+- Review comments read in the window's font, wrapped to the card, on a
+  raised card; side by side, each shows under the side of its lines,
+  and an outdated one quotes the lines it was written on.
+- Review comments are kept with the folder's session, so they are there
+  again at the next start.
+- `n` and `N` in a diff, and **Go to Next Review Comment** and **Go to
+  Previous Review Comment**, go from comment to comment. The status bar's
+  menu lists them under their files, and going to one on lines removed,
+  staged or of a commit shows it in its diff.
+- Deleting a review comment, or clearing them all, can be undone from
+  its toast, and a comment being edited has a Delete button.
+- A review comment after its lines in a file shows on a tinted chip.
+- Lock a column from its tab menu to keep it for terminals: Move to Locked
+  Right Column puts a running terminal there in one step. Files opened from
+  the Explorer, Search, Quick Open or Source Control go to an unlocked
+  column, which stays beside the terminal, at the same width, when its last
+  file closes. An empty locked column offers a new terminal, ⌘W closes an
+  extra empty column, and each project's session remembers the locks.
+- Source Control selects several files: Shift-click or Shift+Up/Down
+  for a range, Cmd-click (Ctrl-click on Windows and Linux) for one more,
+  and Cmd+A for all. Space, and a selected row's stage, unstage and
+  discard buttons and menu items, act on all the files selected.
+- The Explorer, and Source Control as a tree, draw indent guides down
+  from each open folder, in the Explorer brighter for the folder of the
+  file shown, and a shadow under the folder's name as the files scroll
+  under it.
+- The Markdown preview draws a task's checkbox as a box, filled once
+  done, and lists with softer bullets, rings for a list in a list.
+- A picture fitted to its tab leaves a margin around it, and a hairline
+  sets it off from the pane.
+- The editor does less work on every frame it paints: idle and scrolling
+  frames of a large file allocate about a quarter of what they did.
+- Windows: the programs Mayoi runs in the background, git above all, no
+  longer open a console window of their own, which reached the desktop as
+  a terminal window that flashed open and closed around every command the
+  editor ran.
+- MyGo 0.5.5: a double click is counted by the system's double-click
+  settings, and programs in the terminal that read the clipboard can take
+  pasted images. Mayoi still builds on a fork of it, with one change to
+  draw long files with less work until it is released upstream.
+- A commit's menu saves or copies its patch, binary changes included,
+  compares it with HEAD or with a commit chosen before, and opens it on
+  GitHub, GitLab or Bitbucket.
+- **File → New Window** (⇧⌘N) opens a window that shows nothing, which
+  the welcome page fills, and on macOS the Dock icon's menu has it above
+  the recent folders.
+- macOS: files and folders dropped on the Dock icon open, as `mayoi
+  <path>` opens them, and Mayoi is in the Finder's **Open With** menu
+  for any file (#28).
+- The middle mouse button closes the tab under the pointer, without
+  showing it first, as a browser's tabs do: the file you are reading
+  stays where it is. Let go of it off the tab, and the tab stays open.
+- A diff no longer crashes Mayoi when files leave it, as when changes
+  are committed or discarded, while it is scrolled down to them.
+- With **View → Project Tabs** on, the rail of project tabs shows while
+  a window has one project too, rather than only once it has two, so the
+  project shown and the button that opens another folder stay in view.
+- The rail always shows each project's favicon or logo, keeping the
+  initials for a project without one; **View → Project Icons** and the
+  `projectIcons` setting are gone.
+- A remote folder's square on the rail has a server badge in its corner,
+  colored by how its host is connected, and its tip says so.
+- The rail labels each project with two letters, telling apart those that
+  start alike: Downloads and Documents show as "Dw" and "Dc" rather than
+  both "D".
+- A square's context menu has **Rename Tab…**, which shows up to two
+  characters of your own, an emoji too, in place of its initials or logo,
+  and **Tab Color**. They're kept in `projectTabStyle` in `settings.json`,
+  on each machine.
+- Drop a picture on a project's square, from the Finder or the Explorer,
+  or pick one with **Choose Icon…** in its context menu, and the square
+  shows it in place of the project's logo: a PNG, JPEG, WebP, SVG, ICO or
+  ICNS, copied into `project-icons` beside `settings.json`. **Reset Icon**
+  brings the logo back, and a label given with **Rename Tab…** takes the
+  icon's place.
+
 ## 0.9.1
 
 - ⇧⌘E gives the Explorer the keyboard, as in VS Code, so that the arrows

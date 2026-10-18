@@ -372,7 +372,16 @@ func TestRemoteProjectLogo(t *testing.T) {
 		t.Error("a logo from a host that is not connected")
 	}
 	h := &desktop{}
-	if h.needsLogoScan(off) {
+	if h.needsLogoScan(off, "") {
 		t.Error("a host that is not connected is scanned")
+	}
+	// But its icon of its own, of this machine, shows.
+	if !h.needsLogoScan(off, "/icons/a.png") {
+		t.Error("the icon of a host's project waits for the host")
+	}
+	// And one it no longer has goes without waiting.
+	h.logoDone, h.logoDir, h.logoIcon = true, off, "/icons/a.png"
+	if !h.needsLogoScan(off, "") {
+		t.Error("the icon reset waits for the host")
 	}
 }

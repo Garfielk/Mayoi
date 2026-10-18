@@ -41,7 +41,7 @@ func TestTypingKeepsColors(t *testing.T) {
 	at := len("// a comment\nvar s = \"a st")
 	hs.place(d, at, at)
 	tt.Type("x")
-	tt.Frame()
+	step(tt)
 	if !colored(1, str) {
 		t.Error("the line typed in lost its colors")
 	}
@@ -49,7 +49,7 @@ func TestTypingKeepsColors(t *testing.T) {
 	at = len("// a comment\n")
 	hs.place(d, at, at)
 	tt.Key(0, ui.KeyEnter)
-	tt.Frame()
+	step(tt)
 	if !colored(2, str) || !colored(3, comment) {
 		t.Error("the lines moved down lost their colors")
 	}

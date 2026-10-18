@@ -754,3 +754,10 @@ func (t *Tree) startNotify() {
 		})
 	}()
 }
+
+// SortEntries returns the paths of a directory's entries as the tree has
+// them, directories first and the hidden ones left out, and the
+// directories among them.
+func SortEntries(dir string, entries []vfs.Entry) ([]string, map[string]bool) {
+	return sortEntries(dir, entries)
+}

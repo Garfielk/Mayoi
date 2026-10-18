@@ -19,6 +19,7 @@ import (
 	"mayoi/internal/linediff"
 	"mayoi/internal/remote"
 	"mayoi/internal/settings"
+	"mayoi/locales"
 )
 
 // diffBase is what a diff compares: which version of a file with which.
@@ -36,13 +37,13 @@ const (
 func (b diffBase) sides() (old, new string) {
 	switch b {
 	case diffIndex:
-		return "Index", "Working Tree"
+		return locales.SideIndex(), locales.SideWorkingTree()
 	case diffStaged:
-		return "HEAD", "Index"
+		return "HEAD", locales.SideIndex()
 	case diffLocal:
 		return "Left File", "Right File"
 	}
-	return "HEAD", "Working Tree"
+	return "HEAD", locales.SideWorkingTree()
 }
 
 // diffLayout is how a diff shows its sides: side by side when it is wide
@@ -236,6 +237,7 @@ type diffSide struct {
 // as the source control view lists it in group, and the changes between
 // them, read and compared in the background.
 type diffFile struct {
+	repoRoot string
 	path     string
 	peerPath string // right-hand path for a local two-file comparison
 	base     diffBase
@@ -306,12 +308,13 @@ func (f *diffFile) counts() (add, del int) {
 // lines removed and added interleaved, or side by side, and those
 // unchanged away from them folded.
 type diffView struct {
-	layout  diffLayout
-	split   bool // as the layout and the width chose last
-	full    bool // every unchanged line shows
-	local   bool // a comparison of two local files, outside Git status
-	wrap    *bool
-	wrapGen int
+	repoRoot string // work tree that owns this view, fixed when opened
+	layout   diffLayout
+	split    bool // as the layout and the width chose last
+	full     bool // every unchanged line shows
+	local    bool // a comparison of two local files, outside Git status
+	wrap     *bool
+	wrapGen  int
 
 	files []*diffFile
 	// status is the status of the repository the files were listed from.
@@ -326,6 +329,10 @@ type diffView struct {
 	rows          []diffRow
 	tops          []int
 	starts, heads []int
+	// cards are the rows of the cards of notes, and revealNote a note
+	// whose card to scroll to once it is laid out.
+	cards      []int
+	revealNote *reviewNote
 	// sections counts the files of the changes not staged, and of those
 	// staged, as the rows were laid out.
 	sections [2]int
@@ -351,6 +358,11 @@ type diffView struct {
 	// chosen, -1 for none. jump is a row to scroll to in the next frame,
 	// -1 for none, as jumpTo says.
 	current, cursor int
+	// anchor is where the rows chosen start, the cursor where they end, -1
+	// for the cursor's row alone; press is the row the pointer was pressed
+	// on, -1 when it is not, and dragged is set once it dragged to another.
+	anchor, press int
+	dragged       bool
 	// acted is set when the last click opened a gap or folded a file.
 	acted        bool
 	jump         int
@@ -385,7 +397,10 @@ type diffBoundary struct {
 // commitDiff is the commit a diff shows, and the files it changed, read
 // in the background.
 type commitDiff struct {
-	hash            string
+	hash string
+	// from is the commit a comparison starts at, whose changes are those
+	// from it to hash; "" for the changes of the commit hash alone.
+	from            string
 	info            git.Commit
 	files           []git.CommitFile
 	loading, loaded bool
@@ -418,6 +433,11 @@ type diffBuild struct {
 	cols              [2]int
 	card              int // how many lines tall the card of a commit is
 	font              codeFont
+	// review is the generation of the notes, noteW how wide the comments
+	// of their cards are, and draft how many rows the comment being typed
+	// takes.
+	review, draft int
+	noteW         float32
 }
 
 // jumpPlace is where a row jumped to shows.
@@ -430,7 +450,7 @@ const (
 )
 
 func newDiffView(layout diffLayout) *diffView {
-	return &diffView{layout: layout, current: -1, cursor: -1, jump: -1, near: [2]int{0, diffNear}}
+	return &diffView{layout: layout, current: -1, cursor: -1, anchor: -1, press: -1, jump: -1, near: [2]int{0, diffNear}}
 }
 
 func newLocalCompareView(layout diffLayout, left, right string) *diffView {
@@ -446,10 +466,26 @@ func newLocalCompareView(layout diffLayout, left, right string) *diffView {
 
 // newCommitView makes the tab of a commit's changes, its message read
 // already in info when its hash is set.
-func newCommitView(layout diffLayout, hash string, info git.Commit) *diffView {
+//
+// A key "from..to" makes the tab of a comparison instead: the changes from
+// commit from to commit to, read as those of a commit whose parent is from.
+func newCommitView(layout diffLayout, key string, info git.Commit) *diffView {
 	v := newDiffView(layout)
-	v.commit = &commitDiff{hash: hash, info: info}
+	if from, to, ok := strings.Cut(key, ".."); ok {
+		v.commit = &commitDiff{hash: to, from: from, info: git.Commit{Hash: to, Parents: []string{from}}}
+		return v
+	}
+	v.commit = &commitDiff{hash: key, info: info}
 	return v
+}
+
+// key is what names a commit's diff: its hash, or "from..to" for a
+// comparison, as newCommitView takes it.
+func (cm *commitDiff) key() string {
+	if cm.from == "" {
+		return cm.hash
+	}
+	return cm.from + ".." + cm.hash
 }
 
 func (v *diffView) name() string {
@@ -457,21 +493,27 @@ func (v *diffView) name() string {
 		return filepath.Base(v.files[0].path) + " ↔ " + filepath.Base(v.files[0].peerPath)
 	}
 	if c := v.commit; c != nil {
+		if c.from != "" {
+			return git.ShortHash(c.from) + " → " + git.ShortHash(c.hash)
+		}
 		if c.info.Subject != "" {
 			return c.info.Subject
 		}
-		return "Commit " + git.ShortHash(c.hash)
+		return locales.DiffCommitName(git.ShortHash(c.hash))
 	}
-	return "Changes"
+	return locales.DiffChangesName()
 }
 
 // same reports whether two diffs show the same changes: both those of
 // the work tree, or of one commit.
 func (v *diffView) same(o *diffView) bool {
+	if v.repoRoot != o.repoRoot {
+		return false
+	}
 	if v.commit == nil || o.commit == nil {
 		return v.commit == nil && o.commit == nil
 	}
-	return v.commit.hash == o.commit.hash
+	return v.commit.key() == o.commit.key()
 }
 
 // stop lets go of the highlighters and the editors of the sides edited.
@@ -542,12 +584,16 @@ const (
 // diff shows it folded.
 const foldedLines = 2000
 
-// changesTab returns the tab of the changes and its column, nil when no
-// column has one.
-func (a *app) changesTab() (*column, int) {
+// changesTab returns the tab of the changes in an unlocked column, nil
+// when none has one. Automatic opens leave locked columns alone.
+func (a *app) changesTab(roots ...string) (*column, int) {
+	root := a.diffRoot(roots)
 	for _, col := range a.cols {
+		if col.locked {
+			continue
+		}
 		for i, t := range col.tabs {
-			if t.diff != nil && t.diff.commit == nil {
+			if t.diff != nil && t.diff.commit == nil && a.diffBelongs(t.diff, root) {
 				return col, i
 			}
 		}
@@ -558,14 +604,16 @@ func (a *app) changesTab() (*column, int) {
 // openChangesTab shows the tab of the changes, made after the tab shown
 // of the column that has the keyboard when there is none, and returns its
 // diff.
-func (a *app) openChangesTab(focus bool) *diffView {
-	if col, i := a.changesTab(); col != nil {
+func (a *app) openChangesTab(focus bool, roots ...string) *diffView {
+	root := a.diffRoot(roots)
+	if col, i := a.changesTab(root); col != nil {
 		a.activate(col, i, focus)
 		return col.tabs[i].diff
 	}
-	col := a.column()
+	col := a.fileColumn()
 	at := min(col.active+1, len(col.tabs))
 	v := newDiffView(parseDiffLayout(a.settings.DiffLayout))
+	v.repoRoot = root
 	a.addTab(col, at, &colTab{diff: v})
 	a.activate(col, at, focus)
 	return v
@@ -573,8 +621,14 @@ func (a *app) openChangesTab(focus bool) *diffView {
 
 // showChanges shows the tab of the changes scrolled to a file, or with no
 // path, to the section of a base, once the file is listed.
-func (a *app) showChanges(target diffTarget, focus bool) {
-	v := a.openChangesTab(focus)
+func (a *app) showChanges(target diffTarget, focus bool, roots ...string) {
+	root := a.diffRoot(roots)
+	if len(roots) == 0 && target.path != "" {
+		if r := a.repositoryForPath(target.path).git.repo; r != nil {
+			root = r.Root
+		}
+	}
+	v := a.openChangesTab(focus, root)
 	v.reveal = &target
 	v.changed()
 }
@@ -605,7 +659,10 @@ func (a *app) openChanges() {
 		a.openDiffFile(t.diff)
 	case t.path() == "":
 	default:
-		a.showChanges(diffTarget{path: t.path(), any: true}, true)
+		ctx := a.repositoryForPath(t.path())
+		if ctx.git.repo != nil {
+			ctx.showChanges(diffTarget{path: t.path(), any: true}, true)
+		}
 	}
 }
 
@@ -627,12 +684,16 @@ func (col *column) showingDiff(v *diffView) int {
 	return slices.IndexFunc(col.tabs, func(t *colTab) bool { return t.diff != nil && t.diff.same(v) })
 }
 
-// commitTab returns the tab of a commit's changes and its column, nil
-// when no column has one.
-func (a *app) commitTab(hash string) (*column, int) {
+// commitTab returns a commit's changes, or a comparison's by its
+// "from..to", in an unlocked column, nil when none has one.
+func (a *app) commitTab(hash string, roots ...string) (*column, int) {
+	root := a.diffRoot(roots)
 	for _, col := range a.cols {
+		if col.locked {
+			continue
+		}
 		for i, t := range col.tabs {
-			if t.diff != nil && t.diff.commit != nil && t.diff.commit.hash == hash {
+			if t.diff != nil && t.diff.commit != nil && t.diff.commit.key() == hash && a.diffBelongs(t.diff, root) {
 				return col, i
 			}
 		}
@@ -642,15 +703,18 @@ func (a *app) commitTab(hash string) (*column, int) {
 
 // showCommit shows the changes of a commit in a tab of its own, made after
 // the tab shown of the column that has the keyboard when there is none.
-func (a *app) showCommit(c git.Commit, focus bool) {
-	if col, i := a.commitTab(c.Hash); col != nil {
+func (a *app) showCommit(c git.Commit, focus bool, roots ...string) {
+	root := a.diffRoot(roots)
+	if col, i := a.commitTab(c.Hash, root); col != nil {
 		a.keepTab(col.tabs[i])
 		a.activate(col, i, focus)
 		return
 	}
-	col := a.column()
+	col := a.fileColumn()
 	at := min(col.active+1, len(col.tabs))
-	a.addTab(col, at, &colTab{diff: newCommitView(parseDiffLayout(a.settings.DiffLayout), c.Hash, c)})
+	v := newCommitView(parseDiffLayout(a.settings.DiffLayout), c.Hash, c)
+	v.repoRoot = root
+	a.addTab(col, at, &colTab{diff: v})
 	a.activate(col, at, focus)
 	a.rememberTabs()
 }
@@ -658,14 +722,17 @@ func (a *app) showCommit(c git.Commit, focus bool) {
 // previewCommit shows the changes of a commit in the preview tab of the
 // column that has the keyboard, without giving it the keyboard, unless a
 // tab shows them already.
-func (a *app) previewCommit(c git.Commit) {
-	if col, i := a.commitTab(c.Hash); col != nil {
+func (a *app) previewCommit(c git.Commit, roots ...string) {
+	root := a.diffRoot(roots)
+	if col, i := a.commitTab(c.Hash, root); col != nil {
 		a.activate(col, i, false)
 		return
 	}
-	col := a.column()
+	col := a.fileColumn()
 	a.previewIn(col, func(at int) {
-		a.addTab(col, at, &colTab{diff: newCommitView(parseDiffLayout(a.settings.DiffLayout), c.Hash, c), transient: true})
+		v := newCommitView(parseDiffLayout(a.settings.DiffLayout), c.Hash, c)
+		v.repoRoot = root
+		a.addTab(col, at, &colTab{diff: v, transient: true})
 		a.activate(col, at, false)
 	})
 }
@@ -701,12 +768,13 @@ func (a *app) listDiffFiles(v *diffView) {
 		a.listCommitFiles(v)
 		return
 	}
-	st := a.git.status
+	ctx := a.diffContext(v)
+	st := ctx.git.status
 	if st == v.status {
 		return
 	}
 	v.status = st
-	groups := a.groupEntries()
+	groups := ctx.groupEntries()
 	type listed struct {
 		e     git.Entry
 		group scmGroup
@@ -741,7 +809,9 @@ func (a *app) listDiffFiles(v *diffView) {
 		k := fileKey{l.e.Path, l.group == groupStaged}
 		f, ok := old[k]
 		if !ok {
-			v.files = append(v.files, newDiffFile(l.e, l.group))
+			f := newDiffFile(l.e, l.group)
+			f.repoRoot = v.repoRoot
+			v.files = append(v.files, f)
 			continue
 		}
 		delete(old, k)
@@ -759,7 +829,7 @@ func (a *app) listDiffFiles(v *diffView) {
 // files it changed, once, in the background.
 func (a *app) listCommitFiles(v *diffView) {
 	cm := v.commit
-	r := a.git.repo
+	r := a.diffContext(v).git.repo
 	if cm.loaded || cm.loading || r == nil {
 		return
 	}
@@ -785,6 +855,7 @@ func (a *app) listCommitFiles(v *diffView) {
 			v.files = make([]*diffFile, 0, len(files))
 			for _, cf := range files {
 				f := &diffFile{path: cf.Path, base: diffCommit, group: groupCommits, letter: cf.Status, gitStale: true}
+				f.repoRoot = v.repoRoot
 				f.entry = git.Entry{Path: cf.Path, Orig: cf.Orig, X: cf.Status, Y: '.'}
 				v.files = append(v.files, f)
 			}
@@ -809,7 +880,8 @@ func (a *app) refreshDiff(v *diffView) {
 			reading++
 		}
 	}
-	lo, hi := max(v.near[0], 0), min(v.near[1], len(v.files))
+	lo := min(max(v.near[0], 0), len(v.files))
+	hi := min(max(v.near[1], lo), len(v.files))
 	order := make([]*diffFile, 0, hi-lo+1)
 	if t := v.reveal; t != nil {
 		for _, f := range v.files {
@@ -835,7 +907,7 @@ func (a *app) refreshDiff(v *diffView) {
 // refreshDiffFile compares the sides of a file of a diff again in the
 // background when one may have changed, and reports whether it started.
 func (a *app) refreshDiffFile(v *diffView, f *diffFile) bool {
-	r := a.git.repo
+	r := a.diffContext(v).git.repo
 	if f.running || f.waiting || (r == nil && f.base != diffLocal) {
 		return false
 	}
@@ -1050,6 +1122,12 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 	if b.wrap {
 		b.cols = l.cols
 	}
+	_, noteW := noteGeometry(l, v.split, false)
+	b.review, b.noteW = a.review.gen, noteTextW(noteW)
+	if r := &a.review; r.draft != nil && r.ed == nil {
+		_, w := noteGeometry(l, v.split, r.draft.oldSide)
+		b.draft = a.noteLines(r.draft, true, r.text, noteTextW(w))
+	}
 	if b == v.built && v.tops != nil {
 		return
 	}
@@ -1066,9 +1144,12 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 		anchor = v.anchorOf(top)
 		offset = editorPadY + float32(v.tops[top])*lineH - v.scroll.Y
 	}
-	chosen := diffAnchor{}
+	chosen, held := diffAnchor{}, diffAnchor{}
 	if v.cursor >= 0 && v.cursor < len(v.rows) && v.tops != nil {
 		chosen = v.anchorOf(v.cursor)
+	}
+	if v.anchor >= 0 && v.anchor < len(v.rows) && v.tops != nil {
+		held = v.anchorOf(v.anchor)
 	}
 	// The file to reveal shows its lines.
 	var target *diffFile
@@ -1082,7 +1163,7 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 				}
 			}
 			if target == nil {
-				a.fail("%s has no changes.", filepath.Base(t.path))
+				a.fail("%s", locales.FailNoChanges(filepath.Base(t.path)))
 			} else {
 				target.folded = false
 				v.place = nil
@@ -1090,7 +1171,7 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 		}
 	}
 	v.built = b
-	v.rows, v.starts, v.heads = v.rows[:0], v.starts[:0], v.heads[:0]
+	v.rows, v.starts, v.heads, v.cards = v.rows[:0], v.starts[:0], v.heads[:0], v.cards[:0]
 	v.sections = [2]int{}
 	for _, f := range v.files {
 		v.sections[btoi(f.base == diffStaged)]++
@@ -1129,15 +1210,15 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 		note := ""
 		switch {
 		case !f.loaded:
-			note = "Loading…"
+			note = locales.Loading()
 		case f.err != "":
 			note = f.err
 		case f.binary:
-			note = "The file is binary."
+			note = locales.DiffBinary()
 		case !f.old.ok && !f.new.ok:
-			note = "Neither version has the file."
+			note = locales.DiffNeitherVersion()
 		case len(f.hunks) == 0:
-			note = "No changes in the text."
+			note = locales.DiffNoTextChanges()
 		}
 		if note != "" {
 			plain(rowNote, i, note)
@@ -1147,6 +1228,7 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 		if v.split {
 			all = f.pairs
 		}
+		start := len(v.rows)
 		v.rows = foldRows(v.rows, f, i, all, v.full, b.context)
 		// A file one side of the diff lacks whole is not changed by arrows:
 		// its changes go in or out with the file itself, as the buttons of
@@ -1158,13 +1240,22 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 			}
 			v.rows = append(v.rows, diffRow{kind: rowNote, file: i, old: -1, new: -1, hunk: -1, peer: -1, gap: -1, h: 1, label: note})
 		}
+		a.noteRows(v, l, f, i, start)
 	}
 	for i := range v.rows {
 		r := &v.rows[i]
-		if r.changed() && (i == 0 || v.rows[i-1].hunk != r.hunk || v.rows[i-1].file != r.file || !v.rows[i-1].changed()) {
+		// The cards of notes between the lines of a change are of it.
+		prev := i - 1
+		for prev >= 0 && v.rows[prev].kind == rowComment {
+			prev--
+		}
+		if r.changed() && (prev < 0 || v.rows[prev].hunk != r.hunk || v.rows[prev].file != r.file || !v.rows[prev].changed()) {
 			v.starts = append(v.starts, i)
 		}
-		if r.kind != rowCommit {
+		if r.kind == rowComment {
+			v.cards = append(v.cards, i)
+		}
+		if r.kind != rowCommit && r.kind != rowComment {
 			r.h = 1
 		}
 		if b.wrap && r.kind == rowLine {
@@ -1213,6 +1304,15 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 			}
 		}
 	}
+	v.anchor = -1
+	if held.file != nil {
+		for i := range v.rows {
+			if v.anchorOf(i) == held {
+				v.anchor = i
+				break
+			}
+		}
+	}
 	switch {
 	case reveal >= 0:
 		v.cursor = reveal
@@ -1221,6 +1321,16 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 		for i := range v.rows {
 			if v.anchorOf(i) == anchor {
 				v.scroll.Y = max(0, editorPadY+float32(v.tops[i])*lineH-offset)
+				break
+			}
+		}
+	}
+	// A note gone to is chosen, once its card is laid out.
+	if n := v.revealNote; n != nil {
+		for _, i := range v.cards {
+			if a.review.noteAt(v.rows[i].n) == n {
+				v.revealNote, v.anchor, v.cursor = nil, -1, i
+				v.jumpRow(i, jumpThird)
 				break
 			}
 		}
@@ -1244,13 +1354,21 @@ type diffAnchor struct {
 }
 
 func (v *diffView) anchorOf(i int) diffAnchor {
+	if i < 0 || i >= len(v.rows) {
+		return diffAnchor{}
+	}
 	r := v.rows[i]
+	if r.file < 0 || r.file >= len(v.files) {
+		return diffAnchor{}
+	}
 	line := r.new
 	switch {
 	case r.kind == rowGap:
 		line = r.gap
 	case r.kind == rowLine && r.new < 0:
 		line = -1 - r.old
+	case r.kind == rowComment:
+		line = r.n
 	case r.kind != rowLine:
 		line = 0
 	}
@@ -1383,6 +1501,7 @@ func (v *diffView) stepHunk(step int, cross diffCross) {
 	if len(v.starts) == 0 {
 		return
 	}
+	v.anchor = -1
 	armed := v.boundary
 	v.boundary = nil
 	switch {
@@ -1502,6 +1621,7 @@ func (v *diffView) stepFile(step int) {
 		}
 		return
 	}
+	v.anchor = -1
 	v.cursor = v.heads[k]
 	v.jumpRow(v.cursor, jumpTop)
 }
@@ -1514,6 +1634,7 @@ func (v *diffView) jumpRow(i int, place jumpPlace) {
 // moveCursor moves the chosen row by step rows, past the room between
 // files, from the row at the top of the view when none is chosen.
 func (v *diffView) moveCursor(step int) {
+	v.anchor = -1
 	if len(v.rows) == 0 {
 		return
 	}
@@ -1591,6 +1712,10 @@ func (a *app) activateRow(v *diffView, i int, open bool) {
 			path, line := v.lineAt(i)
 			a.openFileAt(path, line, true)
 		}
+	case rowComment:
+		if n := a.review.noteAt(r.n); open && n != nil {
+			a.editNote(n, nil)
+		}
 	}
 }
 
@@ -1651,6 +1776,10 @@ func (a *app) undoDiff(v *diffView, redo bool) {
 // typing and the keys of an editor. The undo and redo of the documents
 // its arrows have written remain available from the diff keyboard.
 func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
+	// The box of a note being written takes its keys.
+	if a.typingNote() {
+		return false
+	}
 	if ev.Kind == ui.InputKeyDown && v.edited != nil {
 		switch m := ev.Mods; {
 		case ev.Key == ui.KeyZ && m == ui.Cmd:
@@ -1662,13 +1791,16 @@ func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
 		}
 	}
 	// A line of the diff copies as it is, of the side the chosen row
-	// shows, while the diff reads as a pager.
+	// shows, while the diff reads as a pager; rows that hold a review
+	// note copy as an excerpt.
 	if ev.Kind == ui.InputCommand && ev.Text == "copy" && v.editing == nil {
 		if s := v.diffChosenText(); s != "" {
 			a.services.WriteClipboard(s)
 			a.tell(note{message: "Copied the line"})
 			return true
 		}
+		a.copyExcerpt(v)
+		return true
 	}
 	if v.editing != nil {
 		if a.diffEditInput(v, ev) {
@@ -1689,9 +1821,39 @@ func (a *app) diffInput(v *diffView, ev ui.InputEvent) bool {
 	page := max(v.viewH-a.font.lineH, a.font.lineH)
 	switch ev.Key {
 	case ui.KeyJ, ui.KeyDown:
-		v.moveCursor(1)
+		if shift {
+			v.extend(1)
+		} else {
+			v.moveCursor(1)
+		}
 	case ui.KeyK, ui.KeyUp:
-		v.moveCursor(-1)
+		if shift {
+			v.extend(-1)
+		} else {
+			v.moveCursor(-1)
+		}
+	case ui.KeyEscape:
+		if v.anchor < 0 {
+			return false
+		}
+		v.anchor = -1
+	case ui.KeyC:
+		a.commentDiff(v)
+	case ui.KeyN:
+		// The next card of a note, or with Shift the one before.
+		if len(v.cards) == 0 {
+			return false
+		}
+		a.stepNote(1 - 2*btoi(shift))
+	case ui.KeyBackspace, ui.KeyDelete:
+		// On the card of a note, it deletes the note.
+		c := v.cursor
+		if c < 0 || c >= len(v.rows) || v.rows[c].kind != rowComment {
+			return false
+		}
+		if n := a.review.noteAt(v.rows[c].n); n != nil {
+			a.deleteNote(n)
+		}
 	case ui.KeySpace:
 		if shift {
 			a.pageDiff(v, -page)
@@ -1831,11 +1993,11 @@ func (v *diffView) summarize() string {
 	case files == 0:
 		return ""
 	case !all:
-		return plural(files, "file")
+		return locales.FilesCount(files)
 	case hunks == 0:
-		return plural(files, "file") + " · no changes in the text"
+		return locales.DiffSummaryNoText(files)
 	}
-	return fmt.Sprintf("%s · %s · +%d −%d", plural(files, "file"), plural(hunks, "change"), add, del)
+	return locales.DiffSummary(files, hunks, add, del)
 }
 
 // diffButtons are the buttons at the end of a diff's breadcrumbs: going
@@ -1852,6 +2014,8 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 		case b.Hovered():
 			b.Background(p.hover)
 		}
+		b.Transition(hoverFade)
+		pressPose(b)
 		b.Children(func() { ui.Icon(c, icon).FontSize(13).TextColor(p.muted) })
 		return b
 	}
@@ -1860,8 +2024,9 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 			a.post(fn)
 		}
 	}
-	act(iconArrowUp, "Previous Change ([)", func() { v.stepHunk(-1, a.crossesDiff()) })
-	act(iconArrowDown, "Next Change (])", func() { v.stepHunk(1, a.crossesDiff()) })
+	a.reviewSendButton(c)
+	act(iconArrowUp, locales.DiffPrevChange(), func() { v.stepHunk(-1, a.crossesDiff()) })
+	act(iconArrowDown, locales.DiffNextChange(), func() { v.stepHunk(1, a.crossesDiff()) })
 	act(iconChevronLeft, "Previous File (,)", func() { v.stepFile(-1) })
 	act(iconChevronRight, "Next File (.)", func() { v.stepFile(1) })
 	if button(iconColumns, "Side by Side", v.split).Clicked() {
@@ -1871,10 +2036,10 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 		}
 		a.post(func() { a.setDiffLayout(v, next) })
 	}
-	if button(iconUnfold, "Show Full Files", v.full).Clicked() {
+	if button(iconUnfold, locales.DiffShowFullFiles(), v.full).Clicked() {
 		a.post(func() { a.setDiffFull(v, !v.full) })
 	}
-	if button(iconWrap, a.withKey("Toggle Word Wrap", "view.wordWrapTab"), a.wrapsDiff(v)).Clicked() {
+	if button(iconWrap, a.withKey(locales.DiffToggleWrap(), "view.wordWrapTab"), a.wrapsDiff(v)).Clicked() {
 		a.post(func() { a.toggleDiffWrap(v) })
 	}
 	// What a line that changed shows of itself: the words, the characters
@@ -1920,12 +2085,12 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 	if v.split {
 		icon = iconColumns
 	}
-	b = button(icon, "Layout", false)
+	b = button(icon, locales.DiffLayout(), false)
 	b.Menu(func(m *ui.Menu) {
 		for _, l := range []struct {
 			layout diffLayout
 			label  string
-		}{{layoutAuto, "Side by Side When Wide"}, {layoutSplit, "Side by Side"}, {layoutInline, "Inline"}} {
+		}{{layoutAuto, locales.DiffLayoutAuto()}, {layoutSplit, locales.DiffLayoutSplit()}, {layoutInline, locales.DiffLayoutInline()}} {
 			if m.Item(l.label).Checked(v.layout == l.layout).Chosen() {
 				a.post(func() { a.setDiffLayout(v, l.layout) })
 			}
@@ -1954,7 +2119,7 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 			})
 		}
 	}
-	act(iconOpenFile, "Open File (E)", func() { a.openDiffFile(v) })
+	act(iconOpenFile, locales.DiffOpenFile(), func() { a.openDiffFile(v) })
 }
 
 // setDiffLayout shows a diff side by side, inline, or as wide as it is,
@@ -2108,10 +2273,10 @@ func (a *app) keepTopRow(v *diffView, change func()) {
 }
 
 // diffsChanged has the diffs read the sides Git keeps again.
-func (a *app) diffsChanged() {
+func (a *app) diffsChanged(roots ...string) {
 	for _, col := range a.cols {
 		for _, t := range col.tabs {
-			if t.diff != nil && t.diff.commit == nil {
+			if t.diff != nil && t.diff.commit == nil && (len(roots) == 0 || a.diffBelongs(t.diff, roots[0])) {
 				for _, f := range t.diff.files {
 					f.gitStale = true
 				}

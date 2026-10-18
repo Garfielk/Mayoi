@@ -1,12 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"path"
 
 	"github.com/egoist/mygo/plugins/terminal"
 
 	"mayoi/internal/remote"
+	"mayoi/locales"
 )
 
 // A terminal of a host ends with the connection: rather than close, it
@@ -15,7 +15,9 @@ import (
 // said so, with what it showed above.
 
 // lostNote is what a terminal of a host shows once its connection went.
-const lostNote = "\r\n\x1b[0;2m[The connection to %s was lost. The terminal starts again once it is back.]\x1b[0m\r\n"
+func lostNote(host string) string {
+	return "\r\n\x1b[0;2m" + locales.TermLost(host) + "\x1b[0m\r\n"
+}
 
 // terminalExited takes the end of a terminal's program: a terminal of a
 // host whose connection went waits for it, any other closes.
@@ -28,7 +30,7 @@ func (a *app) terminalExited(s *session, t *terminal.Terminal, code int) {
 	if c := sessionConn(s); c != nil && c == a.conn && (code == 255 || !c.Connected()) {
 		if !s.lost {
 			s.lost = true
-			t.Feed([]byte(fmt.Sprintf(lostNote, c.Host)))
+			t.Feed([]byte(lostNote(c.Host)))
 		}
 		return
 	}
@@ -59,7 +61,7 @@ func (a *app) restartTerminal(s *session) {
 	old := s.term
 	t, err := a.spawnTerminal(s, dir)
 	if err != nil {
-		a.fail("Could not start the terminal again: %v", err)
+		a.fail("%s", locales.FailRestartTerminal(err.Error()))
 		return
 	}
 	t.Feed(old.Snapshot())

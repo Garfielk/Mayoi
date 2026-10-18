@@ -30,7 +30,7 @@ func TestFindInLargeFileStaysQuick(t *testing.T) {
 	const n = 30
 	for range n {
 		tt.Type("a")
-		tt.Frame()
+		step(tt)
 	}
 	t.Logf("type with find open: %.2f ms/frame, %d matches", float64(time.Since(start).Microseconds())/1000/n, len(a.find.matches))
 

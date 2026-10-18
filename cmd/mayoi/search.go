@@ -22,6 +22,7 @@ import (
 	"mayoi/internal/remote"
 	"mayoi/internal/vfs"
 	"mayoi/internal/workspace"
+	"mayoi/locales"
 )
 
 const (
@@ -164,7 +165,7 @@ func (a *app) startSearch() {
 	}
 	re, err := compileQuery(s.query, s.matchCase, s.word, s.regex)
 	if err != nil {
-		s.err = "Invalid expression"
+		s.err = locales.FindInvalid()
 		return
 	}
 	a.indexStale = a.indexStale || a.index == nil
@@ -737,7 +738,7 @@ func (a *app) replaceMatches(files []*searchFile, only *searchMatch) {
 		}
 		a.post(func() {
 			for _, msg := range failed {
-				a.fail("Could not replace in %s", msg)
+				a.fail("%s", locales.FailReplaceIn(msg))
 			}
 			a.searchAgain(closed)
 			a.toldReplaced(n, changed, only != nil)
@@ -750,12 +751,12 @@ func (a *app) replaceMatches(files []*searchFile, only *searchMatch) {
 func (a *app) toldReplaced(n, files int, one bool) {
 	switch {
 	case one && n == 0:
-		a.fail("The match changed since the search; search again")
+		a.fail("%s", locales.SearchMatchChanged())
 	case one:
 	case n == 0:
-		a.fail("Nothing to replace")
+		a.fail("%s", locales.SearchNothingToReplace())
 	default:
-		a.tell(note{message: fmt.Sprintf("Replaced %s in %s", plural(n, "occurrence"), plural(files, "file"))})
+		a.tell(note{message: locales.SearchReplacedIn(n, files)})
 	}
 }
 
@@ -774,18 +775,17 @@ func (a *app) replaceAllInFiles() {
 	}
 	with := s.with
 	if with == "" {
-		with = "nothing"
+		with = locales.SearchWithNothing()
 	} else {
 		with = "“" + with + "”"
 	}
-	msg := "Each open file changes as a step of its undo."
+	msg := locales.SearchEachOpenFile()
 	if closed > 0 {
-		msg = fmt.Sprintf("%s not open %s written at once, which cannot be undone.", plural(closed, "file"),
-			map[bool]string{true: "is", false: "are"}[closed == 1])
+		msg = locales.SearchClosedWritten(closed)
 	}
 	a.confirm = &confirm{
-		title:   fmt.Sprintf("Replace %s in %s with %s?", plural(s.count, "occurrence"), plural(len(files), "file"), with),
-		message: msg, ok: "Replace All", danger: closed > 0,
+		title:   locales.SearchReplaceQuestion(s.count, len(files), with),
+		message: msg, ok: locales.FindReplaceAll(), danger: closed > 0,
 		run: func() { a.replaceMatches(files, nil) },
 	}
 }
@@ -800,30 +800,27 @@ func (a *app) searchView(c *ui.Context) {
 		time.AfterFunc(searchPause, a.invalidate)
 	}
 	if s.query != "" && (s.running || s.waiting) {
-		ui.Progress(c.Key("search-activity"), -1).Height(2).Radius(0).Label("Searching")
+		ui.Progress(c.Key("search-activity"), -1).Height(2).Radius(0).Label(locales.SearchSearching())
 	} else {
 		ui.Box(c.Key("search-activity")).Height(2)
 	}
 	ui.Column(c).Padding(0, 12, 6, 6).Gap(5).Children(func() {
 		ui.Row(c).Gap(2).AlignItems(ui.Stretch).Children(func() {
-			arrow := iconChevronRight
-			if s.replacing {
-				arrow = iconChevronDown
-			}
 			b := ui.ButtonBase(c.Key("toggle-replace")).Width(18).Radius(4).Justify(ui.Center).AlignItems(ui.Center).
-				Label("Toggle Replace").Tooltip(a.withKey("Toggle Replace", "edit.replaceInFiles"))
+				Label(locales.SearchToggleReplace()).Tooltip(a.withKey(locales.SearchToggleReplace(), "edit.replaceInFiles"))
 			if b.Hovered() {
 				b.Background(p.hover)
 			}
-			b.Children(func() { ui.Icon(c, arrow).FontSize(13).TextColor(p.muted) })
+			b.Transition(hoverFade)
+			b.Children(func() { chevron(c, s.replacing).FontSize(13).TextColor(p.muted) })
 			if b.Clicked() {
 				s.replacing = !s.replacing
 			}
 			ui.Column(c).Grow(1).MinWidth(0).Gap(5).Children(func() {
-				in := a.searchField(c, "search-query", &s.query, "Search", &s.input, func() {
-					a.optionToggle(c, iconCase, "Match Case", &s.matchCase)
-					a.optionToggle(c, iconWord, "Match Whole Word", &s.word)
-					a.optionToggle(c, iconRegex, "Use Regular Expression", &s.regex)
+				in := a.searchField(c, "search-query", &s.query, locales.CmdViewSearch(), &s.input, func() {
+					a.optionToggle(c, iconCase, locales.FindMatchCase(), &s.matchCase)
+					a.optionToggle(c, iconWord, locales.FindWholeWord(), &s.word)
+					a.optionToggle(c, iconRegex, locales.FindRegex(), &s.regex)
 				})
 				if in.Submitted() {
 					a.startSearch()
@@ -836,8 +833,8 @@ func (a *app) searchView(c *ui.Context) {
 				if !s.replacing {
 					return
 				}
-				with := a.searchField(c, "search-with", &s.with, "Replace", nil, func() {
-					if a.smallButton(c, iconReplaceAll, "Replace All") && s.count > 0 {
+				with := a.searchField(c, "search-with", &s.with, locales.FindReplace(), nil, func() {
+					if a.smallButton(c, iconReplaceAll, locales.FindReplaceAll()) && s.count > 0 {
 						a.post(a.replaceAllInFiles)
 					}
 				})
@@ -848,7 +845,7 @@ func (a *app) searchView(c *ui.Context) {
 		})
 		ui.Row(c).Gap(6).AlignItems(ui.Center).Padding(0, 0, 0, 20).Children(func() {
 			a.searchSummary(c)
-			if a.iconButton(c, iconMore, "Toggle Search Details", s.details).Size(22, 18).Clicked() {
+			if a.iconButton(c, iconMore, locales.SearchToggleDetails(), s.details).Size(22, 18).Clicked() {
 				s.details = !s.details
 			}
 		})
@@ -856,12 +853,12 @@ func (a *app) searchView(c *ui.Context) {
 			return
 		}
 		ui.Column(c).Gap(4).Padding(0, 0, 0, 20).Children(func() {
-			ui.Text(c, "files to include").FontSize(11).TextColor(p.muted)
-			if a.searchField(c, "search-include", &s.include, "e.g. *.go, src/**", nil, nil).Submitted() {
+			ui.Text(c, locales.SearchFilesInclude()).FontSize(11).TextColor(p.muted)
+			if a.searchField(c, "search-include", &s.include, locales.SearchIncludeExample(), nil, nil).Submitted() {
 				a.startSearch()
 			}
-			ui.Text(c, "files to exclude").FontSize(11).TextColor(p.muted).Margin(2, 0, 0, 0)
-			if a.searchField(c, "search-exclude", &s.exclude, "e.g. *.test.ts, testdata", nil, nil).Submitted() {
+			ui.Text(c, locales.SearchFilesExclude()).FontSize(11).TextColor(p.muted).Margin(2, 0, 0, 0)
+			if a.searchField(c, "search-exclude", &s.exclude, locales.SearchExcludeExample(), nil, nil).Submitted() {
 				a.startSearch()
 			}
 		})
@@ -875,7 +872,7 @@ func (a *app) searchField(c *ui.Context, key string, value *string, placeholder 
 	p := a.pal
 	var in ui.Element
 	field := ui.Row(c).Height(26).Padding(0, 4, 0, 8).Gap(2).AlignItems(ui.Center).Radius(5).
-		Background(p.editor).Border(1, p.border)
+		Background(p.editor).Border(1, p.border).Transition(fieldFocus)
 	field.Children(func() {
 		in = a.textKeys(ui.TextInputBase(c.Key(key), value)).Grow(1).MinWidth(0).FontSize(12.5).Placeholder(placeholder).Label(placeholder)
 		if bind != nil {
@@ -899,22 +896,22 @@ func (a *app) searchSummary(c *ui.Context) {
 	var msg string
 	switch {
 	case s.err != "":
-		msg, col = s.err, p.danger
+		msg, col = s.err, p.dangerFg
 	case s.query == "":
 	case s.count > 0:
-		msg = fmt.Sprintf("%s in %s", plural(s.count, "result"), plural(len(s.files), "file"))
+		msg = locales.SearchResultsIn(s.count, len(s.files))
 		if s.stopped {
-			msg = fmt.Sprintf("The first %d results in %s", maxSearchMatches, plural(len(s.files), "file"))
+			msg = locales.SearchFirstResults(maxSearchMatches, len(s.files))
 		}
 		if s.running {
 			msg += "…"
 		}
 	case s.running || s.waiting:
-		msg = "Searching…"
+		msg = locales.SearchSearchingEllipsis()
 	case s.re != nil:
-		msg = "No results found"
+		msg = locales.SearchNoResults()
 		if s.include != "" || s.exclude != "" {
-			msg += " in the files to include and exclude"
+			msg = locales.SearchNoResultsFiltered()
 		}
 	}
 	ui.Text(c, msg).FontSize(11.5).TextColor(col).Grow(1).SingleLine().Shrink(1)
@@ -1009,8 +1006,8 @@ func (a *app) previewRow() {
 func (a *app) searchHint(c *ui.Context) {
 	p := a.pal
 	ui.Column(c).Padding(10, 14, 0, 26).Gap(6).Children(func() {
-		ui.Text(c, "Find text in the folder's files.").FontSize(12).TextColor(p.muted)
-		for _, k := range [][2]string{{"↓", "Go to the results"}, {"⏎", "Open the match"}, {a.keyHint("edit.replaceInFiles"), "Replace"}} {
+		ui.Text(c, locales.SearchHintFind()).FontSize(12).TextColor(p.muted)
+		for _, k := range [][2]string{{"↓", locales.SearchHintResults()}, {"⏎", locales.SearchHintOpen()}, {a.keyHint("edit.replaceInFiles"), locales.FindReplace()}} {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, k[0]).FontSize(11).TextColor(p.muted).Padding(0, 5).Radius(4).Background(p.hover).MinWidth(22).
 					TextAlign(ui.Center)
@@ -1039,11 +1036,7 @@ func (a *app) searchHeader(c *ui.Context, f *searchFile, action *func()) {
 	clicked := row.Clicked()
 	a.dragFile(row, &fileDrag{path: f.path})
 	row.Children(func() {
-		icon := iconChevronDown
-		if s.collapsed[f.rel] {
-			icon = iconChevronRight
-		}
-		ui.Icon(c, icon).FontSize(12).TextColor(p.muted)
+		chevron(c, !s.collapsed[f.rel]).FontSize(12).TextColor(p.muted)
 		name := filepath.Base(f.path)
 		fi, col := fileIcon(p, name)
 		ui.Icon(c, fi).FontSize(14).TextColor(col)
@@ -1052,7 +1045,7 @@ func (a *app) searchHeader(c *ui.Context, f *searchFile, action *func()) {
 			ui.Text(c, dir).FontSize(11.5).TextColor(p.faint).SingleLine().Shrink(1)
 		}
 		ui.Spacer(c)
-		if hovered && s.replacing && a.smallButton(c, iconReplaceAll, "Replace All in File") {
+		if hovered && s.replacing && a.smallButton(c, iconReplaceAll, locales.SearchReplaceAllInFile()) {
 			*action = func() { a.replaceMatches([]*searchFile{f}, nil) }
 		}
 		ui.Text(c, fmt.Sprint(len(f.matches))).FontSize(10.5).TextColor(p.muted).Padding(0, 5).Radius(8).Background(p.hover)
@@ -1090,7 +1083,7 @@ func (a *app) searchMatchRow(c *ui.Context, i int, f *searchFile, m searchMatch,
 	row.Children(func() {
 		ui.RichText(c, a.matchPreview(m)...).FontSize(12.5).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 		if hovered && s.replacing {
-			if a.smallButton(c, iconReplace, "Replace") {
+			if a.smallButton(c, iconReplace, locales.FindReplace()) {
 				*action = func() { a.replaceMatches([]*searchFile{f}, &m) }
 			}
 		} else {
@@ -1139,16 +1132,16 @@ func (a *app) searchTitleActions(c *ui.Context, hovered bool) {
 	if !hovered {
 		return
 	}
-	if a.iconButton(c, iconRefresh, "Refresh", false).Clicked() {
+	if a.iconButton(c, iconRefresh, locales.Refresh(), false).Clicked() {
 		a.startSearch()
 	}
 	allFolded := len(s.files) > 0
 	for _, f := range s.files {
 		allFolded = allFolded && s.collapsed[f.rel]
 	}
-	label := "Collapse All"
+	label := locales.SearchCollapseAll()
 	if allFolded {
-		label = "Expand All"
+		label = locales.SearchExpandAll()
 	}
 	if a.iconButton(c, iconCollapse, label, false).Disabled(len(s.files) == 0).Clicked() {
 		s.collapsed = map[string]bool{}
@@ -1157,7 +1150,7 @@ func (a *app) searchTitleActions(c *ui.Context, hovered bool) {
 		}
 		s.changed()
 	}
-	if a.iconButton(c, iconX, "Clear Search Results", false).Disabled(s.query == "").Clicked() {
+	if a.iconButton(c, iconX, locales.SearchClearResults(), false).Disabled(s.query == "").Clicked() {
 		s.query = ""
 		a.startSearch()
 		s.input.Focus()

@@ -62,21 +62,18 @@ type vimState struct {
 	viewH float32
 }
 
-// label is what the status bar shows of the state.
-func (v *vimState) label() string {
-	s := "-- " + v.mode.String() + " --"
-	if len(v.keys) > 0 {
-		var b strings.Builder
-		for _, r := range v.keys {
-			if r < ' ' {
-				b.WriteString("^" + string(r+'@'))
-			} else {
-				b.WriteRune(r)
-			}
+// pending is the keys of a command typed so far, as the status bar shows
+// them after the mode: a control key as ^ and its letter.
+func (v *vimState) pending() string {
+	var b strings.Builder
+	for _, r := range v.keys {
+		if r < ' ' {
+			b.WriteString("^" + string(r+'@'))
+		} else {
+			b.WriteRune(r)
 		}
-		s += "  " + b.String()
 	}
-	return s
+	return b.String()
 }
 
 // vimRegister is the text vim mode yanked last, and whether it is lines.

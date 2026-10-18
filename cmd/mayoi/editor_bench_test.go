@@ -28,7 +28,7 @@ func BenchmarkIdleFrame(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		hs.tt.Frame()
+		step(hs.tt)
 	}
 }
 
@@ -46,7 +46,7 @@ func BenchmarkIdleFrameTabs(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				hs.tt.Frame()
+				step(hs.tt)
 			}
 		})
 	}
@@ -62,7 +62,7 @@ func BenchmarkScrollFrame(b *testing.B) {
 			dy = -60
 		}
 		hs.tt.Scroll(700, 400, 0, dy)
-		hs.tt.Frame()
+		step(hs.tt)
 	}
 }
 
@@ -76,7 +76,7 @@ func BenchmarkTypeFrame(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		hs.tt.Type("a")
-		hs.tt.Frame()
+		step(hs.tt)
 	}
 }
 
@@ -92,7 +92,7 @@ func BenchmarkWrapScrollFrame(b *testing.B) {
 			dy = -60
 		}
 		hs.tt.Scroll(700, 400, 0, dy)
-		hs.tt.Frame()
+		step(hs.tt)
 	}
 }
 
@@ -108,6 +108,6 @@ func BenchmarkWrapTypeFrame(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		hs.tt.Type("a")
-		hs.tt.Frame()
+		step(hs.tt)
 	}
 }

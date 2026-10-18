@@ -5,12 +5,14 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/symbols"
 	"mayoi/internal/workspace"
+	"mayoi/locales"
 )
 
 // quickOpen is the state of the quick open box: files by fuzzy name,
@@ -25,6 +27,8 @@ type quickOpen struct {
 	stale   bool
 	moved   bool     // the choice moved by keys, to scroll into view
 	used    []string // the commands the palette ran last, the last first
+	// shook is when Return found nothing to open, which shakes the box.
+	shook time.Time
 }
 
 func (a *app) openQuick(query string) {
@@ -84,6 +88,7 @@ func (a *app) quickOpenView(c *ui.Context) {
 	}
 	choose := func(i int) {
 		if i < 0 || i >= len(q.results) {
+			q.shook = c.Now()
 			return
 		}
 		rel := a.index[q.results[i].Index]
@@ -93,19 +98,21 @@ func (a *app) quickOpenView(c *ui.Context) {
 	ui.Overlay(c, func() {
 		back := a.dialogBack(c, "quick")
 		back.Children(func() {
-			box := a.floating(c, ui.Column(c).Width(600).MaxWidthPercent(92).Margin(titleBarH+8, 0, 0, 0).Radius(10), true).Clip().
-				Role(ui.RoleDialog).Label("Quick Open")
+			box := a.floating(c, ui.Column(c).Width(600).MaxWidthPercent(92).Margin(titleBarH+8, 0, 0, 0).Radius(10), true).Clip()
+			shake(c, box, q.shook)
+			box.
+				Role(ui.RoleDialog).Label(locales.QuickOpenLabel())
 			box.Children(func() {
 				ui.Row(c).Padding(10, 14).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.border).Children(func() {
 					ui.Icon(c, iconSearch).FontSize(15).TextColor(p.muted)
 					// With a folder, the footer shows the prefixes that
 					// change what is searched.
-					placeholder := "Search files by name"
+					placeholder := locales.QuickSearchFiles()
 					if a.root == "" {
-						placeholder = "Type > for commands"
+						placeholder = locales.QuickTypeForCommands()
 					}
 					in := a.textKeys(ui.TextInputBase(c.Key("quick-input"), &q.query)).Grow(1).FontSize(14).AutoFocus().
-						Placeholder(placeholder).Label("Quick Open")
+						Placeholder(placeholder).Label(locales.QuickOpenLabel())
 					if in.Shortcut(0, ui.KeyDown) {
 						q.sel, q.moved = min(q.sel+1, len(q.results)-1), true
 					}
@@ -117,6 +124,8 @@ func (a *app) quickOpenView(c *ui.Context) {
 							if line > 0 {
 								q.open = false
 								a.goToLine(line, col)
+							} else {
+								q.shook = c.Now()
 							}
 						} else {
 							choose(q.sel)
@@ -124,7 +133,7 @@ func (a *app) quickOpenView(c *ui.Context) {
 					}
 				})
 				a.quickBody(c, isLine, line, col, choose)
-				a.quickFooter(c, isLine, "open", "", a.root != "")
+				a.quickFooter(c, isLine, locales.QuickOpenAction(), "", a.root != "")
 
 			})
 			if box.PressedOutside() || back.OverlayShortcut(0, ui.KeyEscape) {
@@ -140,27 +149,27 @@ func (a *app) quickBody(c *ui.Context, isLine bool, line, col int, choose func(i
 	q := &a.quick
 	p := a.pal
 	if isLine {
-		hint := "Type a line number to go to"
+		hint := locales.QuickLineHint()
 		if d := a.activeEditor(); d == nil {
-			hint = "Open a file to go to a line"
+			hint = locales.QuickLineNoFile()
 		} else if line > 0 {
-			hint = fmt.Sprintf("Go to line %d", line)
+			hint = locales.QuickGoToLineN(line)
 			if col > 0 {
-				hint += fmt.Sprintf(", column %d", col)
+				hint = locales.QuickGoToLineCol(line, col)
 			}
 		} else {
-			hint = fmt.Sprintf("Type a line number between 1 and %d", d.buf.LineCount())
+			hint = locales.QuickLineRange(d.buf.LineCount())
 		}
 		ui.Text(c, hint).FontSize(13).TextColor(p.muted).Padding(12, 16)
 		return
 	}
 	if len(q.results) == 0 {
-		msg := "No matching files"
+		msg := locales.QuickNoFiles()
 		switch {
 		case a.root == "":
-			msg = "Open a folder to search its files, or type > for commands"
+			msg = locales.QuickNoFolder()
 		case a.indexing && a.index == nil:
-			msg = "Indexing files…"
+			msg = locales.QuickIndexing()
 		}
 		ui.Text(c, msg).FontSize(13).TextColor(p.muted).Padding(12, 16)
 		return
@@ -169,10 +178,7 @@ func (a *app) quickBody(c *ui.Context, isLine bool, line, col int, choose func(i
 		for i, m := range q.results {
 			rel := a.index[m.Index]
 			row := ui.ButtonBase(c.Key(rel)).Padding(5, 10).Gap(10).Radius(6).Justify(ui.Start).AlignItems(ui.Center).Label(rel)
-			switch {
-			case i == q.sel:
-				row.Background(p.active)
-			case row.Hovered():
+			if i != q.sel && row.Hovered() {
 				row.Background(p.hover)
 			}
 			if i == q.sel && q.moved {
@@ -181,7 +187,8 @@ func (a *app) quickBody(c *ui.Context, isLine bool, line, col int, choose func(i
 			if row.Clicked() {
 				choose(i)
 			}
-			row.Children(func() { a.quickRow(c, rel, m.Positions) })
+			row.Transition(hoverFade)
+			row.Children(func() { a.pickMark(c, i == q.sel, "quick"); a.quickRow(c, rel, m.Positions) })
 		}
 	})
 	q.moved = false
@@ -200,21 +207,21 @@ func (a *app) quickFooter(c *ui.Context, isLine bool, open, tip string, prefixes
 			})
 		}
 		if isLine {
-			hint("⏎", "go to line")
+			hint("⏎", locales.QuickGoToLine())
 		} else {
-			hint("↑↓", "navigate")
+			hint("↑↓", locales.QuickNavigate())
 			hint("⏎", open)
 		}
-		hint("esc", "close")
+		hint("esc", locales.QuickClose())
 		ui.Spacer(c)
 		switch {
 		case isLine:
 		case tip != "":
 			ui.Text(c, tip).FontSize(11.5).TextColor(p.faint).SingleLine()
 		case prefixes:
-			hint(">", "commands")
-			hint(":", "line")
-			hint("@", "symbol")
+			hint(">", locales.QuickCommands())
+			hint(":", locales.QuickLine())
+			hint("@", locales.QuickSymbol())
 		}
 	})
 }
@@ -330,6 +337,7 @@ func (a *app) quickSymbols(c *ui.Context, query string) {
 	}
 	choose := func(i int) {
 		if i < 0 || i >= len(q.results) {
+			q.shook = c.Now()
 			return
 		}
 		q.open = false
@@ -346,13 +354,15 @@ func (a *app) quickSymbols(c *ui.Context, query string) {
 	ui.Overlay(c, func() {
 		back := a.dialogBack(c, "quick")
 		back.Children(func() {
-			box := a.floating(c, ui.Column(c).Width(600).MaxWidthPercent(92).Margin(titleBarH+8, 0, 0, 0).Radius(10), true).Clip().
-				Role(ui.RoleDialog).Label("Go to Symbol")
+			box := a.floating(c, ui.Column(c).Width(600).MaxWidthPercent(92).Margin(titleBarH+8, 0, 0, 0).Radius(10), true).Clip()
+			shake(c, box, q.shook)
+			box.
+				Role(ui.RoleDialog).Label(locales.SymbolLabel())
 			box.Children(func() {
 				ui.Row(c).Padding(10, 14).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.border).Children(func() {
 					ui.Icon(c, iconHash).FontSize(15).TextColor(p.muted)
 					in := a.textKeys(ui.TextInputBase(c.Key("quick-input"), &q.query)).Grow(1).FontSize(14).AutoFocus().
-						Placeholder("Go to a symbol by name").Label("Go to Symbol")
+						Placeholder(locales.SymbolPlaceholder()).Label(locales.SymbolLabel())
 					if in.Shortcut(0, ui.KeyDown) {
 						q.sel, q.moved = min(q.sel+1, len(q.results)-1), true
 					}
@@ -365,19 +375,16 @@ func (a *app) quickSymbols(c *ui.Context, query string) {
 				})
 				switch {
 				case a.activeEditor() == nil:
-					ui.Text(c, "Open a file to go to its symbols").FontSize(13).TextColor(p.muted).Padding(12, 16)
+					ui.Text(c, locales.SymbolNoFile()).FontSize(13).TextColor(p.muted).Padding(12, 16)
 				case len(q.results) == 0:
-					ui.Text(c, "No matching symbols").FontSize(13).TextColor(p.muted).Padding(12, 16)
+					ui.Text(c, locales.SymbolNoMatches()).FontSize(13).TextColor(p.muted).Padding(12, 16)
 				default:
 					ui.Scroll(c.Key("quick-symbols")).MaxHeight(380).Padding(6).Children(func() {
 						for i, m := range q.results {
 							sym := syms[m.Index]
 							row := ui.ButtonBase(c.Key(fmt.Sprint("sym:", sym.Line))).Padding(5, 10).Gap(10).Radius(6).
 								Justify(ui.Start).AlignItems(ui.Center).Label(sym.Name)
-							switch {
-							case i == q.sel:
-								row.Background(p.active)
-							case row.Hovered():
+							if i != q.sel && row.Hovered() {
 								row.Background(p.hover)
 							}
 							if i == q.sel && q.moved {
@@ -386,12 +393,13 @@ func (a *app) quickSymbols(c *ui.Context, query string) {
 							if row.Clicked() {
 								choose(i)
 							}
-							row.Children(func() { a.symbolRow(c, sym, m.Positions, query == "") })
+							row.Transition(hoverFade)
+							row.Children(func() { a.pickMark(c, i == q.sel, "symbols"); a.symbolRow(c, sym, m.Positions, query == "") })
 						}
 					})
 					q.moved = false
 				}
-				a.quickFooter(c, false, "go to", "", false)
+				a.quickFooter(c, false, locales.QuickGoToAction(), "", false)
 			})
 			if box.PressedOutside() || back.OverlayShortcut(0, ui.KeyEscape) {
 				a.closeQuick()

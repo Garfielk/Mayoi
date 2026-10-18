@@ -16,6 +16,7 @@ import (
 	"mayoi/internal/highlight"
 	"mayoi/internal/remote"
 	"mayoi/internal/vfs"
+	"mayoi/locales"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -661,7 +662,7 @@ func (a *app) markdownLink(c *ui.Context, dest, root, path string, image bool) u
 	} else {
 		e = ui.Link(c, "", "")
 	}
-	e = e.Label("Open link " + dest)
+	e = e.Label(locales.OpenLink(dest))
 	if remote {
 		return e.OnClick(func() { c.OpenURL(dest) })
 	}
@@ -695,7 +696,7 @@ func (a *app) markdownView(c *ui.Context, v *viewer, name string) {
 		m.measure, _ = ui.ShapeText(strings.Repeat("0", 80), font, 0).Size()
 	}
 	width := m.measure
-	ui.List(c.Key("markdown"), &m.list, len(m.blocks)).Bind(&v.pane).TrackScroll(&m.scroll).Fill().Background(p.editor).Label("Preview "+name).Padding(editorPadY, textPadR).Rows(func(row ui.ListRow) {
+	ui.List(c.Key("markdown"), &m.list, len(m.blocks)).Bind(&v.pane).TrackScroll(&m.scroll).Fill().Background(p.editor).Label(locales.PreviewLabel(name)).Padding(editorPadY, textPadR).Rows(func(row ui.ListRow) {
 		c := row.Context
 		b := m.blocks[row.Index]
 		top, bottom := a.markdownSpacing(b)
@@ -713,8 +714,31 @@ func (a *app) markdownView(c *ui.Context, v *viewer, name string) {
 				}
 				if b.marker != "" {
 					if b.marker == "•" {
-						ui.Box(c).Width(size * b.markerWidth).Height(size * a.settings.LineHeight).Children(func() {
-							ui.Box(c).Width(size*0.35).Height(size*0.35).Radius(size*0.175).Background(p.text).Margin((size*a.settings.LineHeight-size*0.35)/2, 0)
+						// A dot in the middle of the marker's room, a ring for a
+						// list inside another, as GitHub draws them.
+						d := size * 0.32
+						ui.Box(c).Width(size * b.markerWidth).Height(size * a.settings.LineHeight).AlignItems(ui.Center).Children(func() {
+							dot := ui.Box(c).Width(d).Height(d).Radius(d/2).Margin((size*a.settings.LineHeight-d)/2, 0)
+							if b.indent > 1 {
+								dot.Border(1.25, p.muted)
+							} else {
+								dot.Background(p.muted)
+							}
+						})
+					} else if b.marker == "☐" || b.marker == "☑" {
+						// A task's box, in the middle of the marker's room as a
+						// dot is, filled with the accent once done.
+						d := size * 0.9
+						ui.Box(c).Width(size * b.markerWidth).Height(size * a.settings.LineHeight).AlignItems(ui.Center).Children(func() {
+							box := ui.Box(c).Width(d).Height(d).Radius(3).Margin((size*a.settings.LineHeight-d)/2, 0).
+								Justify(ui.Center).AlignItems(ui.Center)
+							if b.marker == "☑" {
+								box.Background(p.fill).Children(func() {
+									ui.Icon(c, iconCheck).FontSize(d * 0.8).TextColor(p.fillText)
+								})
+							} else {
+								box.Border(1.25, p.muted)
+							}
 						})
 					} else {
 						ui.Text(c, b.marker).Width(size * b.markerWidth).TextColor(p.text).FontSize(size).LineHeight(a.settings.LineHeight)
@@ -779,7 +803,13 @@ func (a *app) markdownView(c *ui.Context, v *viewer, name string) {
 							}
 						})
 					default:
-						a.markdownText(c, b.runs, a.markdownSize(b), b.kind == markdownHeading && b.level == 6, m.root, v.doc.path, false)
+						// Quotes and the smallest headings are muted, as on GitHub.
+						muted := b.quote > 0 || b.kind == markdownHeading && b.level == 6
+						a.markdownText(c, b.runs, a.markdownSize(b), muted, m.root, v.doc.path, false)
+						if b.kind == markdownHeading && b.level <= 2 {
+							// A hairline under the largest headings, as GitHub draws it.
+							ui.Box(c).Height(1).WidthPercent(100).Background(p.border).Margin(size*0.3, 0, 0, 0)
+						}
 					}
 				})
 			})

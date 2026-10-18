@@ -15,6 +15,7 @@ import (
 
 	"mayoi/internal/remote"
 	"mayoi/internal/workspace"
+	"mayoi/locales"
 )
 
 // remotePicker is the box that connects to a host and chooses a folder
@@ -222,7 +223,7 @@ func (a *app) pickConnChanged() {
 		if err != nil {
 			r.err = err.Error()
 		} else {
-			r.err = "Could not connect to " + r.conn.Host + "."
+			r.err = locales.PickCouldNotConnect(r.conn.Host)
 		}
 		a.releasePick()
 	}
@@ -337,7 +338,7 @@ func (a *app) pickFolderRow(i int) {
 	}
 	target := path.Clean(strings.TrimSpace(r.query))
 	if !strings.HasPrefix(target, "/") {
-		r.err = "Enter a path from /."
+		r.err = locales.EnterPathFromRoot()
 		return
 	}
 	if r.checking || r.conn == nil {
@@ -354,11 +355,11 @@ func (a *app) pickFolderRow(i int) {
 			}
 			switch {
 			case errors.Is(err, fs.ErrNotExist):
-				r.err = "There is no folder " + target + "."
+				r.err = locales.PickNoFolder(target)
 			case err != nil:
 				r.err = err.Error()
 			case !info.IsDir():
-				r.err = target + " is not a folder."
+				r.err = locales.PickNotFolder(target)
 			default:
 				a.openRemote(remote.Path(c.Host, target))
 			}
@@ -438,9 +439,9 @@ func (a *app) remotePickerView(c *ui.Context) {
 			a.pickFolderRow(i)
 		}
 	}
-	title, placeholder := "Connect to Host", "Choose a host, or type user@host[:port]"
+	title, placeholder := locales.PickConnectTitle(), locales.PickConnectPlaceholder()
 	if r.stage != pickHost && r.conn != nil {
-		title, placeholder = "Open Folder on "+r.conn.Host, "Type the path of a folder, or ~ for home"
+		title, placeholder = locales.PickFolderTitle(r.conn.Host), locales.PickFolderPlaceholder()
 	}
 	ui.Overlay(c, func() {
 		back := a.dialogBack(c, "remote")
@@ -466,11 +467,11 @@ func (a *app) remotePickerView(c *ui.Context) {
 				r.moved = false
 				switch r.stage {
 				case pickFolder:
-					a.quickFooter(c, false, "open or go in", "tab goes into a folder", false)
+					a.quickFooter(c, false, locales.QuickOpenOrGoIn(), locales.PickTabGoesIn(), false)
 				case pickConnecting:
 					a.connectingFooter(c)
 				case pickHost:
-					a.quickFooter(c, false, "connect", "Signs in with your keys and the SSH agent", false)
+					a.quickFooter(c, false, locales.QuickConnectAction(), locales.PickSignsIn(), false)
 				}
 			})
 			if box.PressedOutside() {
@@ -499,7 +500,7 @@ func (a *app) pickHeader(c *ui.Context, title, placeholder string, rows []string
 		}
 		ui.Icon(c, icon).FontSize(16).TextColor(p.muted)
 		if r.stage == pickConnecting {
-			ui.Text(c, "Connecting to "+r.conn.Host+"…").FontSize(14).TextColor(p.text).Grow(1).SingleLine()
+			ui.Text(c, locales.RemoteConnectingTo(r.conn.Host)).FontSize(14).TextColor(p.text).Grow(1).SingleLine()
 			ui.Spinner(c).Size(13, 13)
 			return
 		}
@@ -575,9 +576,9 @@ func (a *app) pickHostRows(c *ui.Context, extra bool, typed string, choose func(
 	p := a.pal
 	if !extra && len(r.results) == 0 {
 		ui.Column(c).Padding(22, 16).Gap(6).AlignItems(ui.Center).Children(func() {
-			msg, tip := "No hosts yet", "Type one to connect, as user@host, or add it to ~/.ssh/config."
+			msg, tip := locales.PickNoHosts(), locales.PickNoHostsTip()
 			if typed != "" {
-				msg, tip = "No hosts match "+typed, "Press ⏎ to connect to it anyway."
+				msg, tip = locales.PickNoHostsMatch(typed), locales.PickConnectAnyway()
 			}
 			ui.Icon(c, iconServer).FontSize(22).TextColor(p.faint)
 			ui.Text(c, msg).FontSize(13).FontWeight(500).TextColor(p.text)
@@ -588,7 +589,7 @@ func (a *app) pickHostRows(c *ui.Context, extra bool, typed string, choose func(
 	ui.Scroll(c.Key("remote-hosts")).MaxHeight(400).Padding(4, 6, 6).Children(func() {
 		i := 0
 		if extra {
-			a.pickRow(c, 0, "remote-typed", iconPlus, []ui.Span{{Text: "Connect to ", Color: p.muted}, {Text: typed, Color: p.text, Weight: 600}}, "", "", choose)
+			a.pickRow(c, 0, "remote-typed", iconPlus, []ui.Span{{Text: locales.PickConnectToPrefix(), Color: p.muted}, {Text: typed, Color: p.text, Weight: 600}}, "", "", choose)
 			i++
 		}
 		grouped := typed == ""
@@ -597,9 +598,9 @@ func (a *app) pickHostRows(c *ui.Context, extra bool, typed string, choose func(
 			h := r.hosts[m.Index]
 			last, recent := r.recent[h]
 			if grouped {
-				s := "SSH Config"
+				s := locales.PickSshConfig()
 				if recent {
-					s = "Recent"
+					s = locales.PickRecent()
 				}
 				if s != section {
 					section = s
@@ -643,16 +644,16 @@ func (a *app) pickConnecting(c *ui.Context) {
 	}
 	host := r.conn.Host
 	ui.Column(c).Padding(26, 20, 24).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "Signing in to "+host).FontSize(13.5).FontWeight(500).TextColor(p.text)
+		ui.Text(c, locales.PickSigningIn(host)).FontSize(13.5).FontWeight(500).TextColor(p.text)
 		detail := r.resolved[host]
 		if detail == "" || detail == host {
-			detail = "with your keys and the SSH agent"
+			detail = locales.PickWithKeys()
 		} else {
-			detail = "as " + detail
+			detail = locales.PickAs(detail)
 		}
 		ui.Text(c, detail).FontSize(12).TextColor(p.muted).SingleLine()
 		if took := time.Since(r.since); took >= 3*time.Second {
-			ui.Text(c, fmt.Sprintf("Waiting for the host · %ds", int(took.Seconds()))).FontSize(12).TextColor(p.faint)
+			ui.Text(c, locales.PickWaiting(int(took.Seconds()))).FontSize(12).TextColor(p.faint)
 		}
 		time.AfterFunc(time.Second-time.Since(r.since)%time.Second, a.invalidate)
 	})
@@ -674,13 +675,13 @@ func (a *app) pickFolderRows(c *ui.Context, rows []string, choose func(int)) {
 		for i, name := range rows {
 			switch name {
 			case rowOpen:
-				label := []ui.Span{{Text: "Open ", Color: p.muted}, {Text: path.Base(target), Color: p.text, Weight: 600}}
+				label := []ui.Span{{Text: locales.PickOpenPrefix(), Color: p.muted}, {Text: path.Base(target), Color: p.text, Weight: 600}}
 				a.pickRow(c, i, "remote-open", iconFolderOpen, label, a.homeShort(host, target), "", choose)
 			case rowParent:
 				a.pickRow(c, i, "remote-parent", iconParent, []ui.Span{{Text: "..", Color: p.text}}, a.homeShort(host, path.Dir(dir)), "", choose)
 			default:
 				if dirs == 0 {
-					a.pickSection(c, "Folders in "+path.Base(dir))
+					a.pickSection(c, locales.PickFoldersIn(path.Base(dir)))
 				}
 				dirs++
 				spans := []ui.Span{{Text: name, Color: p.text}}
@@ -696,13 +697,13 @@ func (a *app) pickFolderRows(c *ui.Context, rows []string, choose func(int)) {
 		msg := ""
 		switch {
 		case r.dir != dir:
-			msg = "Reading " + dir + "…"
+			msg = locales.PickReading(dir)
 		case r.listErr != nil:
-			msg = "Could not read " + dir + ": " + r.listErr.Error()
+			msg = locales.PickCouldNotRead(dir, r.listErr.Error())
 		case prefix != "":
-			msg = "No folders in " + path.Base(dir) + " start with " + prefix
+			msg = locales.PickNoFoldersStart(path.Base(dir), prefix)
 		default:
-			msg = "No folders in " + path.Base(dir)
+			msg = locales.PickNoFolders(path.Base(dir))
 		}
 		ui.Text(c, msg).FontSize(12.5).TextColor(p.muted).Padding(10, 10, 6)
 	})
@@ -719,10 +720,7 @@ func (a *app) pickRow(c *ui.Context, i int, key string, icon *ui.SVG, label []ui
 	}
 	row := ui.ButtonBase(c.Key(key)).Height(pickRowH).Padding(0, 10).Gap(10).Radius(6).Justify(ui.Start).AlignItems(ui.Center).Label(text)
 	sel := i == r.sel
-	switch {
-	case sel:
-		row.Background(p.active)
-	case row.Hovered():
+	if !sel && row.Hovered() {
 		row.Background(p.hover)
 	}
 	if sel && r.moved {
@@ -731,7 +729,9 @@ func (a *app) pickRow(c *ui.Context, i int, key string, icon *ui.SVG, label []ui
 	if row.Clicked() {
 		a.post(func() { choose(i) })
 	}
+	row.Transition(hoverFade)
 	row.Children(func() {
+		a.pickMark(c, sel, "remote")
 		col := p.muted
 		if sel {
 			col = p.accent
@@ -755,6 +755,6 @@ func (a *app) connectingFooter(c *ui.Context) {
 	ui.Row(c).Height(30).Padding(0, 14).Gap(6).AlignItems(ui.Center).Background(p.hover).
 		BorderWidth(1, 0, 0, 0).BorderColor(p.border).Children(func() {
 		a.keycaps(c, "esc")
-		ui.Text(c, "cancel").FontSize(11.5).TextColor(p.muted).SingleLine()
+		ui.Text(c, locales.QuickCancel()).FontSize(11.5).TextColor(p.muted).SingleLine()
 	})
 }

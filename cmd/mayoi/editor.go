@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"mayoi/internal/highlight"
 	"mayoi/internal/linediff"
 	"mayoi/internal/settings"
+	"mayoi/locales"
 )
 
 const (
@@ -37,7 +39,7 @@ type codeFont struct {
 
 func newCodeFont(p settings.Prefs) codeFont {
 	f := codeFont{
-		family: p.FontFamily, size: p.FontSize, weight: p.FontWeight, features: strings.Join(p.FontFeatures, ","),
+		family: monoFallback(p.FontFamily), size: p.FontSize, weight: p.FontWeight, features: strings.Join(p.FontFeatures, ","),
 		lineHeight: p.LineHeight, lineH: float32(int(p.FontSize*p.LineHeight + 0.5)),
 	}
 	w, _ := ui.ShapeText(strings.Repeat("0", 64), f.font(), 0).Size()
@@ -50,8 +52,26 @@ func newCodeFont(p settings.Prefs) codeFont {
 
 // is reports whether the font is the one the preferences choose.
 func (f codeFont) is(p settings.Prefs) bool {
-	return f.charW != 0 && f.family == p.FontFamily && f.size == p.FontSize && f.weight == p.FontWeight &&
+	return f.charW != 0 && f.family == monoFallback(p.FontFamily) && f.size == p.FontSize && f.weight == p.FontWeight &&
 		f.features == strings.Join(p.FontFeatures, ",") && f.lineHeight == p.LineHeight
+}
+
+// monoFallback is a font family list that ends in the system's monospaced
+// font, so that a family the system lacks, as a font named in the settings
+// but not installed, falls back to a monospaced font rather than to the
+// system's proportional one. A list that names a generic family already
+// is kept.
+func monoFallback(family string) string {
+	for _, f := range strings.Split(family, ",") {
+		switch strings.ToLower(strings.Trim(strings.TrimSpace(f), `"'`)) {
+		case "monospace", "ui-monospace", "system-ui", "sans-serif", "serif", "ui-serif", "ui-sans-serif":
+			return family
+		}
+	}
+	if strings.TrimSpace(family) == "" {
+		return "monospace"
+	}
+	return family + ", monospace"
 }
 
 func (f codeFont) font() ui.Font {
@@ -125,10 +145,14 @@ func (a *app) editorView(c *ui.Context, d *editor) {
 		// Back in sight, where it was.
 		d.hidden, d.pinFrame, d.resync, d.shownFrame = false, 0, true, a.frame
 		d.vscroll.Y = d.hiddenY
-	case d.pinFrame != 0 && a.frame > d.pinFrame:
+	case d.pinFrame != 0 && a.frame > d.pinFrame+1:
 		d.pinFrame = 0
+	case d.pinFrame != 0 && a.frame > d.pinFrame:
+		// Every build of the frame after: a frame that animates builds the
+		// view again, after the area laid out where it was put back.
 		d.vscroll.Y = d.pinY
 	}
+
 	if !a.settings.Vim {
 		vimReset(d)
 	}
@@ -158,7 +182,7 @@ func (a *app) editorView(c *ui.Context, d *editor) {
 			Font(f.family).FontSize(f.size).FontWeight(f.weight).FontFeatures(f.featureList()...).FixedLineHeight(f.lineH).TextColor(p.text).
 			FillHeight().
 			Padding(editorPadY, textPadR, editorPadY, textX).
-			Label("Editor " + d.name()).
+			Label(locales.EditorLabel(d.name())).
 			ReadOnly(vimKeys || a.chording() || d.locked())
 		a.takeKeys(area, placeEditor, func(ev ui.InputEvent) bool { return a.editorKey(d, ev) })
 		if wrap {
@@ -172,8 +196,9 @@ func (a *app) editorView(c *ui.Context, d *editor) {
 		d.resync = d.resync || !d.caretSeen
 		jump := d.pending != nil
 		if r := d.pending; r != nil {
+			// A jump asked for goes where it goes: no pin puts it back.
 			area.SetTextSelection(r[0], r[1])
-			d.pending, d.resync, d.parked = nil, false, -1
+			d.pending, d.resync, d.parked, d.pinFrame = nil, false, -1, 0
 		}
 		if d.resync {
 			// The area scrolls to its caret when it is given one, and when
@@ -283,7 +308,14 @@ func (a *app) editorView(c *ui.Context, d *editor) {
 		// Who changed the caret's line last, after it, unless it wraps.
 		var blame string
 		var blameX float32
+		// The comment of each review note after its last line, in its
+		// place, unless the lines wrap.
+		noted := a.notedLines(d)
+		var hints []editorHint
 		if !wrap {
+			hints = a.editorHints(d, snap, noted, first, last)
+		}
+		if !wrap && !slices.ContainsFunc(hints, func(h editorHint) bool { return h.line == caretLine }) {
 			if blame = a.blameLine(d, caretLine, snap.Version(), focused); blame != "" {
 				s, e := snap.LineRange(caretLine)
 				blameX = textX + f.width(snap.Slice(s, min(e, s+maxBlameAfter))) + 4*charW
@@ -428,6 +460,15 @@ func (a *app) editorView(c *ui.Context, d *editor) {
 					}
 				})
 			}
+			for _, h := range hints {
+				y := lineY(r, h.line)
+				pt.Fill(ui.Rect{X: r.X + h.x - 4, Y: y + 2, W: h.w + 8, H: lineH - 4}, p.accent.Alpha(0.09), 4)
+				icon := size * 0.85
+				pt.Icon(iconComment, ui.Rect{X: r.X + h.x, Y: y + (lineH-icon)/2, W: icon, H: icon}, p.accent)
+				span := ui.Span{Text: h.text, Font: family, Size: size * 0.92, Color: p.muted}
+				_, th := pt.MeasureText(0, span)
+				pt.RichText(r.X+h.x+icon+hintGap*charW, y+(lineH-th)/2, 0, span)
+			}
 			if blame != "" {
 				span := ui.Span{Text: blame, Font: family, Size: size * 0.92, Color: p.faint}
 				_, h := pt.MeasureText(0, span)
@@ -468,7 +509,7 @@ func (a *app) editorView(c *ui.Context, d *editor) {
 			// Along the right edge, where the scroll bar goes, the whole
 			// document: the lines changed since the last commit, find's
 			// matches and the caret's line.
-			if lines > 1 && len(gitRuns)+len(rows) > 0 {
+			if lines > 1 && len(gitRuns)+len(rows)+len(noted) > 0 {
 				right := x + view.W - 10
 				for _, g := range gitRuns {
 					y, h := r.Y+g.from*r.H, max((g.to-g.from)*r.H, 2)
@@ -483,6 +524,9 @@ func (a *app) editorView(c *ui.Context, d *editor) {
 				}
 				for _, f := range rows {
 					pt.Fill(ui.Rect{X: right + 4, Y: r.Y + f*r.H, W: 5, H: 2}, p.matchRing, 1)
+				}
+				for _, n := range noted {
+					pt.Fill(ui.Rect{X: right + 4, Y: r.Y + float32(n.from)/float32(lines)*r.H - 1, W: 5, H: 3}, p.accent, 1)
 				}
 				caretAt := float32(caretLine) / float32(lines)
 				pt.Fill(ui.Rect{X: right, Y: r.Y + caretAt*r.H - 1, W: 9, H: 2}, p.text.Alpha(0.6), 1)
@@ -514,6 +558,12 @@ func (a *app) editorView(c *ui.Context, d *editor) {
 						pt.Fill(ui.Rect{X: barX, Y: y - 2.5, W: 7, H: 5}, p.removed, 2.5)
 					case linediff.DeletedBelow:
 						pt.Fill(ui.Rect{X: barX, Y: y + h - 2.5, W: 7, H: 5}, p.removed, 2.5)
+					}
+				}
+				// A bar along the lines of each review comment.
+				for _, n := range noted {
+					for i := max(n.from, from); i < n.to && i <= to; i++ {
+						pt.Fill(ui.Rect{X: x + 2, Y: lineY(r, i), W: 2, H: lineHeight(i)}, p.accent, 0)
 					}
 				}
 				// A number by the first row of each line.

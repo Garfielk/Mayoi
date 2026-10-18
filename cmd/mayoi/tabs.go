@@ -2,11 +2,20 @@ package main
 
 import (
 	"slices"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/remote"
+	"mayoi/locales"
 )
+
+// tabLine is the identity of the line along the top of a column's tab
+// shown, which slides from tab to tab as another shows.
+type tabLine struct{ col int }
+
+// crossFade is how a tab's cross comes and goes with the pointer.
+var crossFade = ui.ElementTransition{Duration: 100 * time.Millisecond, Enter: &ui.Motion{}, Exit: &ui.Motion{}}
 
 // tabStrip shows a tab for each tab of a column: a click shows it, the
 // cross closes it, and a dot marks unsaved changes. A tab is dragged
@@ -38,7 +47,8 @@ func (a *app) tabStrip(c *ui.Context, col *column) {
 			})
 		}
 	}
-	ui.Row(c).Height(tabStripH).Background(p.chrome).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Height(tabStripH).Background(p.chrome).AlignItems(ui.Center).
+		ContextMenu(func(m *ui.Menu) { a.columnLockMenu(m, col) }).Children(func() {
 		// The strip's edge along the bottom, which the tab shown breaks to
 		// join the text below it.
 		ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(1).Background(p.border)
@@ -51,13 +61,16 @@ func (a *app) tabStrip(c *ui.Context, col *column) {
 			ui.Row(c).Height(tabStripH).AlignItems(ui.Stretch).Children(func() {
 				for i, t := range col.tabs {
 					active := i == col.active
-					tip := "Terminal"
+					tip := locales.TabTerminal()
 					if t.term == nil {
 						tip = a.relOrPath(t.path())
 					}
 					tab := ui.ButtonBase(c.Key(t.id)).Padding(0, 6, 0, 12).Gap(7).AlignItems(ui.Center).
 						BorderWidth(0, 1, 0, 0).BorderColor(p.border).Label(t.name()).Tooltip(tip).
-						Drag(dragItem{tab: t})
+						Drag(dragItem{tab: t}).Transition(tabMotion)
+					// The middle button closes the tab, as in a browser.
+					box := tab.LayoutBounds()
+					tab = tab.HandleInput(func(ev ui.InputEvent) bool { return a.tabMiddle(t, ev, box) })
 					if tab.Dragging() {
 						a.dragNow = true
 					}
@@ -71,7 +84,7 @@ func (a *app) tabStrip(c *ui.Context, col *column) {
 					case hovered:
 						tab.Background(mix(p.chrome, p.editor, 0.5))
 					}
-					if tab.Pressed() && (!active || !focused) {
+					if tab.Pressed() && a.middle != t && (!active || !focused) {
 						a.activate(col, i, true)
 					}
 					if tab.DoubleClicked() {
@@ -91,11 +104,16 @@ func (a *app) tabStrip(c *ui.Context, col *column) {
 						case over:
 							// Where the tab dragged goes: before this one.
 							ui.Box(c).Absolute().Top(0).Bottom(0).Left(0).Width(2).Background(p.accent)
-						case active && focused:
-							// The accent line along the top of the tab shown.
-							ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(2).Background(p.accent)
 						case active:
-							ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(2).Background(p.faint)
+							// The line along the top of the tab shown, in the accent
+							// while its column has the keyboard. It slides from the
+							// tab shown before.
+							line := p.faint
+							if focused {
+								line = p.accent
+							}
+							ui.Box(c.Key("line")).Absolute().Top(0).Left(0).Right(0).Height(2).Background(line).
+								Transition(ui.ElementTransition{Animation: &ui.Snappy, Match: tabLine{col.id}})
 						}
 						icon, tint := iconTerminal, p.muted
 						switch {
@@ -114,7 +132,7 @@ func (a *app) tabStrip(c *ui.Context, col *column) {
 						}
 						switch {
 						case t.ed != nil && t.ed.diskGone, t.view != nil && t.view.diskGone:
-							name.TextColor(p.danger).Strikethrough()
+							name.TextColor(p.dangerFg).Strikethrough()
 						case active:
 							name.FontWeight(550).TextColor(p.text)
 						default:
@@ -122,16 +140,17 @@ func (a *app) tabStrip(c *ui.Context, col *column) {
 						}
 						// The dot of unsaved changes turns into the cross under the
 						// pointer.
-						x := ui.ButtonBase(c).Size(18, 18).Radius(4).Justify(ui.Center).AlignItems(ui.Center).Label("Close " + t.name())
+						x := ui.ButtonBase(c).Size(18, 18).Radius(4).Justify(ui.Center).AlignItems(ui.Center).Label(locales.CloseName(t.name()))
 						if x.Hovered() {
 							x.Background(p.hover)
 						}
+						x.Transition(hoverFade)
 						x.Children(func() {
 							switch {
 							case t.ed != nil && t.ed.dirty() && !x.Hovered():
-								ui.Box(c).Size(8, 8).Radius(4).Background(p.text.Alpha(0.7))
+								ui.Box(c.Key("dot")).Size(8, 8).Radius(4).Background(p.text.Alpha(0.7)).Transition(dotPop)
 							case active || hovered || x.Hovered():
-								ui.Icon(c, iconX).FontSize(13).TextColor(p.muted)
+								ui.Icon(c.Key("x"), iconX).FontSize(13).TextColor(p.muted).Transition(crossFade)
 							}
 						})
 						if x.Clicked() {
@@ -145,7 +164,12 @@ func (a *app) tabStrip(c *ui.Context, col *column) {
 			})
 		})
 		ui.Row(c).Padding(0, 6, 0, 4).Children(func() {
-			if a.iconButton(c, iconColumns, a.withKey("Split Right", "view.splitRight"), false).Clicked() {
+			if col.locked {
+				if a.iconButton(c, iconLock, locales.UnlockColumn(), true).Clicked() {
+					a.post(func() { a.toggleColumnLock(col) })
+				}
+			}
+			if a.iconButton(c, iconColumns, a.withKey(locales.CmdViewSplitRight(), "view.splitRight"), false).Clicked() {
 				a.post(func() {
 					if at := slices.Index(a.cols, col); at >= 0 {
 						a.col = at
@@ -162,6 +186,40 @@ func (a *app) tabStrip(c *ui.Context, col *column) {
 	}
 }
 
+// middleButton is the middle mouse button, as InputEvent.Button names it:
+// 0 the primary button and 1 the secondary.
+const middleButton = 2
+
+// tabMiddle takes the input of the middle button on a tab, which closes
+// the tab rather than shows it, as a browser's tabs do. The press is
+// taken, so that the release comes back here wherever in the tab it is,
+// and the tab it is on is remembered while it is held, so that the frames
+// between do not show it. Let go of off the tab, box as the last frame
+// laid it out, it closes nothing, as in a browser.
+func (a *app) tabMiddle(t *colTab, ev ui.InputEvent, box ui.Rect) bool {
+	if ev.Button != middleButton {
+		// A press of another button ends one of the middle whose release
+		// never came, which would keep the tab from showing.
+		if ev.Kind == ui.InputPointerDown {
+			a.middle = nil
+		}
+		return false
+	}
+	switch ev.Kind {
+	case ui.InputPointerDown:
+		a.middle = t
+		return true
+	case ui.InputPointerUp:
+		on := box.W == 0 || ev.X >= 0 && ev.Y >= 0 && ev.X < box.W && ev.Y < box.H
+		if a.middle == t && on {
+			a.post(func() { a.closeTab(t, nil) })
+		}
+		a.middle = nil
+		return true
+	}
+	return false
+}
+
 // tabMenu is the menu of a tab.
 func (a *app) tabMenu(m *ui.Menu, col *column, t *colTab, closing **colTab) {
 	// show makes the tab the one commands are for.
@@ -173,38 +231,42 @@ func (a *app) tabMenu(m *ui.Menu, col *column, t *colTab, closing **colTab) {
 			}
 		})
 	}
-	if m.Item("Close").Chosen() {
+	if m.Item(locales.TabClose()).Chosen() {
 		*closing = t
 	}
-	if m.Item("Close Others").Disabled(len(col.tabs) < 2).Chosen() {
+	if m.Item(locales.TabCloseOthers()).Disabled(len(col.tabs) < 2).Chosen() {
 		a.post(func() { a.closeOthers(col, t) })
 	}
-	if m.Item("Close All").Chosen() {
+	if m.Item(locales.TabCloseAll()).Chosen() {
 		a.post(func() { a.closeTabs(slices.Clone(col.tabs), nil) })
 	}
 	m.Separator()
-	if m.Item("Split Right").Chosen() {
+	a.columnLockMenu(m, col)
+	if m.Item(locales.CmdViewSplitRight()).Chosen() {
 		show(a.splitRight)
 	}
 	at := slices.Index(a.cols, col)
 	alone := len(col.tabs) < 2
-	if m.Item("Move to Next Column").Disabled(alone && at == len(a.cols)-1).Chosen() {
+	if m.Item(locales.MoveToNextColumn()).Disabled(alone && at == len(a.cols)-1).Chosen() {
 		show(func() { a.moveTabBy(1) })
 	}
-	if m.Item("Move to Previous Column").Disabled(alone && at == 0).Chosen() {
+	if m.Item(locales.MoveToPrevColumn()).Disabled(alone && at == 0).Chosen() {
 		show(func() { a.moveTabBy(-1) })
 	}
 	if t.term != nil {
-		if m.Item("Move to Panel").Chosen() {
+		if m.Item(locales.TermMoveLockedRight()).Chosen() {
+			a.post(func() { a.terminalToLockedRight(t.term) })
+		}
+		if m.Item(locales.MoveToPanel()).Chosen() {
 			a.post(func() { a.terminalToPanel(t.term) })
 		}
 		return
 	}
 	m.Separator()
 	if d := t.ed; d != nil && canPreview(d.document) {
-		label := "Show Preview"
+		label := locales.ShowPreview()
 		if d.preview != nil {
-			label = "Show Source"
+			label = locales.ShowSource()
 		}
 		if m.Item(label).Chosen() {
 			show(func() { a.setPreview(d, d.preview == nil); a.focusColumn() })
@@ -212,19 +274,29 @@ func (a *app) tabMenu(m *ui.Menu, col *column, t *colTab, closing **colTab) {
 	}
 	path := t.path()
 	if t.diff != nil {
-		if m.Item("Open File").Chosen() {
+		if m.Item(locales.OpenFile()).Chosen() {
 			show(a.openChanges)
 		}
-	} else if t.ed != nil && path != "" && a.git.repo != nil && m.Item("Open Changes").Chosen() {
+	} else if t.ed != nil && path != "" && a.git.repo != nil && m.Item(locales.CmdGitOpenChanges()).Chosen() {
 		show(a.openChanges)
 	}
-	if m.Item("Reveal in Explorer").Disabled(path == "" || a.root == "").Chosen() {
+	if m.Item(locales.ScmRevealInExplorer()).Disabled(path == "" || a.root == "").Chosen() {
 		a.post(func() { a.showExplorer(); a.revealInTree(path) })
 	}
 	if m.Item(revealLabel()).Disabled(path == "" || remote.Is(path)).Chosen() {
 		a.host.reveal(path)
 	}
-	if m.Item("Copy Path").Disabled(path == "").Chosen() {
+	if m.Item(locales.CopyPath()).Disabled(path == "").Chosen() {
 		a.services.WriteClipboard(hostPath(path))
+	}
+}
+
+func (a *app) columnLockMenu(m *ui.Menu, col *column) {
+	label := locales.LockColumn()
+	if col.locked {
+		label = locales.UnlockColumn()
+	}
+	if m.Item(label).Chosen() {
+		a.post(func() { a.toggleColumnLock(col) })
 	}
 }

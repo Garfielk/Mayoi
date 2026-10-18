@@ -42,7 +42,9 @@ func TestMigrateTheLayout(t *testing.T) {
 		"windows": [{"id": 0, "folder": "/tmp/x"}],
 		"sessions": {"/tmp/y": {"expanded": ["src"]}}}`), 0o644)
 	s := Load(path)
-	want := Layout{SidebarView: "git", SidebarClosed: true, SidebarWidth: 320, PanelHeight: 400}
+	// The panel's own width is new here, so it takes the default.
+	want := DefaultLayout
+	want.SidebarView, want.SidebarClosed, want.SidebarWidth, want.PanelHeight = "git", true, 320, 400
 	if len(s.Windows) != 1 || s.Windows[0].Layout != want || s.Sessions["/tmp/y"] == nil || s.Sessions["/tmp/y"].Layout != want {
 		t.Fatalf("windows %+v, sessions %+v", s.Windows, s.Sessions)
 	}
@@ -334,5 +336,102 @@ func TestDiffPrefs(t *testing.T) {
 	s = Load(path)
 	if s.DiffHighlight != "" || s.DiffContext != 0 {
 		t.Fatalf("reset %+v", s.Prefs)
+	}
+}
+
+func TestScmRepositoryPreferencesRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s := Load(path)
+	if s.ScmRepositoryOpen {
+		t.Fatal("repository panel must default collapsed")
+	}
+	s.ScmRepositoryOpen, s.ScmRemotes = true, true
+	s.Changed()
+	s.Flush()
+	got := Load(path)
+	if !got.ScmRepositoryOpen || !got.ScmRemotes {
+		t.Fatal("repository panel preferences were not saved")
+	}
+}
+
+func TestSyncedPrefs(t *testing.T) {
+	p := Default().Prefs
+	if !p.IsDefault() {
+		t.Error("the defaults are not default")
+	}
+	p.FontSize, p.Theme, p.ScmRemotes, p.ScmRepositoryOpen = 15, "claude", true, true
+	if p.IsDefault() {
+		t.Error("changed preferences are default")
+	}
+	m := p.Synced()
+	if _, ok := m["scmRemotes"]; ok {
+		t.Error("scmRemotes syncs")
+	}
+	if string(m["fontSize"]) != "15" || string(m["theme"]) != `"claude"` {
+		t.Errorf("synced = %s", m)
+	}
+	// Another machine's: the font size is out of range, and the panels of
+	// source control stay as this machine has them.
+	m["fontSize"] = json.RawMessage("40")
+	delete(m, "theme")
+	q, err := p.WithSynced(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.FontSize != 28 || q.Theme != "" || !q.ScmRemotes || !q.ScmRepositoryOpen || !q.AutoSave {
+		t.Errorf("prefs = %+v", q)
+	}
+	if !slices.Contains(PrefKeys, "fontSize") || !slices.Contains(PrefKeys, "locale") {
+		t.Errorf("PrefKeys = %v", PrefKeys)
+	}
+}
+
+// TestSyncIgnoredPrefs: what the person keeps on the machine stays as it
+// has it, and syncIgnored itself does not sync.
+func TestSyncIgnoredPrefs(t *testing.T) {
+	p := Default().Prefs
+	p.FontSize, p.Vim, p.SyncIgnored = 18, true, []string{"fontSize", "vim", "keybindings.json", "nonsense"}
+	keys, keybindings := p.SyncKept()
+	if !slices.Equal(keys, []string{"fontSize", "vim"}) || !keybindings {
+		t.Errorf("kept %v, keybindings %v", keys, keybindings)
+	}
+	all := Prefs{SyncIgnored: []string{SyncSettings}}
+	if keys, keybindings := all.SyncKept(); len(keys) < 10 || slices.Contains(keys, "scmRemotes") || keybindings {
+		t.Errorf("settings.json keeps %v, keybindings %v", keys, keybindings)
+	}
+	if got := all.SyncIgnoring(SyncKeybindings, true); !slices.Equal(got, []string{SyncSettings, SyncKeybindings}) {
+		t.Errorf("ignoring = %v", got)
+	}
+	if got := all.SyncIgnoring(SyncSettings, false); got != nil {
+		t.Errorf("not ignoring = %v", got)
+	}
+	if _, ok := p.Synced()["syncIgnored"]; ok {
+		t.Error("syncIgnored syncs")
+	}
+	q, err := p.WithSynced(map[string]json.RawMessage{"fontSize": json.RawMessage("12"), "theme": json.RawMessage(`"qoder"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.FontSize != 18 || !q.Vim || q.Theme != "qoder" || len(q.SyncIgnored) != 4 {
+		t.Errorf("prefs = %+v", q)
+	}
+}
+
+func TestOnPrefsWritten(t *testing.T) {
+	s := Load(filepath.Join(t.TempDir(), "settings.json"))
+	written := make(chan struct{}, 4)
+	s.OnPrefsWritten(func() { written <- struct{}{} })
+	s.Flush()
+	<-written
+	// The state only.
+	s.AddRecent("/tmp")
+	s.Flush()
+	s.Vim = true
+	s.Flush()
+	<-written
+	select {
+	case <-written:
+		t.Error("a change of the state told of the preferences")
+	default:
 	}
 }

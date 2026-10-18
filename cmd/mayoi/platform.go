@@ -4,9 +4,11 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/ui"
 
 	"mayoi/internal/keymap"
+	"mayoi/locales"
 )
 
 // hostOS is the system Mayoi runs on, as runtime.GOOS names it: its keys,
@@ -158,48 +160,49 @@ func (a *app) shellSkip(s keymap.Stroke) (id string, ok bool) {
 
 // fileManager is the app that shows files of the system: the Finder, File
 // Explorer, or a file manager.
-func fileManager() string {
+func fileManager(t locales.Messages) string {
 	switch hostOS {
 	case "darwin":
-		return "Finder"
+		return t.FileManagerFinder()
 	case "windows":
-		return "File Explorer"
+		return t.FileManagerExplorer()
 	}
-	return "File Manager"
+	return t.FileManagerOther()
 }
 
 // revealLabel is the menu item that shows a file in the file manager.
 func revealLabel() string {
+	t := locales.In(i18n.Locale())
 	if hostOS == "linux" {
-		return "Open Containing Folder"
+		return t.RevealOpenContaining()
 	}
-	return "Reveal in " + fileManager()
+	return t.RevealIn(fileManager(t))
 }
 
 // trashName is where files go that are deleted: the Recycle Bin on
 // Windows, the Trash elsewhere.
 func trashName() string {
 	if hostOS == "windows" {
-		return "the Recycle Bin"
+		return locales.TrashNameRecycleBin()
 	}
-	return "the Trash"
+	return locales.TrashNameTrash()
 }
 
 // trashLabel is the menu item that moves a file to trashName.
 func trashLabel() string {
 	if hostOS == "windows" {
-		return "Delete"
+		return locales.TrashLabelDelete()
 	}
-	return "Move to Trash"
+	return locales.TrashLabelMove()
 }
 
 // revealActiveLabel is the command that shows the active file in the file
-// manager.
-func revealActiveLabel() string {
+// manager, in the language of t.
+func revealActiveLabel(t locales.Messages) string {
 	if hostOS == "linux" {
-		return "Open Containing Folder of Active File"
+		return t.RevealActiveOpenContaining()
 	}
-	return "Reveal Active File in " + fileManager()
+	return t.RevealActiveIn(fileManager(t))
 }
 
 // vimCtrl reports whether vim's normal mode takes ⌃F, ⌃B and ⌃R: on
@@ -223,8 +226,9 @@ func superName() string {
 // revealFolderLabel is the tooltip of the folder that shows it in the file
 // manager.
 func revealFolderLabel(folder string) string {
+	t := locales.In(i18n.Locale())
 	if hostOS == "linux" {
-		return "Open " + folder + " in the File Manager"
+		return t.RevealFolderOpen(folder)
 	}
-	return "Reveal " + folder + " in " + fileManager()
+	return t.RevealFolderIn(folder, fileManager(t))
 }

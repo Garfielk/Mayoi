@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +13,7 @@ import (
 	"mayoi/internal/highlight"
 	"mayoi/internal/remote"
 	"mayoi/internal/settings"
+	"mayoi/locales"
 )
 
 // column is a column of the editor area: its tabs, and the one it shows.
@@ -25,6 +25,7 @@ type column struct {
 	// weight is the column's share of the width of the editor area, among
 	// the weights of the others.
 	weight float32
+	locked bool // automatic file opens avoid it; it stays when empty
 	// revealed is the tab the strip last scrolled into view.
 	revealed int
 	// body is where the tab shown is, which a tab dragged is dropped on.
@@ -122,10 +123,15 @@ func (a *app) newColumn() *column {
 	return &column{id: a.nextCol, active: -1, weight: 1}
 }
 
-// column returns the column that has the keyboard, or had it last.
+// column returns the column that has the keyboard, or had it last, and
+// remembers an unlocked one as the target for subsequent file opens.
 func (a *app) column() *column {
 	a.col = min(max(a.col, 0), len(a.cols)-1)
-	return a.cols[a.col]
+	col := a.cols[a.col]
+	if !col.locked {
+		a.fileCol = col
+	}
+	return col
 }
 
 // activeTab returns the tab shown in the column that has the keyboard.
@@ -197,11 +203,11 @@ func (a *app) docIndex(path string) int {
 	return slices.IndexFunc(a.docs, func(d *document) bool { return d.path == path })
 }
 
-// openFile shows a file in a tab of the column that has the keyboard,
+// openFile shows a file in a tab of the file column,
 // opening one unless the column has one. A file open in another column
 // shows in both, which share its text.
 func (a *app) openFile(path string, focus bool) {
-	col := a.column()
+	col := a.fileColumn()
 	a.openFileIn(col, col.active+1, path, focus)
 }
 
@@ -233,11 +239,11 @@ func (a *app) openFileIn(col *column, at int, path string, focus bool) {
 		a.nextID++
 		d, err := readDocument(a.nextID, path, a.invalidate)
 		if errors.Is(err, errBinary) {
-			a.fail("%s is a binary file", filepath.Base(path))
+			a.fail("%s", locales.FailBinary(filepath.Base(path)))
 			return
 		}
 		if err != nil {
-			a.fail("Could not open %s: %v", filepath.Base(path), err)
+			a.fail("%s", locales.FailOpen(filepath.Base(path), err.Error()))
 			return
 		}
 		doc = d
@@ -259,11 +265,11 @@ func (col *column) showingFile(path string) int {
 	})
 }
 
-// previewFile shows a file in the preview tab of the column that has the
-// keyboard, without giving it the keyboard: in the tab that shows it
+// previewFile shows a file in the file column's preview tab, without
+// giving it the keyboard: in the tab that shows it
 // already, else in place of the preview tab, else in a new one.
 func (a *app) previewFile(path string) {
-	col := a.column()
+	col := a.fileColumn()
 	if i := col.showingFile(path); i >= 0 {
 		a.activate(col, i, false)
 		return
@@ -334,7 +340,7 @@ func (a *app) openImage(col *column, at int, path string, focus bool) {
 	}
 	// A remote image says itself why it could not be read.
 	if _, err := os.Stat(path); err != nil && !remote.Is(path) {
-		a.fail("Could not open %s: %v", filepath.Base(path), err)
+		a.fail("%s", locales.FailOpen(filepath.Base(path), err.Error()))
 		return
 	}
 	v := newImageViewer(path)
@@ -352,9 +358,9 @@ func (a *app) newFile() {
 	a.nextID++
 	a.untitled++
 	doc := newDocument(a.nextID, "", "", highlight.New(nil, nil))
-	doc.title = fmt.Sprintf("Untitled-%d", a.untitled)
+	doc.title = locales.UntitledName(a.untitled)
 	a.docs = append(a.docs, doc)
-	col := a.column()
+	col := a.fileColumn()
 	a.addTab(col, len(col.tabs), &colTab{ed: newEditor(doc)})
 	a.activate(col, len(col.tabs)-1, true)
 }
@@ -368,6 +374,9 @@ func (a *app) activate(col *column, i int, focus bool) {
 	col.active = i
 	if at := slices.Index(a.cols, col); at >= 0 {
 		a.col = at
+	}
+	if !col.locked {
+		a.fileCol = col
 	}
 	t := col.tabs[i]
 	if !t.transient {
@@ -597,14 +606,29 @@ func (a *app) dropTab(t *colTab) {
 	}
 }
 
-// removeColumn takes a column away, unless it is the only one: the others
-// share its room.
+// removeColumn takes a column away, keeping locked columns and the last
+// file column. Unlocked columns share its room so locked widths stay put.
 func (a *app) removeColumn(col *column) {
 	i := slices.Index(a.cols, col)
-	if i < 0 || len(a.cols) < 2 {
+	if i < 0 || len(a.cols) < 2 || col.locked {
 		return
 	}
+	if slices.ContainsFunc(a.cols, func(c *column) bool { return c.locked }) {
+		var other *column
+		for _, c := range a.cols {
+			if c != col && !c.locked && (other == nil || c == a.fileCol) {
+				other = c
+			}
+		}
+		if other == nil {
+			return
+		}
+		other.weight += col.weight
+	}
 	a.cols = slices.Delete(a.cols, i, i+1)
+	if a.fileCol == col {
+		a.fileCol = nil
+	}
 	if a.col > i || a.col == len(a.cols) {
 		a.col--
 	}
@@ -654,9 +678,13 @@ func (a *app) splitRight() {
 	case t.diff != nil:
 		v := newDiffView(t.diff.layout)
 		if cm := t.diff.commit; cm != nil {
-			v = newCommitView(t.diff.layout, cm.hash, cm.info)
+			v = newCommitView(t.diff.layout, cm.key(), cm.info)
 		}
-		v.scroll, v.full, v.wrap, v.wrapGen = t.diff.scroll, t.diff.full, t.diff.wrap, t.diff.wrapGen
+		v.repoRoot = t.diff.repoRoot
+		// The offsets only: the scroll's handle binds one view's control,
+		// and MyGo panics on a handle bound in two columns.
+		v.scroll.X, v.scroll.Y = t.diff.scroll.X, t.diff.scroll.Y
+		v.full, v.wrap, v.wrapGen = t.diff.full, t.diff.wrap, t.diff.wrapGen
 		a.addTab(nc, 0, &colTab{diff: v})
 		a.activate(nc, 0, true)
 		return
@@ -755,24 +783,32 @@ func (a *app) moveTabBy(step int) {
 func (a *app) rememberTabs() {
 	cols := make([]settings.Column, 0, len(a.cols))
 	for _, col := range a.cols {
-		cs := settings.Column{Tabs: []settings.Tab{}, Active: -1, Weight: col.weight}
+		cs := settings.Column{Tabs: []settings.Tab{}, Active: -1, Weight: col.weight, Locked: col.locked}
 		for i, t := range col.tabs {
-		var ts settings.Tab
-		switch {
-		case t.term != nil:
-			ts = settings.Tab{Terminal: true}
-		case t.diff != nil && t.diff.commit != nil:
-			ts = settings.Tab{Diff: "commit:" + t.diff.commit.hash, Layout: t.diff.layout.key(), Transient: t.transient}
-		case t.diff != nil:
-			ts = settings.Tab{Diff: "all", Layout: t.diff.layout.key()}
-		case t.merge != nil:
-			continue // a merge opens again from its conflict, not a session
-		case t.path() != "":
-			ts = settings.Tab{File: t.path(), Preview: t.ed != nil && t.ed.preview != nil, Transient: t.transient}
-		default:
-			continue
-		}
+			var ts settings.Tab
+			switch {
+			case t.term != nil:
+				ts = settings.Tab{Terminal: true}
+			case t.diff != nil && t.diff.commit != nil:
+				ts = settings.Tab{Diff: "commit:" + t.diff.commit.key(), Layout: t.diff.layout.key(), Transient: t.transient}
+			case t.diff != nil:
+				ts = settings.Tab{Diff: "all", Layout: t.diff.layout.key()}
+			case t.merge != nil:
+				continue // a merge opens again from its conflict, not a session
+			case t.path() != "":
+				ts = settings.Tab{File: t.path(), Preview: t.ed != nil && t.ed.preview != nil, Transient: t.transient}
+			default:
+				continue
+			}
 			if v := t.diff; v != nil {
+				ts.RepoRoot = v.repoRoot
+				if a.git.repo != nil && ts.RepoRoot == a.git.repo.Root {
+					ts.RepoRoot = ""
+				} else if ts.RepoRoot != "" {
+					if rel, err := filepath.Rel(a.root, ts.RepoRoot); err == nil {
+						ts.RepoRoot = filepath.ToSlash(rel)
+					}
+				}
 				ts.Full, ts.ScrollY = v.full, v.scroll.Y
 				ts.Wrap = a.ownWrap(v.wrap, v.wrapGen)
 			}
@@ -791,6 +827,10 @@ func (a *app) rememberTabs() {
 		cols = append(cols, cs)
 	}
 	a.window.Columns, a.window.Column = cols, a.col
+	a.window.FileColumn = 0
+	if i := slices.Index(a.cols, a.fileCol); i >= 0 {
+		a.window.FileColumn = i
+	}
 	if a.tree != nil {
 		var open []string
 		for dir := range a.files.Open.All() {
@@ -801,6 +841,7 @@ func (a *app) rememberTabs() {
 		slices.Sort(open)
 		a.window.Expanded = open
 	}
+	a.window.Review = a.keptReview()
 	a.settings.Changed()
 }
 
@@ -876,22 +917,35 @@ func (a *app) restoreEditor(ed *editor, ts settings.Tab) {
 // they were scrolled, starts a terminal where one was, and opens the
 // explorer's folders that were open.
 func (a *app) restoreTabs() {
-	saved, focused := a.window.Columns, a.window.Column
+	saved, focused, fileFocused := a.window.Columns, a.window.Column, a.window.FileColumn
 	a.restoreExpanded(a.window.Expanded)
-	at := -1 // the column to give the keyboard
+	a.restoreReview(a.window.Review)
+	// Allocate each saved column before opening tabs. Empty locked columns
+	// and the file workspace beside them are part of the saved layout too.
+	restored := make([]*column, len(saved))
 	for i, cs := range saved {
 		col := a.cols[len(a.cols)-1]
-		if len(col.tabs) > 0 {
+		if i > 0 || len(col.tabs) > 0 {
 			col = a.newColumn()
 			a.cols = append(a.cols, col)
 		}
-		a.col = len(a.cols) - 1
+		col.locked = cs.Locked
 		if cs.Weight > 0 {
 			col.weight = cs.Weight
 		}
+		restored[i] = col
+	}
+	for i, cs := range saved {
+		col := restored[i]
+		a.col = slices.Index(a.cols, col)
 		// Opening each makes it the tab shown: keep the one to show.
 		var shown *colTab
 		for k, ts := range cs.Tabs {
+			// Relative roots move with the workspace; absolute roots from older
+			// settings remain readable.
+			if ts.RepoRoot != "" && !filepath.IsAbs(ts.RepoRoot) {
+				ts.RepoRoot = filepath.Join(a.root, filepath.FromSlash(ts.RepoRoot))
+			}
 			n := len(col.tabs)
 			switch {
 			case ts.Terminal:
@@ -900,27 +954,30 @@ func (a *app) restoreTabs() {
 				}
 			case strings.HasPrefix(ts.Diff, "commit:"):
 				hash := strings.TrimPrefix(ts.Diff, "commit:")
-				if c, _ := a.commitTab(hash); c == nil && hash != "" {
+				if c, _ := a.commitTab(hash, ts.RepoRoot); c == nil && hash != "" {
 					v := newCommitView(parseDiffLayout(ts.Layout), hash, git.Commit{})
+					v.repoRoot = ts.RepoRoot
 					a.addTab(col, len(col.tabs), &colTab{diff: v, transient: ts.Transient})
 					a.activate(col, len(col.tabs)-1, false)
 				}
 			case ts.Diff != "":
 				// The tabs of the changes of a file an older version kept are
 				// the one tab of them all.
-				if c, _ := a.changesTab(); c == nil {
+				if c, _ := a.changesTab(ts.RepoRoot); c == nil {
 					layout := parseDiffLayout(ts.Layout)
 					if ts.Split && ts.Layout == "" {
 						layout = layoutSplit
 					}
-					a.addTab(col, len(col.tabs), &colTab{diff: newDiffView(layout)})
+					v := newDiffView(layout)
+					v.repoRoot = ts.RepoRoot
+					a.addTab(col, len(col.tabs), &colTab{diff: v})
 					a.activate(col, len(col.tabs)-1, false)
 				}
 			case ts.File != "":
 				// A remote file that is gone closes its tab once read.
 				if _, err := os.Stat(ts.File); err == nil || remote.Is(ts.File) {
 					a.opening = ts.Transient
-					a.openFile(ts.File, false)
+					a.openFileIn(col, len(col.tabs), ts.File, false)
 					a.opening = false
 					if t := col.tab(); ts.Preview && len(col.tabs) > n && t.ed != nil && canPreview(t.ed.document) {
 						a.setPreview(t.ed, true)
@@ -937,17 +994,28 @@ func (a *app) restoreTabs() {
 		if _, k := a.locate(shown); k >= 0 {
 			a.activate(col, k, false)
 		}
-		if i == focused && len(col.tabs) > 0 {
-			at = len(a.cols) - 1
+	}
+	// Missing files may leave an ordinary column empty, but a locked
+	// column and its last file workspace must survive restoration.
+	for _, col := range slices.Clone(a.cols) {
+		if len(col.tabs) == 0 {
+			a.removeColumn(col)
 		}
 	}
-	// A column whose files are gone goes too.
-	if last := a.cols[len(a.cols)-1]; len(last.tabs) == 0 {
-		a.removeColumn(last)
+	// The saved index refers to restored, before empty columns were removed.
+	// Resolve it only after cleanup, falling back to fileColumn if it went.
+	a.fileCol = nil
+	if fileFocused >= 0 && fileFocused < len(restored) {
+		col := restored[fileFocused]
+		if !col.locked && slices.Contains(a.cols, col) {
+			a.fileCol = col
+		}
 	}
-	if at >= 0 && at < len(a.cols) {
-		a.col = at
+	if focused >= 0 && focused < len(restored) {
+		if at := slices.Index(a.cols, restored[focused]); at >= 0 {
+			a.col = at
+		}
 	}
-	a.column()
+	a.fileColumn()
 	a.rememberTabs()
 }

@@ -32,7 +32,8 @@ func (a *app) openSession(dir string) {
 	}
 	// The panel and its terminals are the window's still, and the
 	// folder's layout its own.
-	a.window.Columns, a.window.Column, a.window.Expanded = ses.Columns, ses.Column, ses.Expanded
+	a.window.Columns, a.window.Column, a.window.FileColumn, a.window.Expanded = ses.Columns, ses.Column, ses.FileColumn, ses.Expanded
+	a.window.Review = ses.Review
 	if ses.SidebarWidth != 0 {
 		a.window.Layout = ses.Layout
 	}
@@ -51,6 +52,8 @@ func (a *app) switchTo(dir string) {
 	ses := a.session()
 	a.closeAll(func() {
 		a.stash(ses)
+		// The comments are the folder's: kept with its session.
+		a.restoreReview(nil)
 		a.openSession(dir)
 	})
 }
