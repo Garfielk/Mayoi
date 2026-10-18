@@ -128,6 +128,7 @@
   "cmdFileUninstallCLI": "卸载 “mayoi” 命令",
   "cmdGitAbort": "中止合并、变基或拣选…",
   "cmdGitAmend": "修改上次提交",
+  "cmdGitAppendChange": "追加该更改的源行",
   "cmdGitBlame": "行内追溯",
   "cmdGitCommit": "提交",
   "cmdGitCommitPush": "提交并推送",

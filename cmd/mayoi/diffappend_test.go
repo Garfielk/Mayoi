@@ -77,3 +77,31 @@ func TestAppendRegistersTheUndoTargetOfTheDiff(t *testing.T) {
 		t.Fatalf("undo from the diff left %q, want %q", got, changed)
 	}
 }
+
+// TestAppendAtCursor: the Append command appends the lines of the
+// compared side of the change the diff has chosen.
+func TestAppendAtCursor(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	orig := "one\ntwo\nthree\n"
+	os.WriteFile(hs.path("t.txt"), []byte(orig), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "base")
+	changed := strings.Replace(orig, "two\n", "local\n", 1)
+	os.WriteFile(hs.path("t.txt"), []byte(changed), 0o644)
+	a.openFile(hs.path("t.txt"), false)
+	hs.settle()
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	// The diff chooses the first change, as a press of ] does.
+	v.stepHunk(1, crossAlways)
+	a.post(func() { a.appendAtCursor() })
+	hs.settle()
+	if got := a.docs[a.docIndex(hs.path("t.txt"))].buf.String(); got != "one\nlocal\ntwo\nthree\n" {
+		t.Fatalf("append at cursor: %q", got)
+	}
+}

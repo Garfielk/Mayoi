@@ -408,11 +408,20 @@ func (a *app) hunkArrowUI(c *ui.Context, v *diffView, k, first, last int, l diff
 			Radius(hunkArrowW/2).AlignItems(ui.Center).Justify(ui.Center).Label(ar.label).Tooltip(ar.tip).
 			Background(p.editor).Border(1, p.border)
 		col := p.muted
-		if btn.Hovered() {
+		hover := btn.Hovered()
+		// Holding Control as the arrow is hovered shows its Append form:
+		// the lines of the compared side go after the change, as the tip
+		// and the icon then say.
+		icon := ar.icon
+		if hover && f.base == diffIndex && c.Modifiers()&ui.Ctrl != 0 {
+			btn.Label(locales.HunkAppend()).Tooltip(locales.HunkAppendTip())
+			icon = iconArrowDown
+		}
+		if hover {
 			btn.Background(p.hover.Over(p.editor))
 			col = p.text
 		}
-		btn.Children(func() { ui.Icon(c, ar.icon).FontSize(hunkArrowW - 3).TextColor(col) })
+		btn.Children(func() { ui.Icon(c, icon).FontSize(hunkArrowW - 3).TextColor(col) })
 		if btn.Clicked() {
 			append := btn.ClickModifiers()&ui.Ctrl != 0 && f.base != diffLocal
 			a.post(func() {
@@ -673,6 +682,17 @@ func joinLines(lines []string, crlf bool) string {
 		return strings.Join(lines, "\r\n")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// appendAtCursor appends the lines of the compared side of the change
+// the diff has chosen, as the arrow with Control does.
+func (a *app) appendAtCursor() {
+	if t := a.activeTab(); t != nil && t.diff != nil {
+		i := t.diff.focusRowAt(t.diff.focusRow())
+		if f, hs := t.diff.hunksAt(i); f != nil && len(hs) > 0 {
+			a.appendHunks(t.diff, f, hs)
+		}
+	}
 }
 
 // stageAtCursor stages the changes of a diff at its chosen row, or the

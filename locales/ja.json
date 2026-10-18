@@ -128,6 +128,7 @@
   "cmdFileUninstallCLI": "'mayoi' コマンドをアンインストール",
   "cmdGitAbort": "マージ、リベース、チェリーピックを中止…",
   "cmdGitAmend": "直前のコミットを修正",
+  "cmdGitAppendChange": "変更の行を追記",
   "cmdGitBlame": "インライン Blame",
   "cmdGitCommit": "コミット",
   "cmdGitCommitPush": "コミットしてプッシュ",
