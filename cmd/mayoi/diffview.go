@@ -354,6 +354,11 @@ type diffView struct {
 	// sideY is how far the right side of a split diff whose sides do not
 	// scroll together is scrolled, in its own.
 	sideY float32
+	// sideTops are, per side, where each row's own lines stand in the
+	// side's stream of rows, when the rows do not align across the
+	// sides: a side closes up where the other has lines it lacks. Empty
+	// while the rows align, which is the default.
+	sideTops [2][]int
 	// current is the hunk gone to last, of starts, and cursor the row
 	// chosen, -1 for none. jump is a row to scroll to in the next frame,
 	// -1 for none, as jumpTo says.
@@ -428,6 +433,7 @@ func (t *diffTarget) matches(f *diffFile) bool {
 type diffBuild struct {
 	gen               int
 	split, wrap, full bool
+	aligned           bool // the rows align across the sides of a split
 	context           int
 	whitespace        diffWhitespace
 	cols              [2]int
@@ -1115,7 +1121,7 @@ func (a *app) splits(v *diffView, viewW float32) bool {
 // how, changed, keeping the row at the top of the view where it was, or
 // scrolling to the file to reveal once it is listed.
 func (a *app) layoutRows(v *diffView, l diffGeometry) {
-	b := diffBuild{gen: v.gen, split: v.split, wrap: a.wrapsDiff(v), full: v.full, context: a.diffContextOf(), whitespace: a.diffWhitespaceOf(), font: a.font}
+	b := diffBuild{gen: v.gen, split: v.split, wrap: a.wrapsDiff(v), full: v.full, aligned: a.settings.DiffAlignedRows, context: a.diffContextOf(), whitespace: a.diffWhitespaceOf(), font: a.font}
 	if v.commit != nil {
 		b.card = v.commit.lines
 	}
@@ -1279,6 +1285,42 @@ func (a *app) layoutRows(v *diffView, l diffGeometry) {
 		at += r.h
 	}
 	v.tops = append(v.tops, at)
+	// Where the rows do not align across the sides of a split diff, each
+	// side's rows stand in a stream of their own: a side closes up where
+	// the other has lines it lacks, so its lines after them stand higher
+	// than the rows aligned have them.
+	if v.split && !a.settings.DiffAlignedRows {
+		v.sideTops = [2][]int{slices.Grow(v.sideTops[0][:0], len(v.rows)+1), slices.Grow(v.sideTops[1][:0], len(v.rows)+1)}
+		atL, atR := 0, 0
+		for _, r := range v.rows {
+			v.sideTops[0] = append(v.sideTops[0], atL)
+			v.sideTops[1] = append(v.sideTops[1], atR)
+			hL, hR := r.h, r.h
+			if r.kind == rowLine {
+				f := v.files[r.file]
+				hL = 0
+				hR = 0
+				if r.old >= 0 {
+					hL = 1
+					if b.wrap {
+						hL = wrapCount(f.old.lines[r.old], l.cols[0])
+					}
+				}
+				if r.new >= 0 {
+					hR = 1
+					if b.wrap {
+						hR = wrapCount(f.new.lines[r.new], l.cols[1])
+					}
+				}
+			}
+			atL += hL
+			atR += hR
+		}
+		v.sideTops[0] = append(v.sideTops[0], atL)
+		v.sideTops[1] = append(v.sideTops[1], atR)
+	} else {
+		v.sideTops = [2][]int{}
+	}
 	v.current = min(v.current, len(v.starts)-1)
 	v.cursor = min(v.cursor, len(v.rows)-1)
 	// The row chosen stays chosen, or the header of its file, when it is
@@ -1430,6 +1472,17 @@ func (v *diffView) rowAt(y float32, lineH float32) int {
 	}
 	line := int((y - editorPadY) / lineH)
 	i, _ := slices.BinarySearch(v.tops, line+1)
+	return min(max(i-1, 0), len(v.rows)-1)
+}
+
+// rowAtStream returns the row whose lines stand at a place of one
+// side's stream of rows, as rowAt does of the rows aligned.
+func (v *diffView) rowAtStream(tops []int, y, scroll, lineH float32) int {
+	if len(v.rows) == 0 || len(tops) == 0 {
+		return -1
+	}
+	line := int((y - editorPadY + scroll) / lineH)
+	i, _ := slices.BinarySearch(tops, line+1)
 	return min(max(i-1, 0), len(v.rows)-1)
 }
 
@@ -2111,6 +2164,9 @@ func (a *app) diffButtons(c *ui.Context, t *colTab) {
 		if m.Item(locales.DiffSyncScrollMenu()).Checked(a.settings.DiffSyncScroll).Chosen() {
 			a.post(func() { a.setDiffSync(v, !a.settings.DiffSyncScroll) })
 		}
+		if m.Item(locales.DiffAlignRowsMenu()).Checked(a.settings.DiffAlignedRows).Chosen() {
+			a.post(func() { a.setDiffAligned(!a.settings.DiffAlignedRows) })
+		}
 	})
 	// Editing the working tree side of the file of the chosen row, which
 	// the I key does too.
@@ -2211,6 +2267,15 @@ func (a *app) setDiffWhitespace(w diffWhitespace) {
 // each on its own, as the next diffs opened will. Together again, the
 // line the right side was at shows across from its counterpart, as the
 // sides line up.
+func (a *app) setDiffAligned(on bool) {
+	if a.settings.DiffAlignedRows == on {
+		return
+	}
+	a.settings.DiffAlignedRows = on
+	a.settings.Changed()
+	a.invalidate()
+}
+
 func (a *app) setDiffSync(v *diffView, on bool) {
 	if a.settings.DiffSyncScroll == on {
 		return

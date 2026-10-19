@@ -265,6 +265,7 @@
   "diffAcceptLeftTip": "左のファイルの行を右のファイルに書き込みます",
   "diffAcceptRight": "右側を採用",
   "diffAcceptRightTip": "右のファイルの行を左のファイルに書き込みます",
+  "diffAlignRowsMenu": "行の対応",
   "diffAppendDetail": "比較側の行をエディタでローカルの変更の後に追記します。",
   "diffAppendTitle": "{name} にソース行を追記しますか？",
   "diffArrowRevertTip": "この変更を元に戻します: {old} の行を{new}へ。Control-クリックで追記できます",

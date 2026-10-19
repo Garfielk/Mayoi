@@ -74,6 +74,11 @@ needs a `## <version>` section here, or its build fails.
   **Synchronized Scrolling** in the Layout menu. A wheel over a side scrolls
   that side alone; together again, the sides line up from the line the right
   side was at.
+- The rows of a side-by-side diff's sides align by default, a line the one
+  side lacks holding a space on the other; **Line Alignment** in the Layout
+  menu, and `diffAlignedRows` in settings.json, turn that off: each side's
+  lines close up where the other has lines it lacks, and the sides read in
+  streams of their own, scrolling on their own.
 - A diff keeps its place: folding or unfolding a gap or a file, wrapping its
   lines and a wider or narrower window keep the line at the top of the view
   the same line of the file, and a layout chosen by hand is no longer the

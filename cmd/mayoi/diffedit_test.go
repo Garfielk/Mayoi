@@ -903,3 +903,90 @@ func lineAtOf(text string, k int) string {
 	}
 	return ""
 }
+
+// TestDiffUnalignedSideStreams: with the rows not aligned, each side's
+// lines stand in a stream of their own, which closes up where the other
+// side has lines it lacks; aligned again, the streams go.
+func TestDiffUnalignedSideStreams(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	orig := "a\nb\nc\nd\ne\n"
+	os.WriteFile(hs.path("t.txt"), []byte(orig), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "base")
+	changed := "a\nb\nX\nY\nc\nd\ne\n"
+	os.WriteFile(hs.path("t.txt"), []byte(changed), 0o644)
+	hs.settleGit()
+	a := hs.a
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	a.setDiffLayout(v, layoutSplit)
+	a.settings.DiffAlignedRows = false
+	a.layoutRows(v, diffGeometry{half: 600, cols: [2]int{80, 80}})
+	if len(v.sideTops[0]) != len(v.rows)+1 {
+		t.Fatal("no side streams")
+	}
+	if v.sideTops[0][len(v.sideTops[0])-1] >= v.sideTops[1][len(v.sideTops[1])-1] {
+		t.Fatalf("the left stream did not close up: %v against %v", v.sideTops[0], v.sideTops[1])
+	}
+	// A row both sides have stands as high on the left as the rows
+	// aligned have it, until the added lines come.
+	if k := addedRow(v); k > 0 && v.sideTops[0][k] != v.tops[k] {
+		t.Fatalf("the left stream left early: %d against %d", v.sideTops[0][k], v.tops[k])
+	}
+	// Aligned again, the streams go.
+	a.settings.DiffAlignedRows = true
+	a.layoutRows(v, diffGeometry{})
+	if len(v.sideTops[0]) != 0 {
+		t.Fatal("the side streams stayed")
+	}
+}
+
+// TestDiffUnalignedRowUnder: the half the pointer is on finds the row in
+// its own stream, so that a click lands on the line that is painted
+// there.
+func TestDiffUnalignedRowUnder(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	orig := "a\nb\nc\nd\ne\n"
+	os.WriteFile(hs.path("t.txt"), []byte(orig), 0o644)
+	git("add", ".")
+	git("commit", "-qm", "base")
+	changed := "a\nb\nX\nY\nc\nd\ne\n"
+	os.WriteFile(hs.path("t.txt"), []byte(changed), 0o644)
+	hs.settleGit()
+	a := hs.a
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	a.setDiffLayout(v, layoutSplit)
+	a.settings.DiffAlignedRows = false
+	a.layoutRows(v, diffGeometry{half: 600, cols: [2]int{80, 80}})
+	k := addedRow(v)
+	if k < 0 {
+		t.Fatal("no added line")
+	}
+	lineH := a.font.lineH
+	// On the right half, at the height the right stream shows the added
+	// line, the row under the pointer is that line's.
+	y := editorPadY + float32(v.sideTops[1][k])*lineH + lineH/2
+	if got := a.rowUnder(v, 700, y, diffGeometry{half: 600}); got != k {
+		t.Fatalf("row under the right stream %d, want %d", got, k)
+	}
+	// On the left half at the same height stands a line the left has
+	// kept, whose row is not the added line's.
+	if got := a.rowUnder(v, 100, y, diffGeometry{half: 600}); got == k {
+		t.Fatalf("the left stream shows the added line's row %d", k)
+	}
+}
+
+// addedRow returns the row of a diff's first added line, -1 for none.
+func addedRow(v *diffView) int {
+	for i, r := range v.rows {
+		if r.kind == rowLine && r.old < 0 && r.new >= 0 {
+			return i
+		}
+	}
+	return -1
+}

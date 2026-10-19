@@ -493,6 +493,7 @@
   "diffAcceptLeftTip": "Write the left file's lines into the right file",
   "diffAcceptRight": "Accept Right",
   "diffAcceptRightTip": "Write the right file's lines into the left file",
+  "diffAlignRowsMenu": "Line Alignment",
   "diffAppendDetail": "The compared lines are added after the local change in the editor.",
   "diffAppendTitle": "Append source lines to {name}?",
   "diffArrowRevertTip": "Revert this change: the lines of {old}, into the {new}; Control-click to append them",
