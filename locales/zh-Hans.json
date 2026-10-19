@@ -529,6 +529,7 @@
   "mergeStateBase": "基线的内容",
   "mergeStateBoth": "两侧相同",
   "mergeStateEdited": "自行编辑的内容",
+  "mergeStateIgnored": "已忽略",
   "mergeStateOurs": "我方的内容",
   "mergeStateTheirs": "对方的内容",
   "mergeTheirsBare": "对方",

@@ -5359,6 +5359,16 @@ func (msgs Messages) MergeStateEdited() string {
 	return Catalog.Format(msgs.locale, "mergeStateEdited", nil)
 }
 
+// MergeStateIgnored says "ignored"
+// in the language the app shows.
+func MergeStateIgnored() string { return In(i18n.Locale()).MergeStateIgnored() }
+
+// MergeStateIgnored says "ignored"
+// in the language of msgs.
+func (msgs Messages) MergeStateIgnored() string {
+	return Catalog.Format(msgs.locale, "mergeStateIgnored", nil)
+}
+
 // MergeStateOurs says "ours"
 // in the language the app shows.
 func MergeStateOurs() string { return In(i18n.Locale()).MergeStateOurs() }
