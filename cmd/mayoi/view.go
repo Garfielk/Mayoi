@@ -946,6 +946,9 @@ func (a *app) statusFit(c *ui.Context, width float32) statusVisibility {
 	if a.host.account() != "" {
 		used += syncStatusW
 	}
+	if version := a.host.update(); version != "" {
+		used += measure(version, true)
+	}
 	if a.branch() != "" {
 		used += 2*6 + 12 + 2 // its icon, which stays
 		add(&v.branchLabel, measure(a.branchLabel(), false)-2*6-2+5)
@@ -1116,8 +1119,12 @@ func (a *app) statusBar(c *ui.Context) {
 		}
 		a.reviewStatus(c, text)
 		ui.Spacer(c)
-		// Settings sync is last, at the right, whatever shows before it.
+		// Settings sync is last, at the right, whatever shows before it,
+		// and a new version of Mayoi before it.
 		defer a.syncStatus(c)
+		if v := a.host.update(); v != "" {
+			defer item("update", v, locales.UpdateAvailable(v), iconUpdate, a.host.installUpdate)
+		}
 		if v := a.activeViewer(); v != nil {
 			a.viewerStatus(c, v, item, text)
 			return
@@ -1275,6 +1282,11 @@ func (a *app) welcome(c *ui.Context) {
 						ui.Text(c, locales.WelcomeTagline()).FontSize(13).TextColor(p.muted)
 					})
 				})
+				if v := a.host.update(); v != "" {
+					a.welcomeSection(c, locales.WelcomeUpdate(), 30*time.Millisecond, func() {
+						a.welcomeAction(c, iconUpdate, locales.UpdateAvailable(v), "", a.host.installUpdate)
+					})
+				}
 				a.welcomeSection(c, locales.WelcomeStart(), 60*time.Millisecond, func() {
 					if a.root == "" {
 						a.welcomeAction(c, iconFolderOpen, locales.CmdFileOpenFolder(), a.keyHint("file.openFolder"), a.chooseFolder)

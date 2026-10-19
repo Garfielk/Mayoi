@@ -106,6 +106,17 @@ needs a `## <version>` section here, or its build fails.
   list. The list shows of itself when a command stops for conflicts, and
   the merge goes on once every file of it stands resolved.
 
+## 0.11.4
+
+- Mayoi checks for a new version every hour, not once a day, and shows it
+  in the status bar, on the welcome page and as **Update to …** in the
+  menu, rather than opening the update window by itself: a click opens it.
+- Mayoi signs in to Mon as the Mac's name, as in Sharing settings, where
+  it gave its host name, `U-…-2015.local`, and a development build adds
+  ` (dev)`, so Signed-in apps tells the two apart. Signing in again signs
+  out a token Mayoi still keeps first, and Mon replaces Mayoi's earlier
+  sign-in on the same computer, so it no longer piles up sign-ins there.
+
 ## 0.11.3
 
 - The Markdown preview's text can be selected and copied, across

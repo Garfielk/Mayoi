@@ -376,6 +376,16 @@ func (a *app) zoom(by float32) {
 	a.host.fontChanged()
 }
 
+// updateItem is "Check for Updates…", or "Update to 0.12.0…" once a
+// check found that version.
+func (a *app) updateItem() *mygo.MenuItem {
+	it := updater.MenuItem()
+	if v := a.host.update(); v != "" {
+		it.Label = locales.MenuUpdateTo(v)
+	}
+	return it
+}
+
 // menu is the menu bar, which the windows share: its items run the
 // command of the window they are chosen in, by run. cli adds the items
 // that install the mayoi command; builds that can update themselves get
@@ -465,8 +475,8 @@ func (a *app) menu(cli bool, run func(id string, win *mygo.Window)) *mygo.Menu {
 	var help []*mygo.MenuItem
 	about := []*mygo.MenuItem{{Role: mygo.RoleAbout}}
 	if mygo.Updater.Enabled() {
-		about = append(about, updater.MenuItem())
-		help = append(help, updater.MenuItem(), mygo.Separator())
+		about = append(about, a.updateItem())
+		help = append(help, a.updateItem(), mygo.Separator())
 	}
 	help = append(help, account...)
 	appMenu := &mygo.MenuItem{Role: mygo.RoleAppMenu}

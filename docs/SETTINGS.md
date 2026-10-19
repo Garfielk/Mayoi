@@ -19,7 +19,7 @@ All of Mayoi's files are in one data folder:
 | `keybindings.json`  | you           | [Keyboard shortcuts](#keybindingsjson), in VS Code's format                       |
 | `state.json`        | Mayoi         | Windows, tabs, recent folders and layout                                          |
 | `window-state.json` | Mayoi         | Each window's position and size                                                   |
-| `updater.json`      | Mayoi         | Update choices: automatic checks and downloads, a skipped version, the last check |
+| `updater.json`      | Mayoi         | Update choices: automatic downloads, a skipped version, the last check            |
 | `sync.json`         | Mayoi         | [Settings sync](#settings-sync): the account, and the settings as last synced     |
 | `crash.log`         | Mayoi         | What ended Mayoi if it crashed, with every goroutine's stack; empty otherwise     |
 | `crashes/`          | Mayoi         | The last 10 crash logs, each named by the time of its crash                       |

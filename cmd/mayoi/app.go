@@ -94,6 +94,10 @@ type host interface {
 	// account was signed out elsewhere.
 	ai() *mon.Client
 	aiSignedOut()
+	// update is the new version of Mayoi a check found, "" when there is
+	// none, and installUpdate opens the update window to install it.
+	update() string
+	installUpdate()
 	// With project tabs, stepProject shows the project by steps along the
 	// rail, showProject the one at i, the last for -1, and closeProject
 	// closes the window's, as the window closes when it is its only one.

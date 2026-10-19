@@ -607,8 +607,10 @@ machines opens side by side to merge. See [SETTINGS.md](SETTINGS.md#settings-syn
 
 ## Updates
 
-Release builds check GitHub Releases for a new version once a day, 10 seconds after launch when a check is due, and
-**Mayoi → Check for Updates…** (**Help → Check for Updates…** on Linux and Windows) checks right away. A window shows the
-release notes and offers to install the update, skip that version or remind you later. Updates download only what
-changed when they can, are checked against Mayoi's signing key, and apply when Mayoi relaunches. Development builds, and
-copies Mayoi can't write to, never check.
+Release builds check GitHub Releases for a new version every hour, the first time 10 seconds after launch and again
+when the computer wakes. A new version shows in the status bar, on the welcome page, and in the menu as **Mayoi → Update
+to 0.12.0…** (**Help → Update to 0.12.0…** on Linux and Windows); without one the item reads **Check for Updates…** and
+checks right away. Clicking any of them opens a window with the release notes that offers to install the update, skip
+that version, which hides it, or remind you later. Updates download only what changed when they can, are checked
+against Mayoi's signing key, and apply when Mayoi relaunches. Development builds, and copies Mayoi can't write to, never
+check.

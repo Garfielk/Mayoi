@@ -40,6 +40,7 @@ var (
 	iconSearch       = lucide(`<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`)
 	iconFileSearch   = lucide(`<path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M4.268 21a2 2 0 0 0 1.727 1H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v3"/><path d="m9 18-1.5-1.5"/><circle cx="5" cy="14" r="3"/>`)
 	iconArrowUp      = lucide(`<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>`)
+	iconUpdate       = lucide(`<circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/>`)
 	iconArrowDown    = lucide(`<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>`)
 	iconArrowRight   = lucide(`<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`)
 	iconArrowLeft    = lucide(`<path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>`)
