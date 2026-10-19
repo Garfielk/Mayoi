@@ -30,6 +30,7 @@ const (
 	regionRight                        // theirs' lines
 	regionBoth                         // the two sides' lines are the same here
 	regionEdited                       // lines of its own
+	regionIgnored                      // the base's lines stand, on purpose
 )
 
 // mergeView is the three-way merge of a file in conflict: its base and
@@ -72,6 +73,11 @@ type mergeView struct {
 	// chosen is the region the actions take, -1 for none, and current the
 	// one gone to last, which the next conflict goes on from.
 	chosen, current int
+
+	// ignored are the regions a Ignore took back to the base's lines on
+	// purpose, by their base range: baseSame alone cannot tell a
+	// deliberate ignore from a conflict nobody looked at.
+	ignored map[baseRange]bool
 
 	panes        [3]paneScroll
 	viewW, viewH float32
@@ -361,6 +367,10 @@ func clipLines(lines []string, lo, hi int) []string {
 	return lines[lo:hi]
 }
 
+// baseRange names a region by its range of the base, which no two
+// regions share.
+type baseRange struct{ lo, hi int }
+
 // stateOf is how a region stands in the result now.
 func (v *mergeView) stateOf(r *mergeRegion) regionState {
 	switch {
@@ -372,6 +382,8 @@ func (v *mergeView) stateOf(r *mergeRegion) regionState {
 		return regionRight
 	case !r.baseSame:
 		return regionEdited
+	case v.ignored[baseRange{r.baseLo, r.baseHi}]:
+		return regionIgnored
 	}
 	return regionUndecided
 }
@@ -619,6 +631,10 @@ func (a *app) dropMergeSide(v *mergeView, i int, left bool) {
 		lines, lo, hi = v.oursLines, r.oursLo, r.oursHi
 	}
 	a.replaceMergeRegion(v, r, clipLines(lines, lo, hi))
+	if v.ignored == nil {
+		v.ignored = map[baseRange]bool{}
+	}
+	v.ignored[baseRange{r.baseLo, r.baseHi}] = true
 }
 
 // replaceMergeRegion puts lines in a region's place in the result, as

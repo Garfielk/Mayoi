@@ -962,3 +962,68 @@ func TestMergeViewTypesAsTheResultEditor(t *testing.T) {
 		t.Fatalf("the typing did not land in the result: %q", v.doc.buf.String())
 	}
 }
+
+// TestMergeViewIgnoreIsAHandledState: ignoring a conflict keeps the
+// base's lines on purpose, which counts as handled — the unresolved
+// count drops, and the undo and redo of the ignoring bring the state
+// back with the text.
+func TestMergeViewIgnoreIsAHandledState(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeRepo("a\nm\nz\n", "a\nours\nz\n", "a\nside\nz\n")
+	v := hs.mergeOf()
+	a := hs.a
+	if v.unresolved() != 1 {
+		t.Fatalf("unresolved %d, want 1", v.unresolved())
+	}
+	// Accept ours, then ignore it: the base's lines stand, and the
+	// conflict counts as handled.
+	a.takeMergeSide(v, 0, true)
+	a.dropMergeSide(v, 0, true)
+	if st := v.stateOf(v.regions[0]); st != regionIgnored {
+		t.Fatalf("state %v, want ignored", st)
+	}
+	if v.unresolved() != 0 {
+		t.Fatalf("unresolved %d after ignoring, want 0", v.unresolved())
+	}
+	// Ignoring the other side too, from the base, keeps it handled.
+	a.dropMergeSide(v, 0, false)
+	if st := v.stateOf(v.regions[0]); st != regionIgnored {
+		t.Fatalf("state %v after ignoring the other side, want ignored", st)
+	}
+	if v.unresolved() != 0 {
+		t.Fatalf("unresolved %d after ignoring both, want 0", v.unresolved())
+	}
+	// The ignore of the other side took no text with it: the undo of it
+	// leaves the region ignored still.
+	if !v.ed.undo() {
+		t.Fatal("no step of undo")
+	}
+	a.invalidate()
+	hs.settle()
+	if st := v.stateOf(v.regions[0]); st != regionIgnored {
+		t.Fatalf("after undoing the empty ignore the state is %v, want ignored", st)
+	}
+	// Undo takes the ignore of ours back with the text: ours' lines
+	// stand again, and the conflict is unresolved once more.
+	if !v.ed.undo() {
+		t.Fatal("no step of undo")
+	}
+	a.invalidate()
+	hs.settle()
+	if st := v.stateOf(v.regions[0]); st != regionLeft {
+		t.Fatalf("after undo the state is %v, want ours", st)
+	}
+	// Ours taken counts as handled, as accepting it did.
+	if v.unresolved() != 0 {
+		t.Fatalf("unresolved %d after undo, want 0", v.unresolved())
+	}
+	// Redo ignores ours again.
+	if !v.ed.redo() {
+		t.Fatal("no step of redo")
+	}
+	a.invalidate()
+	hs.settle()
+	if st := v.stateOf(v.regions[0]); st != regionIgnored {
+		t.Fatalf("after redo the state is %v, want ignored", st)
+	}
+}

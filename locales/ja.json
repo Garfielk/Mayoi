@@ -529,6 +529,7 @@
   "mergeStateBase": "ベースの行",
   "mergeStateBoth": "両側で同じ",
   "mergeStateEdited": "独自の行",
+  "mergeStateIgnored": "無視済み",
   "mergeStateOurs": "自分側",
   "mergeStateTheirs": "相手側",
   "mergeTheirsBare": "相手側",

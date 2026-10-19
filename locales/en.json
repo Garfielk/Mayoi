@@ -218,6 +218,16 @@
       }
     }
   },
+  "@vimMatchCount": {
+    "placeholders": {
+      "cur": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "abortDetail": "HEAD, the staged changes and the files go back to how they were before it.",
   "abortQuestion": "Abort the {op}?",
   "agoDays": "{count, plural, one {# day ago} other {# days ago}}",
@@ -747,6 +757,7 @@
   "mergeStateBase": "the base's lines",
   "mergeStateBoth": "both sides, alike",
   "mergeStateEdited": "lines of its own",
+  "mergeStateIgnored": "ignored",
   "mergeStateOurs": "ours",
   "mergeStateTheirs": "theirs",
   "mergeTheirsBare": "THEIRS",
@@ -1228,16 +1239,6 @@
   "vimMarkNotSet": "Mark not set: {mark}",
   "vimMarksEmpty": "No marks set",
   "vimMatchCount": "[{cur}/{total}]",
-  "@vimMatchCount": {
-    "placeholders": {
-      "cur": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
   "vimNotCommand": "Not an editor command: {cmd}",
   "vimPatternNotFound": "Pattern not found: {pattern}",
   "vimRecording": "recording @{reg}",

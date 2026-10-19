@@ -203,6 +203,7 @@ func (a *app) mergeActions(c *ui.Context, v *mergeView) {
 			regionRight:     locales.MergeStateTheirs(),
 			regionBoth:      locales.MergeStateBoth(),
 			regionEdited:    locales.MergeStateEdited(),
+			regionIgnored:   locales.MergeStateIgnored(),
 		}[v.stateOf(r)]
 		ui.Text(c, locales.MergeConflictOf(strconv.Itoa(i+1), strconv.Itoa(len(v.regions)), state)).
 			FontSize(11.5).TextColor(p.muted).SingleLine().Shrink(1)
