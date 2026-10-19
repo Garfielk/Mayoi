@@ -16,12 +16,13 @@ import (
 // the document of the file, and the diff's editor of it, whose selection
 // is the caret the diff paints and whose keys the diff takes.
 type diffEdit struct {
-	f         *diffFile
-	doc       *document
-	ed        *editor
-	drag      bool   // the pointer is extending the selection
-	compose   string // the text an input method marks, which sits in the buffer
-	composeAt int    // where the marked text begins, in rune offsets
+	f          *diffFile
+	doc        *document
+	ed         *editor
+	drag       bool   // the pointer is extending the selection
+	compose    string // the text an input method marks, which sits in the buffer
+	composeAt  int    // where the marked text begins, in rune offsets
+	composeWas string // the text the mark took the place of, which an escape gives back
 }
 
 // writable reports whether the new side of a file of a diff is the work
@@ -661,8 +662,13 @@ func (e *diffEdit) beginCompose(text string) {
 	} else {
 		e.doc.observe()
 		e.doc.hist.group = groupOpen
-		at = min(e.ed.sel[1], snap.Len())
+		// Composing begins in the selection's place: the mark takes what
+		// is selected, as the text it commits with will.
+		lo, hi := min(e.ed.sel[0], e.ed.sel[1]), max(e.ed.sel[0], e.ed.sel[1])
+		at = min(lo, snap.Len())
+		marked = min(hi, snap.Len()) - at
 		e.composeAt = at
+		e.composeWas = snap.Slice(at, at+marked)
 	}
 	e.compose = text
 	e.doc.buf.Replace(at, at+marked, text)
@@ -685,7 +691,7 @@ func (e *diffEdit) commitCompose(text string) {
 	e.doc.observe()
 	end := e.composeAt + utf8.RuneCountInString(text)
 	e.ed.sel = [2]int{end, end}
-	e.compose = ""
+	e.compose, e.composeWas = "", ""
 	e.doc.hist.group = groupNone
 }
 
@@ -699,11 +705,12 @@ func (e *diffEdit) endCompose() {
 	at := min(e.composeAt, snap.Len())
 	n := utf8.RuneCountInString(e.compose)
 	if at+n <= snap.Len() {
-		e.doc.buf.Replace(at, at+n, "")
+		e.doc.buf.Replace(at, at+n, e.composeWas)
 		e.doc.observe()
 	}
-	e.ed.sel = [2]int{at, at}
-	e.compose = ""
+	end := at + utf8.RuneCountInString(e.composeWas)
+	e.ed.sel = [2]int{at, end}
+	e.compose, e.composeWas = "", ""
 	e.doc.hist.group = groupNone
 }
 
