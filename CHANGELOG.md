@@ -5,20 +5,11 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
-- **Compare Two Files…** in the **Git** menu opens a diff of any two local
-  files, whether or not they are in the current repository. The tab names
-  both paths and each changed block offers **Accept Left** or **Accept Right**;
-  the chosen file is edited through its document history for undo, redo and
-  save, without staging either file.
-- Diffs can filter comparison whitespace from the **Whitespace** menu:
-  exact, line-end, all whitespace, or whitespace plus blank lines. The
-  filter changes only what the diff shows and counts; source text and block
-  actions continue to use the original lines.
-- Whole-file changes in a diff have explicit actions: a deleted tracked file
-  offers **Restore File** from the index, while an untracked file offers
-  **Remove File…** and follows the existing trash or remote-delete policy.
-  These actions keep file existence distinct from an empty text buffer and
-  refresh any open document after the operation.
+- Discarding changes block by block in a diff now always goes through the
+  file's document, also when the file was not open: the discard is one
+  step of undo, the tab shows the file as changed until it is saved, and
+  a diff that is behind the file on disk is read again rather than
+  writing over what changed.
 - Every block of a diff of the changes not staged has a round arrow, by its
   lines in either layout, that puts the lines of the version it is compared
   against in place of the block's own: the lines of the Index going into the
@@ -45,11 +36,6 @@ needs a `## <version>` section here, or its build fails.
   line; its block actions refuse to run while it is catching up. The
   staged, HEAD and commit sides stay read-only, and a line of any side
   copies with `Cmd+C` while the diff reads as a pager.
-- Discarding changes block by block in a diff now always goes through the
-  file's document, also when the file was not open: the discard is one
-  step of undo, the tab shows the file as changed until it is saved, and
-  a diff that is behind the file on disk is read again rather than
-  writing over what changed.
 - Diff tabs now expose **Previous File** and **Next File** controls alongside
   the existing change navigation, with matching commands in the Git menu, and
   a direct **Side by Side** toggle for the split viewer.
@@ -64,6 +50,15 @@ needs a `## <version>` section here, or its build fails.
   the change you are on, also from the change's `@@` header, after the layout
   changed, after its file folded and opened again, and after the sides were
   read again.
+- Whole-file changes in a diff have explicit actions: a deleted tracked file
+  offers **Restore File** from the index, while an untracked file offers
+  **Remove File…** and follows the existing trash or remote-delete policy.
+  These actions keep file existence distinct from an empty text buffer and
+  refresh any open document after the operation.
+- Diffs can filter comparison whitespace from the **Whitespace** menu:
+  exact, line-end, all whitespace, or whitespace plus blank lines. The
+  filter changes only what the diff shows and counts; source text and block
+  actions continue to use the original lines.
 - Diffs offer a **Highlight** menu that shows what changed within a line by
   word (as before), by character, or no more than the line, and a **Context**
   menu that keeps none to ten unchanged lines around each change and folds
@@ -84,6 +79,11 @@ needs a `## <version>` section here, or its build fails.
   the same line of the file, and a layout chosen by hand is no longer the
   width's to change. A file that folded under the view unfolds where the
   view was.
+- **Compare Two Files…** in the **Git** menu opens a diff of any two local
+  files, whether or not they are in the current repository. The tab names
+  both paths and each changed block offers **Accept Left** or **Accept Right**;
+  the chosen file is edited through its document history for undo, redo and
+  save, without staging either file.
 - Conflicted files open in a **three-way merge view**: the two sides read
   only beside an editable result that starts as the base, with the conflicts
   marked in all three panes. Each conflict takes **Accept Left/Right** or
