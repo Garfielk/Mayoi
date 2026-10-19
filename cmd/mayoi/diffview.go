@@ -263,6 +263,8 @@ type diffFile struct {
 	running, waiting           bool
 	started                    time.Time
 
+	words map[[2]int][2][]linediff.Span
+
 	// spans are the runs of a pair of lines that changed, as the diff
 	// showed them last, by the words or by the characters.
 	spans map[diffSpanKey][2][]linediff.Span
