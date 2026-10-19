@@ -265,6 +265,7 @@
   "diffAcceptLeftTip": "把左侧文件的行写入右侧文件",
   "diffAcceptRight": "接受右侧",
   "diffAcceptRightTip": "把右侧文件的行写入左侧文件",
+  "diffAlignRowsMenu": "行对齐",
   "diffAppendDetail": "比较侧的行将在编辑器中追加到本地更改之后。",
   "diffAppendTitle": "要向 {name} 追加源行吗？",
   "diffArrowRevertTip": "还原此更改：将{old}的行放入{new}；按住 Control 点按可追加这些行",

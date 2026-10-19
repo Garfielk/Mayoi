@@ -65,6 +65,7 @@ takes its default.
 | `diffHighlight`         | `""`          | `""` (changed words), `"line"`, `"char"`                       | A diff's **Highlight** menu                |
 | `diffContext`           | `3`           | `0` to `100` unchanged lines around each change                | A diff's **Context** menu                  |
 | `diffSyncScroll`        | `true`        | `true`, `false`                                                | A diff's **Synchronized Scrolling** menu   |
+| `diffAlignedRows`       | `true`        | `true`, `false`                                                | A diff's **Layout** menu                   |
 | `scmTree`               | `false`       | `true`, `false`                                             | **View as Tree** in Source Control's menu      |
 | `scmAllBranches`        | `false`       | `true`, `false`                                             | **Show All Branches** in Source Control's menu |
 | `syncIgnored`           | none          | Keys, `"settings.json"`, `"keybindings.json"`               | The [settings sync](#settings-sync) panel      |
@@ -113,6 +114,9 @@ differ in width lines them up only roughly.
 - **`diffHighlight`** chooses whether changed lines show word-level, character-level or line-level tinting. The
   highlighting changes how a diff looks; block actions still use whole line hunks.
 - **`diffContext`** keeps that many unchanged lines around each diff hunk visible and folds the rest.
+- **`diffAlignedRows`** keeps the rows of a split diff's sides aligned: a line the one side lacks holds a space on the
+  other. Turn it off, and each side's lines close up where the other has lines it lacks, the sides reading in streams
+  of their own, which scroll on their own whatever `diffSyncScroll` has.
 - **`diffSyncScroll`** keeps the two sides of a split diff aligned while scrolling. Turn it off to scroll each side
   independently.
 - **`vim`** starts editors in vim's normal mode.

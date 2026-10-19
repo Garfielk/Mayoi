@@ -844,7 +844,10 @@ func (a *app) diffCaretRect(v *diffView, e *diffEdit, l diffGeometry) (ui.Rect, 
 	x += l.textX
 	if v.split {
 		x += l.half
-		if !a.settings.DiffSyncScroll {
+		if !a.settings.DiffAlignedRows && len(v.sideTops[1]) == len(v.rows)+1 {
+			// The caret's line stands in the right side's own stream.
+			y = editorPadY + float32(v.sideTops[1][row]-int(v.sideY))*a.font.lineH + float32(k)*a.font.lineH
+		} else if !a.settings.DiffSyncScroll {
 			y += v.scroll.Y - v.sideY
 		}
 	}

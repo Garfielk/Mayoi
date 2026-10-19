@@ -2693,6 +2693,16 @@ func (msgs Messages) DiffAcceptRightTip() string {
 	return Catalog.Format(msgs.locale, "diffAcceptRightTip", nil)
 }
 
+// DiffAlignRowsMenu says "Line Alignment"
+// in the language the app shows.
+func DiffAlignRowsMenu() string { return In(i18n.Locale()).DiffAlignRowsMenu() }
+
+// DiffAlignRowsMenu says "Line Alignment"
+// in the language of msgs.
+func (msgs Messages) DiffAlignRowsMenu() string {
+	return Catalog.Format(msgs.locale, "diffAlignRowsMenu", nil)
+}
+
 // DiffAppendDetail says "The compared lines are added after the local change in the editor."
 // in the language the app shows.
 func DiffAppendDetail() string { return In(i18n.Locale()).DiffAppendDetail() }

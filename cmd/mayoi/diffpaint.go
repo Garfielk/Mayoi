@@ -62,6 +62,14 @@ func (a *app) diffGeometry(v *diffView, split bool, viewW float32) diffGeometry 
 // content, x and y: on the right half of a split diff whose sides do not
 // scroll together, the row the right side shows there.
 func (a *app) rowUnder(v *diffView, x, y float32, l diffGeometry) int {
+	if v.split && !a.settings.DiffAlignedRows && len(v.sideTops[0]) == len(v.rows)+1 {
+		// The sides stand in streams of their own: the half the pointer
+		// is on finds the row in its stream.
+		if x-v.scroll.X >= l.half {
+			return v.rowAtStream(v.sideTops[1], y, v.sideY, a.font.lineH)
+		}
+		return v.rowAtStream(v.sideTops[0], y, v.scroll.Y, a.font.lineH)
+	}
 	d := float32(0)
 	if v.split && !a.settings.DiffSyncScroll && x-v.scroll.X >= l.half {
 		d = v.sideY - v.scroll.Y
@@ -469,6 +477,11 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 					uiText(pt, at+18, y, h, locales.DiffShowUnchanged(row.n), headerFontSize, 400, col)
 				case rowLine:
 					if v.split {
+						// Where the rows do not align, each side's lines
+						// stand in a stream of their own, which closes up
+						// where this row has none of the side's lines to
+						// show.
+						streams := !a.settings.DiffAlignedRows && len(v.sideTops[0]) == len(v.rows)+1
 						for side := range 2 {
 							x0 := vx + float32(side)*l.half
 							w := l.half
@@ -480,18 +493,33 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 								n, tint = row.new, p.added
 							}
 							ys := y
-							if side == 1 && !a.settings.DiffSyncScroll {
-								// The right side is scrolled on its own.
-								ys += v.scroll.Y - v.sideY
+							hs := h
+							if streams {
+								sc := v.scroll.Y
+								if side == 1 {
+									sc = v.sideY
+								}
+								ys = r.Y + editorPadY + float32(v.sideTops[side][i]-int(sc))*lineH
+								hs = float32(v.sideTops[side][i+1]-v.sideTops[side][i]) * lineH
+								if n < 0 {
+									// The side has none of this row's lines:
+									// it closes up, rather than show filler.
+									continue
+								}
+							} else {
+								if side == 1 && !a.settings.DiffSyncScroll {
+									// The right side is scrolled on its own.
+									ys += v.scroll.Y - v.sideY
+								}
 							}
 							pt.Clip(ui.Rect{X: x0, Y: vy, W: w, H: view.H}, 0, func() {
 								if n < 0 {
-									a.paintFiller(pt, ui.Rect{X: x0, Y: ys, W: w, H: h})
+									a.paintFiller(pt, ui.Rect{X: x0, Y: ys, W: w, H: hs})
 									return
 								}
 								changed := row.hunk >= 0
 								if changed {
-									pt.Fill(ui.Rect{X: x0, Y: ys, W: w, H: h}, tint.Alpha(0.16), 0)
+									pt.Fill(ui.Rect{X: x0, Y: ys, W: w, H: hs}, tint.Alpha(0.16), 0)
 								}
 								peer := -1
 								if changed && row.old >= 0 && row.new >= 0 {
@@ -506,16 +534,16 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 								numCol := p.gutter
 								switch {
 								case changed && v.inCurrent(row):
-									rail(x0, ys, h, tint)
+									rail(x0, ys, hs, tint)
 									numCol = tint
 								case changed:
-									rail(x0, ys, h, dim(tint))
+									rail(x0, ys, hs, dim(tint))
 									numCol = tint
 								default:
-									rail(x0, ys, h, neutral)
+									rail(x0, ys, hs, neutral)
 								}
 								number(n, x0+diffRailW+l.numW, ys, numCol)
-								noted(x0, ys, h, *row, side == 0)
+								noted(x0, ys, hs, *row, side == 0)
 								if changed {
 									mark := "-"
 									if side == 1 {
