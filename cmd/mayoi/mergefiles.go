@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 
 	"github.com/egoist/mygo/ui"
 
+	"mayoi/internal/git"
+	"mayoi/internal/vfs"
 	"mayoi/locales"
 )
 
@@ -26,9 +30,25 @@ func (a *app) mergeFiles() []mergeFile {
 	g := &a.git
 	st := g.status
 	if st == nil || st.Op == "" {
-		g.mergeDone, g.mergeDoneOp = nil, ""
+		if g.mergeDone != nil {
+			g.mergeDone, g.mergeDoneOp = nil, ""
+			if r := g.repo; r != nil {
+				if dir, err := r.GitDir(); err == nil {
+					os.Remove(filepath.Join(dir, resolvedRecord))
+				}
+			}
+		}
 	} else if st.Op != g.mergeDoneOp {
+		fresh := g.mergeDone == nil
 		g.mergeDone, g.mergeDoneOp = map[string]bool{}, st.Op
+		// The app may have started anew since the files were resolved:
+		// the record in the repository has them back, for the command's
+		// own identity only.
+		if fresh {
+			if r := g.repo; r != nil {
+				g.loadResolvedRecord(r, st.Op)
+			}
+		}
 	}
 	var out []mergeFile
 	inConflict := map[string]bool{}
@@ -57,13 +77,66 @@ func (a *app) mergeResolvedCount() (resolved, total int) {
 }
 
 // noteMergeResolved has the files of the command in progress that the
-// merge view staged as resolved stand so in the list of them.
+// merge view staged as resolved stand so in the list of them, and in the
+// record of the repository, which has them back after the app starts
+// anew.
 func (a *app) noteMergeResolved(path string) {
 	if st := a.git.status; st != nil && st.Op != "" {
 		if st.Op != a.git.mergeDoneOp {
 			a.git.mergeDone, a.git.mergeDoneOp = map[string]bool{}, st.Op
 		}
 		a.git.mergeDone[path] = true
+		if r := a.git.repo; r != nil {
+			a.saveResolvedRecord(r)
+		}
+	}
+}
+
+// resolvedRecord is the name of the record of the resolved files, in the
+// repository's git directory, beside what Git itself keeps of them.
+const resolvedRecord = "mayoi-resolved.json"
+
+// resolvedRecordFile is what the record holds: the command it belongs
+// to, and the files of it that stand resolved.
+type resolvedRecordFile struct {
+	Op    string   `json:"op"`
+	Paths []string `json:"paths"`
+}
+
+// saveResolvedRecord writes the resolved files of the command in
+// progress, as best it can: the list works without the record, which
+// only has it back after the app starts anew.
+func (a *app) saveResolvedRecord(r *git.Repo) {
+	dir, err := r.GitDir()
+	if err != nil {
+		return
+	}
+	rec := resolvedRecordFile{Op: string(a.git.mergeDoneOp), Paths: slices.Sorted(maps.Keys(a.git.mergeDone))}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return
+	}
+	vfs.WriteFile(filepath.Join(dir, resolvedRecord), data, 0o644)
+}
+
+// loadResolvedRecord takes the resolved files of the command back from
+// the record in the repository, whose entries that stand in conflict
+// again the list passes over.
+func (g *gitState) loadResolvedRecord(r *git.Repo, op git.Op) {
+	dir, err := r.GitDir()
+	if err != nil {
+		return
+	}
+	data, err := vfs.ReadFile(filepath.Join(dir, resolvedRecord))
+	if err != nil {
+		return
+	}
+	var rec resolvedRecordFile
+	if json.Unmarshal(data, &rec) != nil || rec.Op != string(op) {
+		return
+	}
+	for _, p := range rec.Paths {
+		g.mergeDone[p] = true
 	}
 }
 
