@@ -863,6 +863,9 @@ func (v *diffView) diffChosenText() string {
 		return ""
 	}
 	r := v.rows[i]
+	if r.file >= len(v.files) {
+		return ""
+	}
 	f := v.files[r.file]
 	if !f.loaded || f.binary {
 		return ""
@@ -880,8 +883,10 @@ func (a *app) diffEditTarget(v *diffView) *diffFile {
 	if i < 0 {
 		return nil
 	}
-	if f := v.files[v.rows[i].file]; f.writable() {
-		return f
+	// The rows may stand for files read again since, as a repository
+	// switch clears them.
+	if k := v.rows[i].file; k < len(v.files) && v.files[k].writable() {
+		return v.files[k]
 	}
 	return nil
 }

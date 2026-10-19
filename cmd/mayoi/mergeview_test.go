@@ -240,11 +240,21 @@ func (hs *harness) mergeOfRel(rel string) *mergeView {
 	if tm == nil || tm.merge == nil {
 		t.Fatalf("no merge tab: %+v", tm)
 	}
-	// The stages are read in the background: wait for them.
-	for deadline := time.Now().Add(10 * time.Second); !tm.merge.loaded && time.Now().Before(deadline); {
+	hs.awaitMerge()
+	return tm.merge
+}
+
+// awaitMerge waits for the merge of the active tab to read its stages,
+// which it does in the background.
+func (hs *harness) awaitMerge() {
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+		tm := hs.a.activeTab()
+		if tm == nil || tm.merge == nil || tm.merge.loaded && !tm.merge.loading {
+			break
+		}
 		hs.settle()
 	}
-	return tm.merge
+	hs.settle()
 }
 
 func TestMergeViewOpens(t *testing.T) {
@@ -421,6 +431,7 @@ func TestMergeViewExitAndContinue(t *testing.T) {
 	hs.settle()
 	a.openMerge(hs.path("shared.txt"), true)
 	hs.settle()
+	hs.awaitMerge()
 	v2 := a.activeTab().merge
 	if v2 == nil || v2.doc == nil {
 		t.Fatal("no merge tab back")
@@ -676,6 +687,7 @@ func TestMergeAutoApplyKept(t *testing.T) {
 	hs.settle()
 	a.openMerge(hs.path("one.txt"), true)
 	hs.settle()
+	hs.awaitMerge()
 	v2 := a.activeTab().merge
 	if v2 == nil || v2.doc == nil {
 		t.Fatal("no merge tab back")
@@ -711,6 +723,7 @@ func TestMergeFilesList(t *testing.T) {
 	// A file of the list chosen opens its merge.
 	a.chooseMergeFile(files[0])
 	hs.settle()
+	hs.awaitMerge()
 	if v := a.activeTab().merge; v == nil || v.path != files[0].path {
 		t.Fatalf("the merge of the file chosen is not open: %+v", a.activeTab())
 	}
@@ -773,6 +786,7 @@ func TestMergeApplyChanges(t *testing.T) {
 	a.takeMergeSide(v, 0, false)
 	a.applyMergeChanges(v)
 	hs.settleGit()
+	hs.awaitMerge()
 	if b, err := os.ReadFile(hs.path("one.txt")); err != nil || string(b) != "ours\nb\nside\nm\nside2\n" {
 		t.Fatalf("one.txt is not saved: %q (%v)", b, err)
 	}
@@ -786,6 +800,7 @@ func TestMergeApplyChanges(t *testing.T) {
 	a.takeMergeSide(a.activeTab().merge, 0, false)
 	a.applyMergeChanges(a.activeTab().merge)
 	hs.settleGit()
+	hs.awaitMerge()
 	if v3 := a.activeTab().merge; v3 == nil || v3.path != hs.path("four.txt") {
 		t.Fatalf("the next file in conflict is not open: %+v", a.activeTab())
 	}
@@ -794,6 +809,7 @@ func TestMergeApplyChanges(t *testing.T) {
 	a.takeMergeSide(a.activeTab().merge, 0, false)
 	a.applyMergeChanges(a.activeTab().merge)
 	hs.settleGit()
+	hs.awaitMerge()
 	if e := a.git.entries[hs.path("four.txt")]; e.Conflicted() {
 		t.Errorf("four.txt does not stand resolved: %+v", e)
 	}
@@ -833,6 +849,7 @@ func TestMergeSaveClose(t *testing.T) {
 	a.closeConflicts()
 	a.openMerge(v.path, true)
 	hs.settle()
+	hs.awaitMerge()
 	v2 := a.activeTab().merge
 	if v2 == nil || v2.path != v.path {
 		t.Fatal("the merge did not open again")
@@ -881,6 +898,7 @@ func TestMergeReopenResolved(t *testing.T) {
 	}
 	a.openMerge(resolved.path, true)
 	hs.settle()
+	hs.awaitMerge()
 	v2 := a.activeTab().merge
 	if v2 == nil || v2.path != resolved.path {
 		t.Fatalf("the merge did not open again: %+v", a.activeTab())
@@ -1047,6 +1065,7 @@ func TestMergeResolvedFilesSurviveRestart(t *testing.T) {
 	// it stages the file as resolved.
 	a.openMerge(hs.path("four.txt"), true)
 	hs.settle()
+	hs.awaitMerge()
 	a.takeMergeSide(a.activeTab().merge, 0, false)
 	a.completeMerge(a.activeTab().merge)
 	hs.settle()
