@@ -503,7 +503,7 @@ func diffBreaks(shown string, cols int, wrap bool) []int {
 func (a *app) diffEditDoc(f *diffFile) (*document, bool) {
 	if doc := a.diffDoc(f); doc != nil {
 		if doc.locked() {
-			a.fail("%s is still being read: try again in a moment.", doc.name())
+			a.fail("%s", locales.DiffStillReading())
 			return nil, false
 		}
 		if doc.buf.Version() != f.docVersion {
@@ -527,7 +527,7 @@ func (a *app) diffEditDoc(f *diffFile) (*document, bool) {
 	if doc.buf.Snapshot().String() != f.new.text {
 		// The file is not the text the diff compared: it is read again.
 		f.diskStale = true
-		a.fail("%s has changed since the diff was drawn. It is read again: try again.", filepath.Base(f.path))
+		a.fail("%s", locales.DiffChangedSinceDrawn(filepath.Base(f.path)))
 		doc.hl.Close()
 		return nil, false
 	}

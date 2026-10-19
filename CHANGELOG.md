@@ -104,7 +104,9 @@ needs a `## <version>` section here, or its build fails.
   **Apply Changes** saves the result, stages the file and opens the next
   file in conflict; **Save and Close** saves it and goes back to the
   list. The list shows of itself when a command stops for conflicts, and
-  the merge goes on once every file of it stands resolved.
+  the merge goes on once every file of it stands resolved. The arrow keys
+  and Enter choose and open its files, and a file whose conflicts still
+  have the base's lines asks before it is marked resolved.
 
 ## 0.11.4
 

@@ -646,7 +646,7 @@ func (a *gitContext) runOp(op git.Op, busy, done string, fn func(r *git.Repo) er
 		}
 		a.app.showSourceControl()
 		a.app.openConflicts()
-		a.app.tell(note{message: opTitle(op) + " stopped for conflicts: resolve and stage them, then continue",
+		a.app.tell(note{message: locales.OpStopped(opTitle(op)),
 			label: locales.ButtonAbort(), action: func() { a.abortOpOf(op) }})
 	})
 }

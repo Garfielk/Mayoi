@@ -8,6 +8,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
 
 	gitpkg "mayoi/internal/git"
 )
@@ -237,6 +240,10 @@ func (hs *harness) mergeOfRel(rel string) *mergeView {
 	if tm == nil || tm.merge == nil {
 		t.Fatalf("no merge tab: %+v", tm)
 	}
+	// The stages are read in the background: wait for them.
+	for deadline := time.Now().Add(10 * time.Second); !tm.merge.loaded && time.Now().Before(deadline); {
+		hs.settle()
+	}
 	return tm.merge
 }
 
@@ -376,7 +383,8 @@ func TestMergeViewComplete(t *testing.T) {
 	if !a.mergeResolved(v) {
 		t.Error("the view does not say the file stands resolved")
 	}
-	if !hs.tt.HasText("Mark Resolved") {
+	// A resolved file has the actions of one: it is not marked again.
+	if hs.tt.HasText("Mark Resolved") || !hs.tt.HasText("Restore Conflict…") {
 		t.Errorf("no actions of a resolved file: %q", hs.tt.Texts())
 	}
 	hs.shot("merge-resolved")
@@ -1059,7 +1067,7 @@ func TestMergeResolvedFilesSurviveRestart(t *testing.T) {
 	if a.git.status != nil {
 		a.git.status.Op = ""
 	}
-	dir, _ := a.git.repo.GitDir()
+	dir := a.git.repo.Dir
 	a.mergeFiles()
 	if _, err := os.Stat(filepath.Join(dir, "mayoi-resolved.json")); !os.IsNotExist(err) {
 		t.Fatal("the record of the resolved files is still there")
@@ -1070,5 +1078,58 @@ func TestMergeResolvedFilesSurviveRestart(t *testing.T) {
 		if f.resolved {
 			t.Fatalf("a file stands resolved without a command: %+v", files)
 		}
+	}
+}
+
+func TestMergeMarkResolvedAsks(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeRepo("a\nm\nz\n", "a\nours\nz\n", "a\nside\nz\n")
+	v := hs.mergeOf()
+	a := hs.a
+	path := hs.path("shared.txt")
+	// A conflict left as the base: marking the file resolved asks first,
+	// and stages nothing until it is told to.
+	a.completeMerge(v)
+	hs.settleGit()
+	if a.confirm == nil {
+		t.Fatal("marking a file with a conflict unresolved does not ask")
+	}
+	if e := a.git.entries[path]; !e.Conflicted() {
+		t.Fatalf("the file was staged before the answer: %+v", e)
+	}
+	a.confirm.run()
+	a.confirm = nil
+	hs.settleGit()
+	if e := a.git.entries[path]; e.Conflicted() {
+		t.Errorf("the file does not stand resolved once told to: %+v", e)
+	}
+}
+
+func TestMergeFilesKeys(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	a := hs.a
+	files := a.mergeFiles()
+	a.openConflicts()
+	hs.settle()
+	// The files stand in the repository's root: no folder is shown, least
+	// of all the absolute one.
+	for _, s := range hs.tt.Texts() {
+		if strings.Contains(s, hs.root) && !strings.HasPrefix(s, "Reveal ") {
+			t.Errorf("the list shows an absolute folder: %q", s)
+		}
+	}
+	// The arrows move the choice, Enter opens its merge.
+	hs.tt.Key(0, ui.KeyDown)
+	hs.tt.Key(0, ui.KeyDown)
+	hs.tt.Key(0, ui.KeyUp)
+	hs.tt.Key(0, ui.KeyEnter)
+	hs.settleGit()
+	hs.settle()
+	if tm := a.activeTab(); tm == nil || tm.merge == nil || tm.merge.path != files[1].path {
+		t.Fatalf("Enter does not open the merge of the file chosen: %+v sel=%d", tm.merge.path, a.conflicts.sel)
+	}
+	if a.conflicts.open {
+		t.Error("the list is open still")
 	}
 }

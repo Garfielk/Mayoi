@@ -3,10 +3,10 @@ package main
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -2024,14 +2024,14 @@ func (a *app) openFileAt(path string, line int, focus bool) {
 // writable side is edited, it says so.
 func (v *diffView) diffStatus() string {
 	if e := v.editing; e != nil {
-		return "Editing " + filepath.Base(e.f.path) + " · Esc when done"
+		return locales.DiffEditingStatus(filepath.Base(e.f.path))
 	}
 	if v.boundary != nil {
 		return v.boundary.msg
 	}
 	at := ""
 	if v.current >= 0 && v.current < len(v.starts) {
-		at = fmt.Sprintf("Change %d of %d · ", v.current+1, len(v.starts))
+		at = locales.DiffChangeOf(strconv.Itoa(v.current+1), strconv.Itoa(len(v.starts))) + " · "
 	}
 	// Every change to what the files read calls changed.
 	if v.summaryGen != v.gen+1 {

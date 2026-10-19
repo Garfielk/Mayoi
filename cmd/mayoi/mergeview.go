@@ -130,7 +130,7 @@ func (v *mergeView) theirsTip() string {
 		tip = locales.MergeTheirsTipName(n)
 	}
 	if op := v.op.Title(); op != "" {
-		tip += " · brought in by the " + op
+		tip = locales.MergeTheirsBroughtIn(tip, op)
 	}
 	return tip
 }
@@ -143,10 +143,6 @@ func (v *mergeView) resultTip() string {
 // mergeResolved reports whether the file is in conflict no more: staged
 // as resolved, committed, or the command undone.
 func (a *app) mergeResolved(v *mergeView) bool {
-	if v.op == "" {
-		e, ok := a.git.entries[v.path]
-		return a.git.looked && a.git.status != nil && (!ok || !e.Conflicted())
-	}
 	e, ok := a.git.entries[v.path]
 	return a.git.looked && a.git.status != nil && (!ok || !e.Conflicted())
 }
@@ -528,10 +524,12 @@ func (a *app) refreshMerge(v *mergeView) {
 			v.oursBuf = ui.NewTextBuffer(v.oursT)
 			v.theirsBuf = ui.NewTextBuffer(v.theirsT)
 			v.binary = isBinary([]byte(v.base)) || isBinary([]byte(v.oursT)) || isBinary([]byte(v.theirsT))
+			// A binary file has no lines to merge, nor a result to edit:
+			// the view only says so.
 			if !v.binary {
 				v.regions = mergeRegions(v.baseLines, v.oursLines, v.theirsLines)
+				a.makeMergeResult(v, data, readErr)
 			}
-			a.makeMergeResult(v, data, readErr)
 			a.invalidate()
 		})
 	}()
@@ -887,6 +885,19 @@ func (a *app) markMergeResolved(v *mergeView, done func()) {
 	if v.doc == nil {
 		return
 	}
+	// A conflict left as the base has neither side's lines: staging it
+	// drops both sides' changes there, so it is asked first.
+	if n := v.unresolved(); n > 0 {
+		a.confirm = &confirm{title: locales.MergeUnresolvedTitle(v.name()), ok: locales.MergeMarkResolved(),
+			message: locales.MergeUnresolvedDetail(n), run: func() { a.stageMergeResult(v, done) }}
+		a.invalidate()
+		return
+	}
+	a.stageMergeResult(v, done)
+}
+
+// stageMergeResult saves the result of a merge view and stages its file.
+func (a *app) stageMergeResult(v *mergeView, done func()) {
 	path := v.path
 	a.saveDoc(v.doc, func() {
 		a.gitDo("", func(r *git.Repo) error { return r.Stage(path) }, func() {

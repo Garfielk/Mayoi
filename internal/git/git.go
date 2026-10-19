@@ -107,16 +107,6 @@ func (r *Repo) Rel(path string) string {
 // Abs returns the path of a file Git names relative to the root.
 func (r *Repo) Abs(rel string) string { return filepath.Join(r.Root, filepath.FromSlash(rel)) }
 
-// GitDir returns the repository's git directory, where Git keeps its own
-// state, as a linked work tree's does beside the others'.
-func (r *Repo) GitDir() (string, error) {
-	out, err := run(r.Root, nil, "rev-parse", "--absolute-git-dir")
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
 // Contains reports whether path is in the work tree.
 func (r *Repo) Contains(path string) bool {
 	return path == r.Root || strings.HasPrefix(path, r.Root+string(filepath.Separator))

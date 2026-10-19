@@ -33,9 +33,7 @@ func (a *app) mergeFiles() []mergeFile {
 		if g.mergeDone != nil {
 			g.mergeDone, g.mergeDoneOp = nil, ""
 			if r := g.repo; r != nil {
-				if dir, err := r.GitDir(); err == nil {
-					os.Remove(filepath.Join(dir, resolvedRecord))
-				}
+				os.Remove(filepath.Join(r.Dir, resolvedRecord))
 			}
 		}
 	} else if st.Op != g.mergeDoneOp {
@@ -107,27 +105,19 @@ type resolvedRecordFile struct {
 // progress, as best it can: the list works without the record, which
 // only has it back after the app starts anew.
 func (a *app) saveResolvedRecord(r *git.Repo) {
-	dir, err := r.GitDir()
-	if err != nil {
-		return
-	}
 	rec := resolvedRecordFile{Op: string(a.git.mergeDoneOp), Paths: slices.Sorted(maps.Keys(a.git.mergeDone))}
 	data, err := json.Marshal(rec)
 	if err != nil {
 		return
 	}
-	vfs.WriteFile(filepath.Join(dir, resolvedRecord), data, 0o644)
+	vfs.WriteFile(filepath.Join(r.Dir, resolvedRecord), data, 0o644)
 }
 
 // loadResolvedRecord takes the resolved files of the command back from
 // the record in the repository, whose entries that stand in conflict
 // again the list passes over.
 func (g *gitState) loadResolvedRecord(r *git.Repo, op git.Op) {
-	dir, err := r.GitDir()
-	if err != nil {
-		return
-	}
-	data, err := vfs.ReadFile(filepath.Join(dir, resolvedRecord))
+	data, err := vfs.ReadFile(filepath.Join(r.Dir, resolvedRecord))
 	if err != nil {
 		return
 	}
@@ -242,6 +232,12 @@ func (a *app) conflictsView(c *ui.Context) {
 	}
 	p := a.pal
 	files := a.mergeFiles()
+	if len(files) == 0 {
+		// The command ended, or went on: nothing is left to list.
+		cl.open = false
+		return
+	}
+	cl.sel = min(max(cl.sel, 0), len(files)-1)
 	ui.Overlay(c, func() {
 		back := a.dialogBack(c, "conflicts")
 		back.Children(func() {
@@ -265,7 +261,8 @@ func (a *app) conflictsView(c *ui.Context) {
 					ui.Text(c, locales.MergeFilesResolved(strconv.Itoa(resolved), strconv.Itoa(total))).
 						FontSize(11.5).TextColor(p.muted).SingleLine()
 					ui.Spacer(c)
-					if op := a.git.status.Op; op != "" {
+					if st := a.git.status; st != nil && st.Op != "" {
+						op := st.Op
 						if a.mergeButton(c, "conflicts-continue", locales.MergeContinueOp(op.Title()), locales.MergeContinueOpTipFiles(op.Title())) {
 							a.post(a.continueOp)
 						}
@@ -273,6 +270,12 @@ func (a *app) conflictsView(c *ui.Context) {
 				})
 				cl.moved = false
 			})
+			if back.OverlayShortcut(0, ui.KeyDown) {
+				cl.sel, cl.moved = min(cl.sel+1, len(files)-1), true
+			}
+			if back.OverlayShortcut(0, ui.KeyUp) {
+				cl.sel, cl.moved = max(cl.sel-1, 0), true
+			}
 			if box.PressedOutside() || back.OverlayShortcut(0, ui.KeyEscape) {
 				a.closeConflicts()
 			}
@@ -285,7 +288,12 @@ func (a *app) conflictsView(c *ui.Context) {
 func (a *app) mergeFileRow(c *ui.Context, f mergeFile, i int) {
 	cl := &a.conflicts
 	p := a.pal
-	name, dir := filepath.Base(f.path), filepath.Dir(f.path)
+	name, dir := filepath.Base(f.path), ""
+	if r := a.git.repo; r != nil {
+		if d := filepath.Dir(filepath.FromSlash(r.Rel(f.path))); d != "." {
+			dir = d
+		}
+	}
 	label, tip := locales.MergeOpenMerge(name), locales.MergeOpenMergeTip()
 	if f.resolved {
 		label, tip = locales.MergeShowResolved(name), locales.MergeShowResolvedTip()
@@ -298,8 +306,9 @@ func (a *app) mergeFileRow(c *ui.Context, f mergeFile, i int) {
 	case row.Hovered():
 		row.Background(p.hover)
 	}
+	// The keyboard follows the choice, for Enter to open it.
 	if i == cl.sel && cl.moved {
-		row.ScrollIntoView()
+		row.ScrollIntoView().Focus()
 	}
 	if row.Clicked() {
 		a.post(func() { a.chooseMergeFile(f) })

@@ -2845,6 +2845,28 @@ func (msgs Messages) DiffCatchingUpFiles() string {
 	return Catalog.Format(msgs.locale, "diffCatchingUpFiles", nil)
 }
 
+// DiffChangeOf says "Change {index} of {total}"
+// in the language the app shows.
+func DiffChangeOf(index string, total string) string {
+	return In(i18n.Locale()).DiffChangeOf(index, total)
+}
+
+// DiffChangeOf says "Change {index} of {total}"
+// in the language of msgs.
+func (msgs Messages) DiffChangeOf(index string, total string) string {
+	return Catalog.Format(msgs.locale, "diffChangeOf", map[string]any{"index": index, "total": total})
+}
+
+// DiffChangedSinceDrawn says "{name} has changed since the diff was drawn. It is read again: try again."
+// in the language the app shows.
+func DiffChangedSinceDrawn(name string) string { return In(i18n.Locale()).DiffChangedSinceDrawn(name) }
+
+// DiffChangedSinceDrawn says "{name} has changed since the diff was drawn. It is read again: try again."
+// in the language of msgs.
+func (msgs Messages) DiffChangedSinceDrawn(name string) string {
+	return Catalog.Format(msgs.locale, "diffChangedSinceDrawn", map[string]any{"name": name})
+}
+
 // DiffChangesName says "Changes"
 // in the language the app shows.
 func DiffChangesName() string { return In(i18n.Locale()).DiffChangesName() }
@@ -3055,6 +3077,16 @@ func DiffEditTip() string { return In(i18n.Locale()).DiffEditTip() }
 // in the language of msgs.
 func (msgs Messages) DiffEditTip() string {
 	return Catalog.Format(msgs.locale, "diffEditTip", nil)
+}
+
+// DiffEditingStatus says "Editing {name} · Esc when done"
+// in the language the app shows.
+func DiffEditingStatus(name string) string { return In(i18n.Locale()).DiffEditingStatus(name) }
+
+// DiffEditingStatus says "Editing {name} · Esc when done"
+// in the language of msgs.
+func (msgs Messages) DiffEditingStatus(name string) string {
+	return Catalog.Format(msgs.locale, "diffEditingStatus", map[string]any{"name": name})
 }
 
 // DiffHighlightChars says "Highlight Characters"
@@ -4987,6 +5019,18 @@ func (msgs Messages) MergeConflictTip() string {
 	return Catalog.Format(msgs.locale, "mergeConflictTip", nil)
 }
 
+// MergeConflictsCount says "{unresolved} of {total}"
+// in the language the app shows.
+func MergeConflictsCount(unresolved string, total string) string {
+	return In(i18n.Locale()).MergeConflictsCount(unresolved, total)
+}
+
+// MergeConflictsCount says "{unresolved} of {total}"
+// in the language of msgs.
+func (msgs Messages) MergeConflictsCount(unresolved string, total string) string {
+	return Catalog.Format(msgs.locale, "mergeConflictsCount", map[string]any{"unresolved": unresolved, "total": total})
+}
+
 // MergeConflictsEllipsis says "Conflicts…"
 // in the language the app shows.
 func MergeConflictsEllipsis() string { return In(i18n.Locale()).MergeConflictsEllipsis() }
@@ -5005,6 +5049,18 @@ func MergeConflictsTip(op string) string { return In(i18n.Locale()).MergeConflic
 // in the language of msgs.
 func (msgs Messages) MergeConflictsTip(op string) string {
 	return Catalog.Format(msgs.locale, "mergeConflictsTip", map[string]any{"op": op})
+}
+
+// MergeConflictsToResolve says "{count, plural, one {# conflict to resolve} other {# conflicts to resolve}}"
+// in the language the app shows.
+func MergeConflictsToResolve(count int) string {
+	return In(i18n.Locale()).MergeConflictsToResolve(count)
+}
+
+// MergeConflictsToResolve says "{count, plural, one {# conflict to resolve} other {# conflicts to resolve}}"
+// in the language of msgs.
+func (msgs Messages) MergeConflictsToResolve(count int) string {
+	return Catalog.Format(msgs.locale, "mergeConflictsToResolve", map[string]any{"count": count})
 }
 
 // MergeConflictsUnresolved says "Conflicts Unresolved"
@@ -5189,6 +5245,16 @@ func (msgs Messages) MergeMarkedResolved(name string) string {
 	return Catalog.Format(msgs.locale, "mergeMarkedResolved", map[string]any{"name": name})
 }
 
+// MergeNextConflict says "Next Conflict (])"
+// in the language the app shows.
+func MergeNextConflict() string { return In(i18n.Locale()).MergeNextConflict() }
+
+// MergeNextConflict says "Next Conflict (])"
+// in the language of msgs.
+func (msgs Messages) MergeNextConflict() string {
+	return Catalog.Format(msgs.locale, "mergeNextConflict", nil)
+}
+
 // MergeOpMerge says "merge"
 // in the language the app shows.
 func MergeOpMerge() string { return In(i18n.Locale()).MergeOpMerge() }
@@ -5267,6 +5333,16 @@ func MergeOursTipBranch(name string) string { return In(i18n.Locale()).MergeOurs
 // in the language of msgs.
 func (msgs Messages) MergeOursTipBranch(name string) string {
 	return Catalog.Format(msgs.locale, "mergeOursTipBranch", map[string]any{"name": name})
+}
+
+// MergePrevConflict says "Previous Conflict ([)"
+// in the language the app shows.
+func MergePrevConflict() string { return In(i18n.Locale()).MergePrevConflict() }
+
+// MergePrevConflict says "Previous Conflict ([)"
+// in the language of msgs.
+func (msgs Messages) MergePrevConflict() string {
+	return Catalog.Format(msgs.locale, "mergePrevConflict", nil)
 }
 
 // MergeQuestion says "Merge {rev} into {into}?"
@@ -5499,6 +5575,18 @@ func (msgs Messages) MergeTheirsBare() string {
 	return Catalog.Format(msgs.locale, "mergeTheirsBare", nil)
 }
 
+// MergeTheirsBroughtIn says "{tip} · brought in by the {op}"
+// in the language the app shows.
+func MergeTheirsBroughtIn(tip string, op string) string {
+	return In(i18n.Locale()).MergeTheirsBroughtIn(tip, op)
+}
+
+// MergeTheirsBroughtIn says "{tip} · brought in by the {op}"
+// in the language of msgs.
+func (msgs Messages) MergeTheirsBroughtIn(tip string, op string) string {
+	return Catalog.Format(msgs.locale, "mergeTheirsBroughtIn", map[string]any{"tip": tip, "op": op})
+}
+
 // MergeTheirsPane says "THEIRS · {name}"
 // in the language the app shows.
 func MergeTheirsPane(name string) string { return In(i18n.Locale()).MergeTheirsPane(name) }
@@ -5527,6 +5615,26 @@ func MergeTheirsTipName(name string) string { return In(i18n.Locale()).MergeThei
 // in the language of msgs.
 func (msgs Messages) MergeTheirsTipName(name string) string {
 	return Catalog.Format(msgs.locale, "mergeTheirsTipName", map[string]any{"name": name})
+}
+
+// MergeUnresolvedDetail says "{count, plural, one {# conflict still has} other {# conflicts still have}} the base's lines in the result, which neit…"
+// in the language the app shows.
+func MergeUnresolvedDetail(count int) string { return In(i18n.Locale()).MergeUnresolvedDetail(count) }
+
+// MergeUnresolvedDetail says "{count, plural, one {# conflict still has} other {# conflicts still have}} the base's lines in the result, which neit…"
+// in the language of msgs.
+func (msgs Messages) MergeUnresolvedDetail(count int) string {
+	return Catalog.Format(msgs.locale, "mergeUnresolvedDetail", map[string]any{"count": count})
+}
+
+// MergeUnresolvedTitle says "Mark {name} resolved?"
+// in the language the app shows.
+func MergeUnresolvedTitle(name string) string { return In(i18n.Locale()).MergeUnresolvedTitle(name) }
+
+// MergeUnresolvedTitle says "Mark {name} resolved?"
+// in the language of msgs.
+func (msgs Messages) MergeUnresolvedTitle(name string) string {
+	return Catalog.Format(msgs.locale, "mergeUnresolvedTitle", map[string]any{"name": name})
 }
 
 // MergeUseLeft says "Resolve using Left"

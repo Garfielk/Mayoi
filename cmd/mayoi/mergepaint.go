@@ -26,12 +26,12 @@ func (a *app) mergeViewUI(c *ui.Context, v *mergeView) {
 		message(v.err)
 		return
 	}
-	if !v.loaded || v.doc == nil || v.loading {
-		ui.Box(c).Fill().Background(p.editor)
-		return
-	}
 	if v.binary {
 		message(locales.MergeBinary())
+		return
+	}
+	if !v.loaded || v.doc == nil || v.loading {
+		ui.Box(c).Fill().Background(p.editor)
 		return
 	}
 	// The regions follow the result's text, whatever changed it: undo
@@ -102,13 +102,13 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 				pill.Background(p.text.Alpha(0.07))
 			}
 			pill.Children(func() {
-				ui.RichText(c, ui.Span{Text: fmt.Sprintf("%d of %d", un, n), Size: 10.5, Weight: 600, Color: p.text}).SingleLine()
+				ui.RichText(c, ui.Span{Text: locales.MergeConflictsCount(strconv.Itoa(un), strconv.Itoa(n)), Size: 10.5, Weight: 600, Color: p.text}).SingleLine()
 			})
 		}
 		if filesTotal > 1 {
-			ui.Text(c, fmt.Sprintf("%d of %d files resolved", filesResolved, filesTotal)).
+			ui.Text(c, locales.MergeFilesResolved(strconv.Itoa(filesResolved), strconv.Itoa(filesTotal))).
 				FontSize(11).TextColor(p.muted).SingleLine().Shrink(0).
-				Tooltip("The files of the " + cmp.Or(v.op.Title(), locales.MergeOpMerge()) + " that stand resolved")
+				Tooltip(locales.MergeFilesResolvedTip(cmp.Or(v.op.Title(), locales.MergeOpMerge())))
 		}
 		ui.Spacer(c)
 		if !resolved && !v.binary && v.loaded {
@@ -152,10 +152,12 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 		if filesTotal > 0 && a.mergeButton(c, "merge-files", locales.MergeConflictsEllipsis(), locales.MergeConflictsTip(cmp.Or(v.op.Title(), locales.MergeOpMerge()))) {
 			a.post(a.openConflicts)
 		}
-		b := ui.PrimaryButton(c.Key("merge-resolved"), locales.MergeMarkResolved()).Height(22)
-		b.Tooltip(locales.MergeMarkResolvedTip())
-		if b.Clicked() {
-			a.post(func() { a.completeMerge(v) })
+		if !resolved {
+			b := ui.PrimaryButton(c.Key("merge-resolved"), locales.MergeMarkResolved()).Height(22)
+			b.Tooltip(locales.MergeMarkResolvedTip())
+			if b.Clicked() {
+				a.post(func() { a.completeMerge(v) })
+			}
 		}
 	})
 }
@@ -184,15 +186,15 @@ func (a *app) mergeActions(c *ui.Context, v *mergeView) {
 			}
 			return
 		}
-		if a.iconButton(c.Key("merge-prev"), iconArrowUp, "Previous Conflict (])", false).Clicked() {
+		if a.iconButton(c.Key("merge-prev"), iconArrowUp, locales.MergePrevConflict(), false).Clicked() {
 			a.post(func() { a.stepMergeRegion(v, -1) })
 		}
-		if a.iconButton(c.Key("merge-next"), iconArrowDown, "Next Conflict ([)", false).Clicked() {
+		if a.iconButton(c.Key("merge-next"), iconArrowDown, locales.MergeNextConflict(), false).Clicked() {
 			a.post(func() { a.stepMergeRegion(v, 1) })
 		}
 		i := v.chosen
 		if i < 0 || i >= len(v.regions) {
-			ui.Text(c, fmt.Sprintf("%s to resolve", plural(len(v.regions), "conflict"))).FontSize(11.5).TextColor(p.muted).SingleLine()
+			ui.Text(c, locales.MergeConflictsToResolve(len(v.regions))).FontSize(11.5).TextColor(p.muted).SingleLine()
 			ui.Spacer(c)
 			return
 		}

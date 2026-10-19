@@ -697,10 +697,20 @@ func (a *app) splitRight() {
 			baseLines: t.merge.baseLines, oursLines: t.merge.oursLines, theirsLines: t.merge.theirsLines,
 			regions: t.merge.regions, binary: t.merge.binary, crlf: t.merge.crlf,
 			doc: t.merge.doc}
-		v.ed = newEditor(v.doc)
-		v.syncRegions()
+		// A merge still being read, or a binary one, has no result yet,
+		// nor ever: the one still being read is read again for the view.
+		fresh := v.doc == nil && !v.binary && v.err == ""
+		if v.doc != nil {
+			v.ed = newEditor(v.doc)
+			v.syncRegions()
+		} else if fresh {
+			v.loaded, v.loading = false, false
+		}
 		a.addTab(nc, 0, &colTab{merge: v})
 		a.activate(nc, 0, true)
+		if fresh {
+			a.refreshMerge(v)
+		}
 		return
 	}
 	ed := newEditor(t.ed.document)

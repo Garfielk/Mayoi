@@ -308,7 +308,7 @@ func (a *app) appendHunks(v *diffView, f *diffFile, hs []linediff.Hunk) {
 		}
 		if d.buf.Snapshot().String() != f.new.text {
 			f.diskStale = true
-			a.fail("%s has changed since the diff was drawn. It is read again: try again.", name)
+			a.fail("%s", locales.DiffChangedSinceDrawn(name))
 			return
 		}
 		a.appendInto(v, d, f, hs)
@@ -510,7 +510,7 @@ func (a *app) applyLocalArrow(v *diffView, f *diffFile, h linediff.Hunk, ar hunk
 	}
 	if got := doc.buf.Snapshot().String(); got != expected {
 		f.diskStale = true
-		a.fail("%s has changed since the diff was drawn. It is read again: try again.", filepath.Base(path))
+		a.fail("%s", locales.DiffChangedSinceDrawn(filepath.Base(path)))
 		return
 	}
 	d, _ := a.editorOf(doc)
@@ -595,7 +595,7 @@ func (a *app) intoByOpening(v *diffView, f *diffFile, hs []linediff.Hunk) {
 	if d.buf.Snapshot().String() != f.new.text {
 		// The file is not the text the changes were found among.
 		f.gitStale = true
-		a.fail("%s has changed since the diff was drawn. It is read again: try again.", filepath.Base(f.path))
+		a.fail("%s", locales.DiffChangedSinceDrawn(filepath.Base(f.path)))
 		return
 	}
 	a.discardInto(d, f, hs)
