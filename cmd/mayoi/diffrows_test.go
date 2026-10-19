@@ -66,3 +66,38 @@ func TestLineRowsPairsAlike(t *testing.T) {
 		t.Errorf("the removed comment's peer: %+v", removed)
 	}
 }
+
+// TestLineRowsPairsTheOnlyPairOfASingletonChange: a change that removes
+// one line and adds one pairs them however little they hold in common —
+// the one pair there is stands, as JetBrains has it.
+func TestLineRowsPairsTheOnlyPairOfASingletonChange(t *testing.T) {
+	old := []string{"a", "  iconColor={props.active ? '#FFFFFF' : \"xm#7F7F7F\"}", "z"}
+	new := []string{"a", "  iconColor={props.active ? \"#FFFFFF\" : inactiveIconColor}", "z"}
+	hunks := linediff.Hunks(old, new)
+	if len(hunks) != 1 || hunks[0].ALen != 1 || hunks[0].BLen != 1 {
+		t.Fatalf("hunks %+v, want one 1x1", hunks)
+	}
+	_, pairs := lineRows(old, new, hunks)
+	var inHunk []diffRow
+	for _, r := range pairs {
+		if r.kind == rowLine && r.hunk == 0 {
+			inHunk = append(inHunk, r)
+		}
+	}
+	if len(inHunk) != 1 {
+		t.Fatalf("rows in hunk %d, want the one pair", len(inHunk))
+	}
+	if inHunk[0].old != 1 || inHunk[0].new != 1 {
+		t.Errorf("the lines are not paired: %+v", inHunk[0])
+	}
+	unified, _ := lineRows(old, new, hunks)
+	var peers []int
+	for _, r := range unified {
+		if r.kind == rowLine && r.hunk == 0 {
+			peers = append(peers, r.peer)
+		}
+	}
+	if !slices.Equal(peers, []int{1, 1}) {
+		t.Errorf("unified peers %v, want the pair on both", peers)
+	}
+}

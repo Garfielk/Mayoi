@@ -137,6 +137,12 @@ func hunkPeers(old, new []string, h linediff.Hunk) (ofOld, ofNew []int) {
 		}
 		return ofOld, ofNew
 	}
+	if h.ALen == 1 && h.BLen == 1 {
+		// One line gone, one line here: the only pair there is stands,
+		// however little the lines hold in common.
+		ofOld[0], ofNew[0] = h.B, h.A
+		return ofOld, ofNew
+	}
 	// The pairs that hold the most alike take each other first; then a
 	// line still standing alone takes a new line from another pair when
 	// that line's own pair has another new line alike enough to it —
