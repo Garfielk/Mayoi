@@ -293,7 +293,7 @@ func (a *gitContext) repositoryQuestion(title string) string {
 	if len(a.app.repositories.contexts) < 2 {
 		return title
 	}
-	name := a.relativeRoot()
+	name := filepath.ToSlash(a.relativeRoot())
 	if name == "" {
 		name = a.label()
 	}

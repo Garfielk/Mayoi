@@ -12,6 +12,7 @@ import (
 // The editor places what it paints by measuring the text itself: a tab
 // ends where the text area's layout ends it, not after four cells.
 func TestWidthFollowsTabStops(t *testing.T) {
+	skipOnWindows(t, "MyGo's text layout on Windows gives a tab no width")
 	hs := newHarness(t, true)
 	f := hs.a.font
 	for _, s := range []string{"\t", "\t\tx", "a\tb", "abc\td\t", "    x", "\t\tfoo := bar(1, 2)\t// c", "\tnaïve\t迷い"} {

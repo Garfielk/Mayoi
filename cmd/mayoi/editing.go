@@ -513,6 +513,7 @@ func (a *app) editorKey(d *editor, ev ui.InputEvent) bool {
 	}
 	if ev.Kind == ui.InputPointerDown && a.settings.Vim && d.vim.mode.visual() {
 		// A click ends visual mode; a drag selects anew.
+		d.vim.lastVisual = vimVisualArea{d.vim.anchor, d.vim.cursor, d.vim.mode}
 		d.vim.mode, d.vim.keys = vimNormal, d.vim.keys[:0]
 	}
 	if ev.Kind != ui.InputKeyDown {

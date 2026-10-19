@@ -93,7 +93,7 @@ func (a *app) quickOpenView(c *ui.Context) {
 		}
 		rel := a.index[q.results[i].Index]
 		q.open = false
-		a.openFile(a.root+"/"+rel, true)
+		a.openFile(inDir(a.root, rel), true)
 	}
 	ui.Overlay(c, func() {
 		back := a.dialogBack(c, "quick")

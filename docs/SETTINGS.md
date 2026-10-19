@@ -116,8 +116,8 @@ differ in width lines them up only roughly.
 - **`diffSyncScroll`** keeps the two sides of a split diff aligned while scrolling. Turn it off to scroll each side
   independently.
 - **`vim`** starts editors in vim's normal mode.
-- **`vimCtrlKeys`** gives ⌃F, ⌃B and ⌃R to vim's normal mode on Windows and Linux, rather than to Find, Toggle
-  Sidebar and Open Recent. On macOS, where those commands use ⌘, vim always has them.
+- **`vimCtrlKeys`** gives ⌃F, ⌃B, ⌃R, ⌃A and ⌃X to vim's normal mode on Windows and Linux, rather than to Find,
+  Toggle Sidebar, Open Recent, Select All and Cut. On macOS, where those commands use ⌘, vim always has them.
 - **`blame`** shows who last changed the caret's line, and when, at the end of the line.
 - **`scmTree`** lists Source Control's changes in a tree of their folders, rather than by path.
 - **`scmAllBranches`** shows the commits of every branch and tag, not only those of the branch checked out.

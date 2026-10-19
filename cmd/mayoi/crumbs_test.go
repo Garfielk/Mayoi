@@ -14,21 +14,31 @@ import (
 
 func TestCrumbsOf(t *testing.T) {
 	join := filepath.Join
+	// The folders of this machine as it spells them, with backslashes on
+	// Windows.
+	w, u := filepath.FromSlash("/w"), filepath.FromSlash("/u")
 	cases := []struct {
 		path, root, home string
 		want             []crumb
 	}{
-		{join("/w", "src", "app", "main.go"), "/w", "/u",
-			[]crumb{{"src", join("/w", "src")}, {"app", join("/w", "src", "app")}, {"main.go", ""}}},
-		{join("/w", "main.go"), "/w", "/u", []crumb{{"main.go", ""}}},
-		{join("/u", "notes", "a b", "中文.md"), "/w", "/u",
-			[]crumb{{"~", "/u"}, {"notes", join("/u", "notes")}, {"a b", join("/u", "notes", "a b")}, {"中文.md", ""}}},
-		{join("/tmp", "Mayoi", "settings.json"), "", "/u",
-			[]crumb{{"tmp", "/tmp"}, {"Mayoi", join("/tmp", "Mayoi")}, {"settings.json", ""}}},
-		{"/ssh:box/home/me/x.go", "/w", "/u",
-			[]crumb{{"box", "/ssh:box"}, {"home", "/ssh:box/home"}, {"me", "/ssh:box/home/me"}, {"x.go", ""}}},
-		{"/ssh:box/srv/app/x.go", "/ssh:box/srv", "/u",
-			[]crumb{{"app", "/ssh:box/srv/app"}, {"x.go", ""}}},
+		{join(w, "src", "app", "main.go"), w, u,
+			[]crumb{{"src", join(w, "src")}, {"app", join(w, "src", "app")}, {"main.go", ""}}},
+		{join(w, "main.go"), w, u, []crumb{{"main.go", ""}}},
+		{join(u, "notes", "a b", "中文.md"), w, u,
+			[]crumb{{"~", u}, {"notes", join(u, "notes")}, {"a b", join(u, "notes", "a b")}, {"中文.md", ""}}},
+		{join("/tmp", "Mayoi", "settings.json"), "", u,
+			[]crumb{{"tmp", join("/tmp")}, {"Mayoi", join("/tmp", "Mayoi")}, {"settings.json", ""}}},
+	}
+	if remoteSupported {
+		cases = append(cases, []struct {
+			path, root, home string
+			want             []crumb
+		}{
+			{"/ssh:box/home/me/x.go", w, u,
+				[]crumb{{"box", "/ssh:box"}, {"home", "/ssh:box/home"}, {"me", "/ssh:box/home/me"}, {"x.go", ""}}},
+			{"/ssh:box/srv/app/x.go", "/ssh:box/srv", u,
+				[]crumb{{"app", "/ssh:box/srv/app"}, {"x.go", ""}}},
+		}...)
 	}
 	for _, c := range cases {
 		if got := crumbsOf(c.path, c.root, c.home); !slices.Equal(got, c.want) {

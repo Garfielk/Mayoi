@@ -101,6 +101,103 @@ needs a `## <version>` section here, or its build fails.
   list. The list shows of itself when a command stops for conflicts, and
   the merge goes on once every file of it stands resolved.
 
+## 0.11.1
+
+- On Windows, the Undo, Discard and Reset dialogs and the repository
+  headers name a submodule with `/`, as `packages/module`, like the other
+  systems.
+- A project's square dragged along the rail goes where it is dropped
+  again, before the square under the pointer, not always at the end.
+
+## 0.11.0
+
+- Settings sync no longer undoes a change to `settings.json` or
+  `keybindings.json` made as it syncs, from a menu or by saving the file:
+  it merges the change with the account's and syncs it. A save of
+  `settings.json` no longer loses to the settings' own write of a moment
+  before.
+- Windows: a file opened from quick open, or by vim's `:e`, is the file
+  the Explorer shows, with backslashes, rather than a second tab of it
+  that the Explorer could not reveal.
+- Windows: renaming refuses a name with `/` in it, as it does one with
+  `\`, rather than moving the file into a folder of that name.
+- Windows: the Markdown preview finds an image or link that starts with
+  `/` in the repository's root, as on macOS, and shows one given as a
+  whole path, as `C:\pictures\art.png`.
+- Windows: Source Control's tree of changes keeps its folders for a work
+  tree at the top of a disk, as `D:\`, rather than listing every file
+  at its top.
+- Windows: a file given to `mayoi` in other letters than its folder's,
+  as `c:\proj\a.go` for `C:\Proj`, opens in that folder's window.
+- Windows: a terminal is named after its shell, `pwsh`, `powershell` or
+  `cmd`, rather than "shell".
+- Windows: the repository picker finds a repository typed with `/`, as
+  `packages/module`, as well as with `\`.
+- The home folder shortens to `~` only for itself and the folders in it,
+  not for a folder whose name begins the same, as `/Users/me2`; on
+  Windows, whatever the case of its letters.
+- The Windows fixes follow @wowyuarm's port of Mayoi to Windows (#40),
+  and the tests now run on macOS and Windows too.
+- The Markdown preview's column is half as wide again, 120 digits
+  rather than 80, so tables and images have room in a wide pane while
+  lines stay short enough to read; a narrower pane still fits it.
+- Vim mode records macros: `qa` records the keys typed into register
+  `a` until `q`, with the status bar saying so, and `@a` plays them,
+  `3@a` three times, `@@` again and `@:` the last command. A macro stops
+  where a motion fails, as in vim.
+- Vim mode has registers: `"a` to `"z` yank, delete and paste on their
+  own, `"A` appends, `"0` holds the last yank, `"1` to `"9` the last
+  deletes of lines, `"_` keeps nothing, and `".`, `":` and `"/` what was
+  typed, run and searched last. `:reg` shows them.
+- Vim mode has marks, `ma` then `'a` or `` `a ``, which move with the
+  text as it changes, and a jump list: `''` goes back, and ⌃O and ⌃I go
+  back and forward through the places `G`, `%`, searches and marks
+  jumped from. `:marks` lists them.
+- Vim mode adds `:normal` to type keys over a range of lines, `:g` and
+  `:v` to run a command on the lines that match or do not, `:m` and `:t`
+  to move and copy lines, `:pu`, and `&` and `g&` to repeat the last
+  `:s`. `:g` and `:normal` undo as one step.
+- Vim mode adds `it` and `at` for the text in tags, `[( [{ ]) ]}` to go
+  to the bracket that holds the cursor, and `gp` and `gP`.
+- In vim mode a count before an insert types its text as many times, as
+  `3ix` and `2o` do, and `.` repeats it so; `r` and Enter leaves the
+  cursor where vim does.
+- In vim mode, ⌃W and ⌃U delete the word and the line before the caret
+  in insert mode, on macOS.
+- In vim mode `ma` sets a mark, where before `m` was dropped and `a`
+  started inserting.
+- Vim mode's search highlights draw from what the last frame found
+  while nothing changed, rather than searching the lines in view every
+  frame.
+
+- In vim mode the cursor is half a block while an operator, as `d`,
+  waits for its motion, and the text yanked lights up for a moment.
+- Vim mode searches: `/` and `?` open a command line over the bottom
+  of the editor, which moves to the first match as you type, highlights
+  every one and counts them; `n`, `N`, `*` and `#` search again, a
+  search is a motion as in `d/end`, and the status bar says when a
+  search went round the end or found nothing. Patterns are vim's.
+- Vim mode's `:` runs commands: `:w`, `:q`, `:wq`, `:x`, a line number,
+  `:s` and `:%s` over a range or the selection, `:d`, `:y`, `:j`,
+  `:sort`, `:noh`, `:e`, `:vs` and more, with ↑ and ↓ for the commands
+  typed before.
+- Vim mode adds `gv`, `gi`, `gJ`, `H M L`, `zz zt zb`, ⌃A and ⌃X to add
+  to a number, and `ZZ` and `ZQ`.
+- Vim mode does as vim does in more places: `2D` and `d}` take whole
+  lines rather than leave a blank one, `$` in visual mode takes the end
+  of the line, `di(` and `ci[` find the next brackets along the line
+  when the cursor is outside any, `da"` takes the space before the
+  quotes when none follows, `di{` over lines leaves the cursor on the
+  closing brace, and a paste over lines leaves it on their first.
+- Vim mode's `ip` and `ap` take a paragraph, `r` and Enter breaks the
+  line, `3V` and `3v` select as many lines or characters, and `.`
+  repeats a change made in visual mode, as `Vj>`, over as much text.
+- In vim mode, `p` over a selection yanks what it replaces, as vim does,
+  and `P` keeps the register; with nothing to paste, the selection goes.
+- Esc after `o`, `O`, `S` or `cc` with nothing typed takes back the
+  indent, rather than leave a line of spaces.
+- Vim mode's keys work on keyboards of other scripts, as Cyrillic, from
+  where a US keyboard has them.
 - Find, quick open and the command palette shake their heads when
   Return finds nothing to go to, as a Mac's password field does.
 - The find box goes back up as it fades out when closed, as do the peek

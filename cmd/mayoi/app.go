@@ -117,6 +117,34 @@ type app struct {
 	// vimReg is what vim mode put on the clipboard last, which tells
 	// whether a paste of the same text pastes lines.
 	vimReg vimRegister
+	// vimLine is vim mode's command line, vimSearch the pattern searched
+	// last, vimHist the searches and the commands typed, and vimMsg what
+	// a command said.
+	vimLine   vimLine
+	vimSearch vimSearch
+	vimHist   [2][]string
+	vimMsg    vimMessage
+	vimCount  vimCounted
+	// vimRegs are vim mode's registers but the unnamed one, which is the
+	// clipboard. vimRec is the register recorded into, 0 while none is,
+	// and vimRecKeys the keys typed since; vimPlayed is the register played
+	// last, which @@ plays again. vimPlaying is set while keys play, as
+	// many deep as registers play registers, and vimBudget is how many more
+	// they may type. vimFailed is set as a command fails, which ends the
+	// keys playing.
+	vimRegs    map[rune]vimRegister
+	vimRec     rune
+	vimRecKeys []rune
+	vimPlayed  rune
+	vimPlaying int
+	vimBudget  int
+	vimFailed  bool
+	// vimLastEx is the command run last after :, which @: runs again, and
+	// vimLastSub what followed :s, which & does again. vimGlobalOn is set
+	// while :g runs its command.
+	vimLastEx   string
+	vimLastSub  string
+	vimGlobalOn bool
 
 	// queue holds the functions other goroutines post for the main thread,
 	// which the next frame runs.

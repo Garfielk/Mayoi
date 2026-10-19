@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -31,7 +32,7 @@ func TestPaths(t *testing.T) {
 			t.Errorf("%q is taken for remote", local)
 		}
 	}
-	if got := filepath.Dir(p); got != "/ssh:me@box:2222/home/me" {
+	if got := filepath.ToSlash(filepath.Dir(p)); got != "/ssh:me@box:2222/home/me" {
 		t.Errorf("Dir = %q", got)
 	}
 	if got := On(p, "/home/me/proj/.git"); got != "/ssh:me@box:2222/home/me/proj/.git" {
@@ -172,9 +173,19 @@ fi
 exec sh -c "$last"
 `
 
+// needsShell skips a test whose fake ssh is a shell script where there is
+// no shell to run it, on Windows.
+func needsShell(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake ssh is a shell script")
+	}
+}
+
 // TestFakeHost runs the commands with this machine's shell and tools, by
 // an ssh that runs them here: BSD's stat on macOS, GNU's on Linux.
 func TestFakeHost(t *testing.T) {
+	needsShell(t)
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(fakeSSH), 0o755); err != nil {
 		t.Fatal(err)

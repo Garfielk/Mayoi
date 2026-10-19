@@ -157,6 +157,7 @@ func newHarness(t testing.TB, dark bool) *harness {
 	w.Folder = root
 	h := &fakeHost{folder: root}
 	a := newApp(h, s, w)
+	t.Cleanup(a.shutdown)
 	tt := ui.NewTester(a.view, 1200, 760)
 	tt.SetDark(dark)
 	hs := &harness{t: t, a: a, h: h, tt: tt, root: root}
@@ -201,6 +202,7 @@ func (hs *harness) path(rel string) string { return filepath.Join(hs.root, filep
 // status bar's parts go one by one, the least needed first, each only
 // once the bar would not hold it, and those left fit.
 func TestStatusBarDropsTheLeastNeededFirst(t *testing.T) {
+	skipOnWindows(t, "Windows' narrower font holds the branch at 300")
 	hs := newHarness(t, true)
 	git := hs.gitRepo()
 	branch := "feature/responsive-title-bar-polish"
@@ -378,6 +380,11 @@ func TestQuickOpenAndGoToLine(t *testing.T) {
 	hs.settle()
 	if d := a.activeEditor(); d == nil || filepath.Base(d.path) != "b.ts" {
 		t.Fatalf("quick open opened %v", d)
+	}
+	// As the Explorer spells it, with Windows' backslashes there, so that
+	// the file opens once whichever way it is opened.
+	if d := a.activeEditor(); d.path != filepath.Clean(d.path) {
+		t.Errorf("quick open opened %q, not %q", d.path, filepath.Clean(d.path))
 	}
 	if a.quick.open {
 		t.Error("quick open stayed open")
@@ -729,6 +736,7 @@ func TestRestoresTheActiveTab(t *testing.T) {
 	os.WriteFile(path, data, 0o644)
 	s := settings.Load(path)
 	a := newApp(&fakeHost{folder: root}, s, s.Windows[0])
+	t.Cleanup(a.shutdown)
 	tt := ui.NewTester(a.view, 1200, 760)
 	step(tt)
 	step(tt)

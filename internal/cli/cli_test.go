@@ -51,6 +51,9 @@ func TestScript(t *testing.T) {
 }
 
 func TestInstallAndUninstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a shell script")
+	}
 	dir := t.TempDir()
 	first, second := filepath.Join(dir, "first"), filepath.Join(dir, "second")
 	p, err := Install([]string{first, second}, "")

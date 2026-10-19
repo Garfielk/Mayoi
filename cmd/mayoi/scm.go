@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -223,7 +224,15 @@ func treeRows(rows []scmRow, g scmGroup, es []git.Entry, root string, closed map
 		if d, ok := at[path]; ok {
 			return d
 		}
-		parent := dirOf(filepath.Dir(path))
+		up := filepath.Dir(path)
+		if up == path {
+			// The top of the disk, reached without meeting root, as a
+			// root spelled otherwise than Git spells its files, which
+			// Windows' long and 8.3 names of a folder may be: the top
+			// of the tree, rather than climbing forever.
+			return top
+		}
+		parent := dirOf(up)
 		d := &scmDir{name: filepath.Base(path), path: path}
 		parent.dirs = append(parent.dirs, d)
 		at[path] = d
@@ -231,7 +240,7 @@ func treeRows(rows []scmRow, g scmGroup, es []git.Entry, root string, closed map
 	}
 	for _, e := range es {
 		dir := filepath.Dir(e.Path)
-		if dir != root && !strings.HasPrefix(dir, root+string(filepath.Separator)) {
+		if dir != root && !inFolder(root, dir) {
 			dir = root // outside the work tree: shown at its top
 		}
 		d := dirOf(dir)
@@ -279,11 +288,29 @@ func (a *gitContext) toggleDir(r scmRow) {
 func (a *gitContext) dirEntries(g scmGroup, dir string) []git.Entry {
 	var out []git.Entry
 	for _, e := range a.groupEntries()[g] {
-		if strings.HasPrefix(e.Path, dir+string(filepath.Separator)) {
+		if inFolder(dir, e.Path) {
 			out = append(out, e)
 		}
 	}
 	return out
+}
+
+// inFolder reports whether path is in the folder dir, or in a folder in
+// it: also of a dir that ends in a separator, as the top of a disk, C:\ or
+// /, does. On Windows the case of the letters does not count, as C:\Proj
+// and c:\proj are one folder.
+func inFolder(dir, path string) bool {
+	sep := string(filepath.Separator)
+	if !strings.HasSuffix(dir, sep) {
+		dir += sep
+	}
+	if len(path) <= len(dir) {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(path[:len(dir)], dir)
+	}
+	return strings.HasPrefix(path, dir)
 }
 
 // changeCount is how many files differ from HEAD, or Git does not track.

@@ -4,11 +4,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestWorktreeForBranch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows takes no newline or quote in a name")
+	}
 	r, git := repo(t)
 	path := filepath.Join(t.TempDir(), "work tree\nquoted\"name")
 	git("worktree", "add", "-b", "topic", path)

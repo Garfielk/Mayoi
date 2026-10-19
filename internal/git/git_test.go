@@ -9,6 +9,16 @@ import (
 	"testing"
 )
 
+// TestMain has every git the tests run keep the line endings of the
+// files: Git for Windows turns them into CRLF by its own settings, and
+// the contents compared with them.
+func TestMain(m *testing.M) {
+	os.Setenv("GIT_CONFIG_COUNT", "1")
+	os.Setenv("GIT_CONFIG_KEY_0", "core.autocrlf")
+	os.Setenv("GIT_CONFIG_VALUE_0", "false")
+	os.Exit(m.Run())
+}
+
 // repo makes a work tree with a commit of a.txt and b.txt.
 func repo(t *testing.T) (*Repo, func(args ...string)) {
 	t.Helper()

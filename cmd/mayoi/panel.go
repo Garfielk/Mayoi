@@ -7,6 +7,7 @@ import (
 	"mayoi/internal/settings"
 	"mayoi/locales"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -195,7 +196,22 @@ func (a *app) newTerminalTabAt(col *column, at int, dir string, focus bool) bool
 	return true
 }
 
+// lookPath finds a program on the path, as exec.LookPath, which tests
+// replace.
+var lookPath = exec.LookPath
+
+// shellName is the name of the shell a terminal runs: $SHELL's, and on
+// Windows, which has none, the first of those the terminal looks for that
+// is there: PowerShell's, then the command prompt.
 func shellName() string {
+	if hostOS == "windows" {
+		for _, name := range []string{"pwsh.exe", "powershell.exe", os.Getenv("COMSPEC"), "cmd.exe"} {
+			if _, err := lookPath(name); name != "" && err == nil {
+				return strings.TrimSuffix(strings.ToLower(filepath.Base(name)), ".exe")
+			}
+		}
+		return "shell"
+	}
 	if sh := os.Getenv("SHELL"); sh != "" {
 		return filepath.Base(sh)
 	}

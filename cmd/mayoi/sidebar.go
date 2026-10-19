@@ -635,10 +635,16 @@ func (a *app) askNewEntry(dir string, folder bool) {
 	}}
 }
 
+// hasSlash reports whether a name has a separator of folders in it: a
+// slash, which is one on every system, or Windows' backslash there.
+func hasSlash(name string) bool {
+	return strings.ContainsAny(name, "/"+string(filepath.Separator))
+}
+
 func (a *app) askRename(path string) {
 	a.prompt = &prompt{title: locales.RenameTitle(), hint: a.relOrPath(path), value: filepath.Base(path), done: func(name string) string {
 		name = strings.TrimSpace(name)
-		if name == "" || strings.ContainsRune(name, filepath.Separator) {
+		if name == "" || hasSlash(name) {
 			return locales.EnterNameNoSlashes()
 		}
 		to := filepath.Join(filepath.Dir(path), name)

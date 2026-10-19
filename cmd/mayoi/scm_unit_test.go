@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -113,9 +114,10 @@ func TestStickyHeaderPushedUp(t *testing.T) {
 }
 
 func TestTreeRows(t *testing.T) {
-	root := "/r"
-	es := []git.Entry{
-		{Path: "/r/a/b/c.go"}, {Path: "/r/a/b/d.go"}, {Path: "/r/a/e.go"}, {Path: "/r/main.go"}, {Path: "/r/x/y/z/w.go"},
+	root := filepath.FromSlash("/r")
+	var es []git.Entry
+	for _, p := range []string{"/r/a/b/c.go", "/r/a/b/d.go", "/r/a/e.go", "/r/main.go", "/r/x/y/z/w.go"} {
+		es = append(es, git.Entry{Path: filepath.FromSlash(p)})
 	}
 	show := func(rows []scmRow) string {
 		var out []string
@@ -138,6 +140,41 @@ func TestTreeRows(t *testing.T) {
 	closed := map[string]bool{rows[1].key: true}
 	if got, want := show(treeRows(nil, groupChanges, es, root, closed)), "a/| b/| e.go|x/y/z/| w.go|main.go"; got != want {
 		t.Errorf("closed\n%s, want\n%s", got, want)
+	}
+	// A work tree at the top of the disk, as C:\ or /, has its folders
+	// as any other; a file Git spells under another root, as Windows'
+	// 8.3 names do, shows at the top.
+	top := filepath.VolumeName(root) + string(filepath.Separator)
+	es = []git.Entry{{Path: filepath.Join(top, "a", "b.go")}, {Path: filepath.Join(top, "c.go")}}
+	if got, want := show(treeRows(nil, groupChanges, es, top, nil)), "a/| b.go|c.go"; got != want {
+		t.Errorf("at the top of the disk\n%s, want\n%s", got, want)
+	}
+	es = []git.Entry{{Path: filepath.FromSlash("/other/d/e.go")}}
+	if got, want := show(treeRows(nil, groupChanges, es, root, nil)), "e.go"; got != want {
+		t.Errorf("outside the root\n%s, want\n%s", got, want)
+	}
+}
+
+func TestInFolder(t *testing.T) {
+	sep := string(filepath.Separator)
+	dir := filepath.FromSlash("/r/a")
+	for p, want := range map[string]bool{
+		dir:                      false,
+		dir + sep + "b":          true,
+		dir + "b" + sep + "c":    false,
+		filepath.FromSlash("/r"): false,
+		sep + "x":                false,
+	} {
+		if got := inFolder(dir, p); got != want {
+			t.Errorf("inFolder(%q, %q) = %v", dir, p, got)
+		}
+	}
+	if !inFolder(sep, sep+"x") || inFolder(sep, sep) {
+		t.Error("the top of the disk holds its folders, not itself")
+	}
+	// Windows' names of folders are one in any case of their letters.
+	if got := inFolder(`C:\Proj`, `c:\proj\a.go`); got != (runtime.GOOS == "windows") {
+		t.Errorf("inFolder in other letters = %v", got)
 	}
 }
 

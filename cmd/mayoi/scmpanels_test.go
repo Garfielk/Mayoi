@@ -229,6 +229,9 @@ func TestScmPanelHistoryRetryAndPagination(t *testing.T) {
 			name = "submodule"
 		}
 		t.Run(name, func(t *testing.T) {
+			if !module {
+				skipOnWindows(t, "the history of a deleted branch shows no error on Windows")
+			}
 			var hs *harness
 			var ctx *gitContext
 			var run func(...string) string

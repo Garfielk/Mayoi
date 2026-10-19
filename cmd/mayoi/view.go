@@ -580,6 +580,7 @@ func (a *app) columnView(c *ui.Context, col *column) {
 					if col == a.column() {
 						a.findView(c, shown.ed)
 					}
+					a.vimLineView(c, shown.ed)
 				}
 			})
 		}
@@ -921,6 +922,12 @@ func (a *app) statusFit(c *ui.Context, width float32) statusVisibility {
 			if k := d.vim.pending(); k != "" {
 				used += measure(k, false)
 			}
+			if a.vimRec != 0 {
+				used += measure(locales.VimRecording(string(a.vimRec)), false) + 6 + 5
+			}
+			if m := a.vimMsg; m.text != "" && time.Since(m.at) < vimMessageFor {
+				used += min(measure(m.text, false), 420) + 6
+			}
 		}
 		if d.diskGone {
 			used += measure(locales.DeletedOnDisk(), true)
@@ -984,8 +991,28 @@ func (a *app) vimBadge(c *ui.Context, v *vimState, text func(string) ui.Element)
 	row.Children(func() {
 		ui.Text(c, v.mode.String()).FontSize(10.5).FontWeight(650).LetterSpacing(0.6).TextColor(fg).SingleLine().
 			Padding(1, 6).Radius(4).Background(bg).ContentTransition(ui.ContentTransition{})
+		if a.vimRec != 0 {
+			// A register recording, as vim says: a red dot, and its name.
+			ui.Row(c.Key("status:vim-rec")).Gap(5).AlignItems(ui.Center).
+				Transition(ui.ElementTransition{Duration: 160 * time.Millisecond, Enter: &ui.Motion{Scale: 0.8}, Exit: &ui.Motion{Scale: 0.8}}).
+				Children(func() {
+					ui.Box(c).Width(6).Height(6).Radius(3).Background(p.dangerFg)
+					ui.Text(c, locales.VimRecording(string(a.vimRec))).FontSize(11.5).TextColor(p.dangerFg).SingleLine()
+				})
+		}
 		if k := v.pending(); k != "" {
 			text(k)
+		}
+		// What the last command said, as a search that went round, for a
+		// moment; an error in the color of one.
+		if m := a.vimMsg; m.text != "" && time.Since(m.at) < vimMessageFor {
+			col := p.statusFg
+			if m.err {
+				col = p.dangerFg
+			}
+			ui.Text(c.Key("status:vim-msg"), m.text).FontSize(11.5).TextColor(col).SingleLine().MaxWidth(420).
+				Transition(ui.ElementTransition{Duration: 180 * time.Millisecond, Colors: true, Enter: &ui.Motion{}, Exit: &ui.Motion{}}).
+				ContentTransition(ui.ContentTransition{})
 		}
 	})
 }
@@ -1450,8 +1477,23 @@ func shortenHome(p string) string {
 	if remote.Is(p) {
 		return remote.Display(p)
 	}
-	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, home) {
-		return "~" + p[len(home):]
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return shortenIn(p, home)
+	}
+	return p
+}
+
+// shortenIn is p with ~ for the home folder home when p is in it, or is
+// it: of a folder, not of a name home only begins, and on Windows
+// whatever the case of its letters, as C: and c: are one disk.
+func shortenIn(p, home string) string {
+	same := func(a, b string) bool { return a == b || hostOS == "windows" && strings.EqualFold(a, b) }
+	home = strings.TrimSuffix(home, string(filepath.Separator))
+	if home == "" || len(p) < len(home) || !same(p[:len(home)], home) {
+		return p
+	}
+	if rest := p[len(home):]; rest == "" || strings.HasPrefix(rest, string(filepath.Separator)) {
+		return "~" + rest
 	}
 	return p
 }

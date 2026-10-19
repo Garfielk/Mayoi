@@ -10187,6 +10187,138 @@ func (msgs Messages) UploadTo(dir string) string {
 	return Catalog.Format(msgs.locale, "uploadTo", map[string]any{"dir": dir})
 }
 
+// VimCommandHint says "Command, as w, s/old/new/g or 42"
+// in the language the app shows.
+func VimCommandHint() string { return In(i18n.Locale()).VimCommandHint() }
+
+// VimCommandHint says "Command, as w, s/old/new/g or 42"
+// in the language of msgs.
+func (msgs Messages) VimCommandHint() string {
+	return Catalog.Format(msgs.locale, "vimCommandHint", nil)
+}
+
+// VimCommandLine says "Vim command line"
+// in the language the app shows.
+func VimCommandLine() string { return In(i18n.Locale()).VimCommandLine() }
+
+// VimCommandLine says "Vim command line"
+// in the language of msgs.
+func (msgs Messages) VimCommandLine() string {
+	return Catalog.Format(msgs.locale, "vimCommandLine", nil)
+}
+
+// VimMarkNotSet says "Mark not set: {mark}"
+// in the language the app shows.
+func VimMarkNotSet(mark string) string { return In(i18n.Locale()).VimMarkNotSet(mark) }
+
+// VimMarkNotSet says "Mark not set: {mark}"
+// in the language of msgs.
+func (msgs Messages) VimMarkNotSet(mark string) string {
+	return Catalog.Format(msgs.locale, "vimMarkNotSet", map[string]any{"mark": mark})
+}
+
+// VimMarksEmpty says "No marks set"
+// in the language the app shows.
+func VimMarksEmpty() string { return In(i18n.Locale()).VimMarksEmpty() }
+
+// VimMarksEmpty says "No marks set"
+// in the language of msgs.
+func (msgs Messages) VimMarksEmpty() string {
+	return Catalog.Format(msgs.locale, "vimMarksEmpty", nil)
+}
+
+// VimMatchCount says "[{cur}/{total}]"
+// in the language the app shows.
+func VimMatchCount(cur int, total int) string { return In(i18n.Locale()).VimMatchCount(cur, total) }
+
+// VimMatchCount says "[{cur}/{total}]"
+// in the language of msgs.
+func (msgs Messages) VimMatchCount(cur int, total int) string {
+	return Catalog.Format(msgs.locale, "vimMatchCount", map[string]any{"cur": cur, "total": total})
+}
+
+// VimNotCommand says "Not an editor command: {cmd}"
+// in the language the app shows.
+func VimNotCommand(cmd string) string { return In(i18n.Locale()).VimNotCommand(cmd) }
+
+// VimNotCommand says "Not an editor command: {cmd}"
+// in the language of msgs.
+func (msgs Messages) VimNotCommand(cmd string) string {
+	return Catalog.Format(msgs.locale, "vimNotCommand", map[string]any{"cmd": cmd})
+}
+
+// VimPatternNotFound says "Pattern not found: {pattern}"
+// in the language the app shows.
+func VimPatternNotFound(pattern string) string { return In(i18n.Locale()).VimPatternNotFound(pattern) }
+
+// VimPatternNotFound says "Pattern not found: {pattern}"
+// in the language of msgs.
+func (msgs Messages) VimPatternNotFound(pattern string) string {
+	return Catalog.Format(msgs.locale, "vimPatternNotFound", map[string]any{"pattern": pattern})
+}
+
+// VimRecording says "recording @{reg}"
+// in the language the app shows.
+func VimRecording(reg string) string { return In(i18n.Locale()).VimRecording(reg) }
+
+// VimRecording says "recording @{reg}"
+// in the language of msgs.
+func (msgs Messages) VimRecording(reg string) string {
+	return Catalog.Format(msgs.locale, "vimRecording", map[string]any{"reg": reg})
+}
+
+// VimRegistersEmpty says "The registers are empty"
+// in the language the app shows.
+func VimRegistersEmpty() string { return In(i18n.Locale()).VimRegistersEmpty() }
+
+// VimRegistersEmpty says "The registers are empty"
+// in the language of msgs.
+func (msgs Messages) VimRegistersEmpty() string {
+	return Catalog.Format(msgs.locale, "vimRegistersEmpty", nil)
+}
+
+// VimSearchHint says "Search, as a vim pattern"
+// in the language the app shows.
+func VimSearchHint() string { return In(i18n.Locale()).VimSearchHint() }
+
+// VimSearchHint says "Search, as a vim pattern"
+// in the language of msgs.
+func (msgs Messages) VimSearchHint() string {
+	return Catalog.Format(msgs.locale, "vimSearchHint", nil)
+}
+
+// VimSubstituted says "{count, plural, one {# substitution} other {# substitutions}} on {lines, plural, one {# line} other {# lines}}"
+// in the language the app shows.
+func VimSubstituted(count int, lines int) string {
+	return In(i18n.Locale()).VimSubstituted(count, lines)
+}
+
+// VimSubstituted says "{count, plural, one {# substitution} other {# substitutions}} on {lines, plural, one {# line} other {# lines}}"
+// in the language of msgs.
+func (msgs Messages) VimSubstituted(count int, lines int) string {
+	return Catalog.Format(msgs.locale, "vimSubstituted", map[string]any{"count": count, "lines": lines})
+}
+
+// VimWrappedBottom says "Search hit TOP, continuing at BOTTOM"
+// in the language the app shows.
+func VimWrappedBottom() string { return In(i18n.Locale()).VimWrappedBottom() }
+
+// VimWrappedBottom says "Search hit TOP, continuing at BOTTOM"
+// in the language of msgs.
+func (msgs Messages) VimWrappedBottom() string {
+	return Catalog.Format(msgs.locale, "vimWrappedBottom", nil)
+}
+
+// VimWrappedTop says "Search hit BOTTOM, continuing at TOP"
+// in the language the app shows.
+func VimWrappedTop() string { return In(i18n.Locale()).VimWrappedTop() }
+
+// VimWrappedTop says "Search hit BOTTOM, continuing at TOP"
+// in the language of msgs.
+func (msgs Messages) VimWrappedTop() string {
+	return Catalog.Format(msgs.locale, "vimWrappedTop", nil)
+}
+
 // WelcomeRecent says "Recent"
 // in the language the app shows.
 func WelcomeRecent() string { return In(i18n.Locale()).WelcomeRecent() }
