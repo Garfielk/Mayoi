@@ -1,9 +1,7 @@
 package main
 
 import (
-	"cmp"
 	"fmt"
-	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -74,183 +72,35 @@ func lineRows(old, new []string, hunks []linediff.Hunk) (unified, pairs []diffRo
 	}
 	for k, h := range hunks {
 		same(h.A)
-		ofOld, ofNew := hunkPeers(old, new, h)
+		m := min(h.ALen, h.BLen)
 		for n := range h.ALen {
-			unified = append(unified, lineRow(h.A+n, -1, k, ofOld[n]))
-		}
-		for m := range h.BLen {
-			unified = append(unified, lineRow(-1, h.B+m, k, ofNew[m]))
-		}
-		// The pairs stand in the old lines' order; a line no pair took
-		// stands as a removal of its own, and the new lines none took
-		// follow as additions of their own.
-		for n := range h.ALen {
-			if ofOld[n] < 0 {
-				pairs = append(pairs, lineRow(h.A+n, -1, k, -1))
-				continue
+			peer := -1
+			if n < m {
+				peer = h.B + n
 			}
-			pairs = append(pairs, lineRow(h.A+n, ofOld[n], k, h.A+n))
+			unified = append(unified, lineRow(h.A+n, -1, k, peer))
 		}
-		for m := range h.BLen {
-			if ofNew[m] < 0 {
-				pairs = append(pairs, lineRow(-1, h.B+m, k, -1))
+		for n := range h.BLen {
+			peer := -1
+			if n < m {
+				peer = h.A + n
 			}
+			unified = append(unified, lineRow(-1, h.B+n, k, peer))
+		}
+		for n := range max(h.ALen, h.BLen) {
+			r := lineRow(-1, -1, k, -1)
+			if n < h.ALen {
+				r.old = h.A + n
+			}
+			if n < h.BLen {
+				r.new = h.B + n
+			}
+			pairs = append(pairs, r)
 		}
 		i, j = h.A+h.ALen, h.B+h.BLen
 	}
 	same(len(old))
 	return unified, pairs
-}
-
-// alikeEnough is how much two lines must hold the same for the change of
-// one into the other to show as a modification of a pair; less alike,
-// and they stand as a removal and an addition, which two lines that are
-// hardly alike read better as.
-const alikeEnough = 0.35
-
-// alikeMax is the most lines of a change times lines that pairing by
-// how alike the lines are takes: bigger changes pair by their places,
-// as they did, rather than compare every line with every line.
-const alikeMax = 64 * 64
-
-// hunkPeers pairs the changed lines of a hunk: which new line each old
-// line shows as changed from, and which old line each new line came
-// from, -1 for none. The pairs that hold the most alike take each other
-// first, one line to one line; lines no pair takes stand alone. Changes
-// of more lines than alikeMax holds pair by their places, as the lines
-// stand in the change.
-func hunkPeers(old, new []string, h linediff.Hunk) (ofOld, ofNew []int) {
-	ofOld, ofNew = make([]int, h.ALen), make([]int, h.BLen)
-	for i := range ofOld {
-		ofOld[i] = -1
-	}
-	for i := range ofNew {
-		ofNew[i] = -1
-	}
-	m := min(h.ALen, h.BLen)
-	if h.ALen == 0 || h.BLen == 0 {
-		return ofOld, ofNew
-	}
-	if h.ALen*h.BLen > alikeMax {
-		for i := range m {
-			ofOld[i], ofNew[i] = i, i
-		}
-		return ofOld, ofNew
-	}
-	if h.ALen == 1 && h.BLen == 1 {
-		// One line gone, one line here: the only pair there is stands,
-		// however little the lines hold in common.
-		ofOld[0], ofNew[0] = h.B, h.A
-		return ofOld, ofNew
-	}
-	// The pairs that hold the most alike take each other first; then a
-	// line still standing alone takes a new line from another pair when
-	// that line's own pair has another new line alike enough to it —
-	// with the pairs of a tie taken in the lines' order, so that the
-	// matching keeps to the change as it reads.
-	type pair struct {
-		score float64
-		i, j  int
-	}
-	score := make([][]float64, h.ALen)
-	ps := make([]pair, 0, h.ALen*h.BLen)
-	for i := range h.ALen {
-		score[i] = make([]float64, h.BLen)
-		for j := range h.BLen {
-			s := alikeRatio(old[h.A+i], new[h.B+j])
-			score[i][j] = s
-			if s >= alikeEnough {
-				ps = append(ps, pair{s, i, j})
-			}
-		}
-	}
-	slices.SortStableFunc(ps, func(a, b pair) int { return cmp.Compare(b.score, a.score) })
-	for _, p := range ps {
-		if ofOld[p.i] < 0 && ofNew[p.j] < 0 {
-			ofOld[p.i], ofNew[p.j] = p.j, p.i
-		}
-	}
-	for changed := true; changed; {
-		changed = false
-		for i := range ofOld {
-			if ofOld[i] >= 0 {
-				continue
-			}
-			taken := false
-			for j := range ofNew {
-				if ofNew[j] < 0 && score[i][j] >= alikeEnough {
-					ofOld[i], ofNew[j] = j, i
-					changed, taken = true, true
-					break
-				}
-			}
-			if taken {
-				continue
-			}
-			// Every new line alike to i is taken: one of them moves
-			// aside for i when its own pair has another new line free
-			// that is alike enough to it.
-			for j := range ofNew {
-				if ofNew[j] < 0 || score[i][j] < alikeEnough {
-					continue
-				}
-				holder := ofNew[j]
-				for j2 := range ofNew {
-					if ofNew[j2] >= 0 || score[holder][j2] < alikeEnough {
-						continue
-					}
-					ofOld[i], ofNew[j] = j, i
-					ofOld[holder], ofNew[j2] = j2, holder
-					changed = true
-					break
-				}
-				if changed {
-					break
-				}
-			}
-		}
-	}
-	// The matching stood in the lines of the change: out to where they
-	// are in the sides.
-	for i := range ofOld {
-		if ofOld[i] >= 0 {
-			ofOld[i] += h.B
-		}
-	}
-	for j := range ofNew {
-		if ofNew[j] >= 0 {
-			ofNew[j] += h.A
-		}
-	}
-	return ofOld, ofNew
-}
-
-// alikeRatio scores how much of two lines stays when one is changed
-// into the other, as the share of the runes the word diff keeps: 1 for
-// the same text, near 0 for a rewrite. A pair shows as a modification
-// while what changed is the lesser of the line, which is what the
-// highlight shows of a pair.
-func alikeRatio(a, b string) float64 {
-	if a == b {
-		return 1
-	}
-	ra, rb := []rune(a), []rune(b)
-	if len(ra) == 0 || len(rb) == 0 {
-		return 0
-	}
-	if min(len(ra), len(rb))*5 < max(len(ra), len(rb))*2 {
-		return 0
-	}
-	as, bs := linediff.Words(a, b)
-	changed := func(spans []linediff.Span, total int) int {
-		n := 0
-		for _, s := range spans {
-			n += s.End - s.Start
-		}
-		return min(n, total)
-	}
-	worst := max(changed(as, len(ra)), changed(bs, len(rb)))
-	return 1 - float64(worst)/float64(max(len(ra), len(rb)))
 }
 
 // span is a run of rows, from up to to.
