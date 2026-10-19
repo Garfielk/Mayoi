@@ -137,7 +137,7 @@ type Prefs struct {
 	// together. Without it, each side scrolls on its own, and scrolls
 	// together again from where the right one was.
 	DiffAlignedRows bool `json:"diffAlignedRows"`
-	DiffSyncScroll bool `json:"diffSyncScroll"`
+	DiffSyncScroll  bool `json:"diffSyncScroll"`
 	// MergeAutoApply puts the changes of a conflicted file that no
 	// conflict holds in its result when the merge view opens. The
 	// conflicts stand, for the hand to decide.
