@@ -159,7 +159,7 @@ func (a *app) commandsIn(t locales.Messages) []command {
 		{"review.clear", t.CmdReviewClear(), "", a.clearReview},
 		{"view.terminal", t.CmdViewTerminal(), "Ctrl+`", a.togglePanel},
 		{"view.newTerminal", t.CmdViewNewTerminal(), "Ctrl+Shift+`", a.newTerminal},
-		{"view.terminalTab", t.CmdViewTerminalTab(), "", func() { a.newTerminalTab(a.column(), a.workDir(), true) }},
+		{"view.terminalTab", t.CmdViewTerminalTab(), "", func() { a.newTerminalTab(a.fileColumn(), a.workDir(), true) }},
 		{"view.terminalMove", t.CmdViewTerminalMove(), "", a.moveTerminal},
 		{"view.terminalLockRight", t.CmdViewTerminalLockRight(), "", a.moveTerminalToLockedRight},
 		{"view.panelPosition.bottom", t.CmdViewPanelBottom(), "", func() { a.setPanelPosition("") }},
@@ -176,6 +176,7 @@ func (a *app) commandsIn(t locales.Messages) []command {
 		{"view.projectTabs", t.CmdViewProjectTabs(), "", a.toggleProjectTabs},
 		{"view.wordWrapTab", t.CmdViewWordWrapTab(), "Alt+Z", a.toggleTabWrap},
 		{"view.togglePreview", t.CmdViewTogglePreview(), "Shift+CmdOrCtrl+V", a.togglePreview},
+		{"view.previewToSide", t.CmdViewPreviewToSide(), "", a.previewToSide},
 		// The text, or the picture shown.
 		{"view.zoomIn", t.CmdViewZoomIn(), "CmdOrCtrl+=", func() { a.zoom(1) }},
 		{"view.zoomOut", t.CmdViewZoomOut(), "CmdOrCtrl+-", func() { a.zoom(-1) }},
@@ -506,7 +507,7 @@ func (a *app) menu(cli bool, run func(id string, win *mygo.Window)) *mygo.Menu {
 		}},
 		{Label: locales.MenuView(), Submenu: []*mygo.MenuItem{
 			item("view.sidebar"), checkbox("view.sidebarRight", a.settings.SidebarRight), item("view.explorer"), item("view.search"), item("view.scm"), mygo.Separator(),
-			checkbox("view.wordWrap", a.settings.WordWrap), item("view.wordWrapTab"), item("view.togglePreview"),
+			checkbox("view.wordWrap", a.settings.WordWrap), item("view.wordWrapTab"), item("view.togglePreview"), item("view.previewToSide"),
 			checkbox("view.vim", a.settings.Vim), checkbox("view.projectTabs", a.settings.ProjectTabs), mygo.Separator(),
 			item("view.splitRight"), item("view.nextColumn"), item("view.prevColumn"),
 			item("view.moveTabNext"), item("view.moveTabPrev"), mygo.Separator(),

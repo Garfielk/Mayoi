@@ -165,6 +165,56 @@ func (msgs Messages) AiTimedOut() string {
 	return Catalog.Format(msgs.locale, "aiTimedOut", nil)
 }
 
+// AlertCaution says "Caution"
+// in the language the app shows.
+func AlertCaution() string { return In(i18n.Locale()).AlertCaution() }
+
+// AlertCaution says "Caution"
+// in the language of msgs.
+func (msgs Messages) AlertCaution() string {
+	return Catalog.Format(msgs.locale, "alertCaution", nil)
+}
+
+// AlertImportant says "Important"
+// in the language the app shows.
+func AlertImportant() string { return In(i18n.Locale()).AlertImportant() }
+
+// AlertImportant says "Important"
+// in the language of msgs.
+func (msgs Messages) AlertImportant() string {
+	return Catalog.Format(msgs.locale, "alertImportant", nil)
+}
+
+// AlertNote says "Note"
+// in the language the app shows.
+func AlertNote() string { return In(i18n.Locale()).AlertNote() }
+
+// AlertNote says "Note"
+// in the language of msgs.
+func (msgs Messages) AlertNote() string {
+	return Catalog.Format(msgs.locale, "alertNote", nil)
+}
+
+// AlertTip says "Tip"
+// in the language the app shows.
+func AlertTip() string { return In(i18n.Locale()).AlertTip() }
+
+// AlertTip says "Tip"
+// in the language of msgs.
+func (msgs Messages) AlertTip() string {
+	return Catalog.Format(msgs.locale, "alertTip", nil)
+}
+
+// AlertWarning says "Warning"
+// in the language the app shows.
+func AlertWarning() string { return In(i18n.Locale()).AlertWarning() }
+
+// AlertWarning says "Warning"
+// in the language of msgs.
+func (msgs Messages) AlertWarning() string {
+	return Catalog.Format(msgs.locale, "alertWarning", nil)
+}
+
 // AlreadyUpToDate says "Already up to date"
 // in the language the app shows.
 func AlreadyUpToDate() string { return In(i18n.Locale()).AlreadyUpToDate() }
@@ -2097,6 +2147,16 @@ func (msgs Messages) CmdViewPrevColumn() string {
 	return Catalog.Format(msgs.locale, "cmdViewPrevColumn", nil)
 }
 
+// CmdViewPreviewToSide says "Open Preview to the Side"
+// in the language the app shows.
+func CmdViewPreviewToSide() string { return In(i18n.Locale()).CmdViewPreviewToSide() }
+
+// CmdViewPreviewToSide says "Open Preview to the Side"
+// in the language of msgs.
+func (msgs Messages) CmdViewPreviewToSide() string {
+	return Catalog.Format(msgs.locale, "cmdViewPreviewToSide", nil)
+}
+
 // CmdViewProjectTabs says "Project Tabs"
 // in the language the app shows.
 func CmdViewProjectTabs() string { return In(i18n.Locale()).CmdViewProjectTabs() }
@@ -2421,6 +2481,16 @@ func (msgs Messages) ConvertToTabs() string {
 	return Catalog.Format(msgs.locale, "convertToTabs", nil)
 }
 
+// CopiedCode says "Copied the code"
+// in the language the app shows.
+func CopiedCode() string { return In(i18n.Locale()).CopiedCode() }
+
+// CopiedCode says "Copied the code"
+// in the language of msgs.
+func (msgs Messages) CopiedCode() string {
+	return Catalog.Format(msgs.locale, "copiedCode", nil)
+}
+
 // CopiedPatchOf says "Copied the patch of {commit}"
 // in the language the app shows.
 func CopiedPatchOf(commit string) string { return In(i18n.Locale()).CopiedPatchOf(commit) }
@@ -2459,6 +2529,16 @@ func CopyAddress() string { return In(i18n.Locale()).CopyAddress() }
 // in the language of msgs.
 func (msgs Messages) CopyAddress() string {
 	return Catalog.Format(msgs.locale, "copyAddress", nil)
+}
+
+// CopyCode says "Copy Code"
+// in the language the app shows.
+func CopyCode() string { return In(i18n.Locale()).CopyCode() }
+
+// CopyCode says "Copy Code"
+// in the language of msgs.
+func (msgs Messages) CopyCode() string {
+	return Catalog.Format(msgs.locale, "copyCode", nil)
 }
 
 // CopyCommitHash says "Copy Commit Hash"
@@ -6689,6 +6769,16 @@ func (msgs Messages) PortsForwarded(count int, host string) string {
 	return Catalog.Format(msgs.locale, "portsForwarded", map[string]any{"count": count, "host": host})
 }
 
+// PreviewEmpty says "Nothing to preview"
+// in the language the app shows.
+func PreviewEmpty() string { return In(i18n.Locale()).PreviewEmpty() }
+
+// PreviewEmpty says "Nothing to preview"
+// in the language of msgs.
+func (msgs Messages) PreviewEmpty() string {
+	return Catalog.Format(msgs.locale, "previewEmpty", nil)
+}
+
 // PreviewLabel says "Preview {name}"
 // in the language the app shows.
 func PreviewLabel(name string) string { return In(i18n.Locale()).PreviewLabel(name) }
@@ -6697,6 +6787,26 @@ func PreviewLabel(name string) string { return In(i18n.Locale()).PreviewLabel(na
 // in the language of msgs.
 func (msgs Messages) PreviewLabel(name string) string {
 	return Catalog.Format(msgs.locale, "previewLabel", map[string]any{"name": name})
+}
+
+// PreviewMinutes says "{count, plural, one {# min read} other {# min read}}"
+// in the language the app shows.
+func PreviewMinutes(count int) string { return In(i18n.Locale()).PreviewMinutes(count) }
+
+// PreviewMinutes says "{count, plural, one {# min read} other {# min read}}"
+// in the language of msgs.
+func (msgs Messages) PreviewMinutes(count int) string {
+	return Catalog.Format(msgs.locale, "previewMinutes", map[string]any{"count": count})
+}
+
+// PreviewWords says "{count, plural, one {# word} other {# words}}"
+// in the language the app shows.
+func PreviewWords(count int) string { return In(i18n.Locale()).PreviewWords(count) }
+
+// PreviewWords says "{count, plural, one {# word} other {# words}}"
+// in the language of msgs.
+func (msgs Messages) PreviewWords(count int) string {
+	return Catalog.Format(msgs.locale, "previewWords", map[string]any{"count": count})
 }
 
 // PreviewWord says "Preview"

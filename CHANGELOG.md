@@ -106,8 +106,61 @@ needs a `## <version>` section here, or its build fails.
   list. The list shows of itself when a command stops for conflicts, and
   the merge goes on once every file of it stands resolved.
 
+## 0.11.3
+
+- The Markdown preview's text can be selected and copied, across
+  paragraphs, lists, code and tables; a list's numbers stay out of it.
+- **A redesigned Markdown preview:** headings scaled as GitHub scales
+  them, code within text on a rounded chip, blocks of code on cards with
+  their language in the corner and a Copy Code button under the pointer,
+  tables whose columns are as wide as their text asks, with striped rows,
+  and a picture not shown as its alt text on a chip.
+- The Markdown preview shows GitHub's alerts, a quote that opens with
+  `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`, with
+  its icon, its title and its color.
+- A link to a heading of the document, as `[Usage](#usage)`, scrolls the
+  Markdown preview to it.
+- **Open Preview to the Side**, in the View menu, the command palette and
+  a tab's menu, shows the preview of a Markdown or SVG file in a column to
+  the right, the text keeping the keyboard. VS Code's
+  `markdown.showPreviewToSide` binds to it.
+- An empty Markdown document's preview says there is nothing to preview,
+  rather than showing a blank pane.
+- A diff highlights the words that changed in a line modified below lines
+  added or removed, rather than runs of another line's changes.
+- The Markdown preview parses and draws faster, its text in fewer runs.
+- A picture that fits the image viewer or an SVG preview casts a soft
+  shadow.
+- **The Markdown preview scrolls with its text**, shown in another
+  column: scrolling the text, by the wheel, the keys, Find or Go to Line,
+  brings the preview to the same place, block by block and within a
+  block, and scrolling the preview brings the text along.
+- Switching between a Markdown file's text and its preview keeps the
+  place: the preview opens where the text was, and the text where the
+  preview was.
+- A Markdown table is as wide as its text, measured in the preview's
+  font, with round corners, its cells in a row as tall as the tallest.
+- The status bar of a Markdown preview counts the words of the text, a
+  Chinese or Japanese character a word, and the minutes it takes to read.
+- A picture alone in its paragraph that the preview does not show, as a
+  remote one, is a card with its alt text and its file's name, which
+  opens its link.
+- The room above a heading of the Markdown preview takes in the room
+  below the text before it, as on GitHub, rather than adding to it.
+- An image zoomed in past its size shows its pixels as crisp squares.
+
+## 0.11.2
+
+- New Terminal in Editor Area opens in an unlocked column when a locked
+  one has the keyboard, as files do.
+
 ## 0.11.1
 
+- **Folders of projects in Source Control:** a folder that is not a Git
+  repository but holds some, as `workspace/project-a`, or two folders deep,
+  lists each one's changes to stage and commit, as submodules are, instead
+  of offering to make the folder a repository. A project cloned or removed
+  later is added or dropped (#17).
 - On Windows, the Undo, Discard and Reset dialogs and the repository
   headers name a submodule with `/`, as `packages/module`, like the other
   systems.
@@ -174,7 +227,6 @@ needs a `## <version>` section here, or its build fails.
 - Vim mode's search highlights draw from what the last frame found
   while nothing changed, rather than searching the lines in view every
   frame.
-
 - In vim mode the cursor is half a block while an operator, as `d`,
   waits for its motion, and the text yanked lights up for a moment.
 - Vim mode searches: `/` and `?` open a command line over the bottom
@@ -285,7 +337,6 @@ needs a `## <version>` section here, or its build fails.
 - Typing in a long file highlights with less work: only the lines near the
   edit go to the lexer, not the rest of the file, and a keystroke within a
   line updates the colors in place rather than copying those of every line.
-
 - **Submodules in Source Control:** each initialized submodule, nested ones
   and those of linked worktrees too, lists its own changes to stage and
   commit. A picker in the commits header and the status bar shows another

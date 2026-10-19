@@ -335,7 +335,7 @@ PNG, JPEG, GIF, WebP and BMP files open in a viewer, fitted to the view on a che
 
 An SVG opens as text. ⇧⌘V, or the button at the end of the breadcrumbs, shows it as an image that updates as you type.
 
-Markdown (`.md` and `.markdown`) opens as text too. ⇧⌘V or the same button shows a read-only, scrollable preview with headings, formatted text, links, nested lists, task lists, quotes, highlighted code, tables and local images. Split with ⌘\ to keep source in one column and a live preview in the other. Preview state is restored with the session. Remote images show their alt text without network requests. A path starting with `/` is taken from the root of the file's Git repository, or else of the workspace, as GitHub takes it. HTML comments and front matter are hidden, `<br>` breaks the line, and other HTML is displayed as text.
+Markdown (`.md` and `.markdown`) opens as text too. ⇧⌘V or the same button shows a read-only, scrollable preview with headings, formatted text, links, nested lists, task lists, quotes, highlighted code, tables and local images. Split with ⌘\ to keep source in one column and a live preview in the other. **Open Preview to the Side** does both at once, the text keeping the keyboard. The preview scrolls with the text beside it, and the text with the preview as you scroll it. Tables are as wide as their text, and the status bar counts the words and the minutes to read them. GitHub's alerts, `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` and `[!CAUTION]`, show with their icons and colors; a block of code has its language in the corner and a Copy Code button under the pointer; a link to `#a-heading` scrolls to that heading. Preview state is restored with the session. Remote images show their alt text without network requests. A path starting with `/` is taken from the root of the file's Git repository, or else of the workspace, as GitHub takes it. HTML comments and front matter are hidden, `<br>` breaks the line, and other HTML is displayed as text.
 
 ## Columns
 
@@ -346,9 +346,9 @@ a new column.
 
 Choose **Lock Column** in a tab's menu to keep a column for terminals, or **Move to Locked Right Column** in a
 terminal tab's or panel terminal's menu to move the running terminal there in one step. The lock in the tab strip unlocks
-the column. Files, images and diffs opened from the Explorer, Search, Quick Open or Source Control go to the unlocked
-column that has the keyboard, or the one used last when a locked column has it. Dragging a tab or file into a locked
-column still puts it there. Closing files keeps at least one unlocked column beside the locked ones, without widening
+the column. Files, images and diffs opened from the Explorer, Search, Quick Open or Source Control, and terminals from
+**New Terminal in Editor Area**, go to the unlocked column that has the keyboard, or the one used last when a locked
+column has it. Dragging a tab or file into a locked column still puts it there. Closing files keeps at least one unlocked column beside the locked ones, without widening
 them, and ⌘W closes an extra empty column. A locked column stays when its last terminal exits and offers **New
 Terminal**. Locks, widths and the last file column come back with each project's session. The command palette has
 **Toggle Column Lock** and **Move Terminal to Locked Right Column**, which take keyboard shortcuts.
