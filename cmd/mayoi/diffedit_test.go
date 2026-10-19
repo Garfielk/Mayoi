@@ -830,3 +830,76 @@ func TestDiffUndoFollowsTheDocumentEdited(t *testing.T) {
 		t.Fatalf("the undo reached the other file: %q", docA.buf.String())
 	}
 }
+
+// TestDiffEditComposeReplacesTheSelection: beginning to compose takes the
+// selected text in the place of the mark, and the text the input method
+// commits with stands there.
+func TestDiffEditComposeReplacesTheSelection(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	e := diffEditOf(t, hs, v, hs.path("t.txt"), 2)
+	// The caret is at the start of "line two": the shift and the right
+	// arrow select the line's first four runes.
+	for range 4 {
+		a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyRight, Mods: ui.Shift})
+	}
+	// Composing begins: the mark stands in the selection's place.
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputCompose, Text: "n"}) {
+		t.Fatal("the diff did not take the mark")
+	}
+	if got := e.doc.buf.Snapshot().String(); !strings.Contains(got, "\nn two\n") {
+		t.Fatalf("the mark did not take the selection: %q", lineAtOf(got, 2))
+	}
+	// The input method commits: the text stands where the selection was.
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputText, Text: "好"}) {
+		t.Fatal("the diff did not take the text")
+	}
+	if got := e.doc.buf.Snapshot().String(); !strings.Contains(got, "\n好 two\n") {
+		t.Fatalf("after committing over the selection: %q", lineAtOf(got, 2))
+	}
+}
+
+// TestDiffEditComposeEscapeGivesTheSelectionBack: an escape takes the
+// mark of a composing that took a selection back, and the selection's
+// text stands again.
+func TestDiffEditComposeEscapeGivesTheSelectionBack(t *testing.T) {
+	hs := newHarness(t, true)
+	git := hs.gitRepo()
+	a := hs.a
+	a.settings.AutoSave = false
+	twoHunkFile(hs, git)
+	hs.settleGit()
+	a.showChanges(diffTarget{path: hs.path("t.txt"), base: diffIndex}, true)
+	hs.settleDiff(a.activeTab().diff)
+	v := a.activeTab().diff
+	e := diffEditOf(t, hs, v, hs.path("t.txt"), 2)
+	for range 4 {
+		a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyRight, Mods: ui.Shift})
+	}
+	a.diffInput(v, ui.InputEvent{Kind: ui.InputCompose, Text: "n"})
+	if !a.diffInput(v, ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyEscape}) {
+		t.Fatal("the diff did not take the escape")
+	}
+	if e.compose != "" {
+		t.Fatal("the escape did not end the composing")
+	}
+	if got := e.doc.buf.Snapshot().String(); !strings.Contains(got, "\nline two\n") {
+		t.Fatalf("the escape did not give the selection back: %q", lineAtOf(got, 2))
+	}
+}
+
+// lineAtOf returns the kth line of a text, for the failures to say.
+func lineAtOf(text string, k int) string {
+	lines := strings.Split(text, "\n")
+	if k < len(lines) {
+		return lines[k]
+	}
+	return ""
+}
