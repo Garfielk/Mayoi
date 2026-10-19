@@ -1027,3 +1027,48 @@ func TestMergeViewIgnoreIsAHandledState(t *testing.T) {
 		t.Fatalf("after redo the state is %v, want ignored", st)
 	}
 }
+
+// TestMergeResolvedFilesSurviveRestart: the files a merge view staged as
+// resolved stand in the list of them after the app has started anew, and
+// the record of them goes when the command is done.
+func TestMergeResolvedFilesSurviveRestart(t *testing.T) {
+	hs := newHarness(t, true)
+	hs.mergeFilesRepo()
+	a := hs.a
+	// four.txt merges clean of conflicts: accepting a side and completing
+	// it stages the file as resolved.
+	a.openMerge(hs.path("four.txt"), true)
+	hs.settle()
+	a.takeMergeSide(a.activeTab().merge, 0, false)
+	a.completeMerge(a.activeTab().merge)
+	hs.settle()
+	hs.settleGit()
+	files := a.mergeFiles()
+	if len(files) != 3 || !files[2].resolved {
+		t.Fatalf("four.txt is not the resolved one: %+v", files)
+	}
+	// The app starts anew: the memory of the resolved files is gone, and
+	// the list takes it from the record in the repository.
+	a.git.mergeDone, a.git.mergeDoneOp = nil, ""
+	files = a.mergeFiles()
+	if len(files) != 3 || !files[2].resolved || filepath.Base(files[2].path) != "four.txt" {
+		t.Fatalf("after the restart four.txt is not resolved: %+v", files)
+	}
+	// The command done, the record of the resolved files goes with it,
+	// and a fresh start has none of them resolved.
+	if a.git.status != nil {
+		a.git.status.Op = ""
+	}
+	dir, _ := a.git.repo.GitDir()
+	a.mergeFiles()
+	if _, err := os.Stat(filepath.Join(dir, "mayoi-resolved.json")); !os.IsNotExist(err) {
+		t.Fatal("the record of the resolved files is still there")
+	}
+	a.git.mergeDone, a.git.mergeDoneOp = nil, ""
+	files = a.mergeFiles()
+	for _, f := range files {
+		if f.resolved {
+			t.Fatalf("a file stands resolved without a command: %+v", files)
+		}
+	}
+}
