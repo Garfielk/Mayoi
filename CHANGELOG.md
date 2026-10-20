@@ -107,6 +107,15 @@ needs a `## <version>` section here, or its build fails.
   the merge goes on once every file of it stands resolved. The arrow keys
   and Enter choose and open its files, and a file whose conflicts still
   have the base's lines asks before it is marked resolved.
+- The panes of a merge wrap their lines as **Word Wrap** says, and ⌥Z
+  wraps or unwraps the merge of the tab alone, as it does a diff's and an
+  editor's: no line runs past a pane's edge to be scrolled to sideways,
+  and the marks of the conflicts, the click that chooses one and the
+  scroll that reveals it follow the rows a line wraps to.
+- The panes of a merge hold the width of the view instead of collapsing
+  into a narrow column of a few letters beside a blank, which they stood
+  to do when a merge was opened, a window came back from its session, or
+  the sides were still reading.
 
 ## 0.11.4
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1150,5 +1151,119 @@ func TestMergeFilesKeys(t *testing.T) {
 	}
 	if a.conflicts.open {
 		t.Error("the list is open still")
+	}
+}
+
+// TestMergePaneWrapsLines: a merge's panes wrap their lines at their
+// width as Word Wrap says, ⌥Z unwraps the merge alone, and a change of
+// the setting takes the tab's choice away again.
+func TestMergePaneWrapsLines(t *testing.T) {
+	hs := newHarness(t, true)
+	long := strings.Repeat("a long merge line ", 20)
+	hs.mergeRepo("a\n"+long+"\nz\n", "ours\n"+long+"\nz\n", "theirs\n"+long+"\nz\n")
+	v := hs.mergeOf()
+	a := hs.a
+	lineH := a.font.lineH
+	// Without wrapping, a line stands one lineH apart.
+	if top := a.mergeGeometry(v, 0).top(2); top != 2*lineH {
+		t.Fatalf("line 2 of ours stands %v from the top, want %v", top, 2*lineH)
+	}
+	// Word Wrap on: the long line of every pane wraps, and the line after
+	// it stands lower than the lines apart of no wrapping — but not to
+	// ribbons either, as a pane that hugged its content would, wrapping
+	// every line again and again in a collapsed column.
+	a.toggleWordWrap()
+	hs.settle()
+	for k := range v.panes {
+		top := a.mergeGeometry(v, k).top(2)
+		if top <= 2*lineH {
+			t.Errorf("pane %d does not wrap: line 2 stands %v from the top", k, top)
+		}
+		if top >= 20*lineH {
+			t.Errorf("pane %d wraps to ribbons: line 2 stands %v from the top", k, top)
+		}
+	}
+	// ⌥Z unwraps the merge alone: the setting stays on.
+	a.toggleTabWrap()
+	hs.settle()
+	if top := a.mergeGeometry(v, 0).top(2); top != 2*lineH {
+		t.Fatalf("after ⌥Z line 2 stands %v, want %v", top, 2*lineH)
+	}
+	if !a.settings.WordWrap {
+		t.Error("⌥Z turned the Word Wrap setting off")
+	}
+	// A change of the setting takes the tab's choice away: the panes
+	// wrap again.
+	a.toggleWordWrap()
+	a.toggleWordWrap()
+	hs.settle()
+	if top := a.mergeGeometry(v, 0).top(2); top <= 2*lineH {
+		t.Fatalf("the tab's choice outlived the setting: line 2 stands %v", top)
+	}
+}
+
+// TestMergePaneWrapChoosesRegion: a click on a row of a wrapped line
+// finds the conflict the line belongs to, not the line its row sits at.
+func TestMergePaneWrapChoosesRegion(t *testing.T) {
+	hs := newHarness(t, true)
+	long := strings.Repeat("a long merge line ", 20)
+	hs.mergeRepo(long+"\n"+long+"\nz\n", long+"\n"+long+"\nours\n", long+"\n"+long+"\ntheirs\n")
+	v := hs.mergeOf()
+	a := hs.a
+	a.toggleWordWrap()
+	hs.settle()
+	// The conflict holds line 2; the rows its wrapped lines above take
+	// push it far past where one line a row would have it. A click on its
+	// first row still finds it. chooseMergeLine takes the pointer's place
+	// in the pane: the scroll and the padding come off inside it.
+	v.chosen = -1
+	y := a.mergeGeometry(v, 0).top(2) + a.font.lineH/2 - v.panes[0].scroll.Y + editorPadY
+	a.chooseMergeLine(v, 0, y)
+	if v.chosen != 0 {
+		t.Fatalf("a click on line 2 chose region %d, want 0", v.chosen)
+	}
+}
+
+// TestMergePaneWrapHoldsNoEstimates: as a merge's panes wrap, every line
+// of them is laid out for its height, so that none stands on an estimate
+// — a pane is narrow and wraps deep, and a scroll into estimated
+// country, as revealing a far conflict goes, shows a blank where the
+// heights say text is. All measured, the height of the lines is the rows
+// they wrap to.
+func TestMergePaneWrapHoldsNoEstimates(t *testing.T) {
+	hs := newHarness(t, true)
+	var base, ours, theirs []string
+	for i := 0; i < 80; i++ {
+		switch i % 4 {
+		case 0:
+			base = append(base, fmt.Sprintf("// comment %02d — a fairly long line of commentary text that wraps in a narrow merge pane", i))
+		case 1:
+			base = append(base, fmt.Sprintf("func f%02d() int {", i))
+		case 2:
+			base = append(base, "	return 1")
+		default:
+			base = append(base, "}")
+		}
+	}
+	ours, theirs = append([]string{}, base...), append([]string{}, base...)
+	ours[61] = "// comment 61 changed by ours — a fairly long line of it"
+	theirs[61] = "// comment 61 changed by theirs — a fairly long line"
+	hs.mergeRepo(strings.Join(base, "\n")+"\n", strings.Join(ours, "\n")+"\n", strings.Join(theirs, "\n")+"\n")
+	v := hs.mergeOf()
+	a := hs.a
+	a.toggleWordWrap()
+	hs.settle()
+	a.stepMergeRegion(v, 1)
+	hs.settle()
+	lineH := a.font.lineH
+	for k := 0; k < 3; k++ {
+		g := a.mergeGeometry(v, k)
+		rows := float32(0)
+		for i := 0; i < v.paneLineCount(k); i++ {
+			rows += float32(len(v.panes[k].lines.Rows(i)))
+		}
+		if h := g.top(v.paneLineCount(k)); h < rows*lineH-lineH/8 || h > rows*lineH+lineH/8 {
+			t.Errorf("pane %d stands on estimated heights: %v high, its rows %v", k, h, rows*lineH)
+		}
 	}
 }

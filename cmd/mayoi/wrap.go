@@ -15,6 +15,15 @@ func (a *app) wraps(d *editor) bool {
 	return a.settings.WordWrap
 }
 
+// wrapsMerge reports whether a merge wraps the lines of its panes: as its
+// tab chose, or else as the settings say.
+func (a *app) wrapsMerge(v *mergeView) bool {
+	if v.wrap != nil && v.wrapGen == a.settings.WrapGen {
+		return *v.wrap
+	}
+	return a.settings.WordWrap
+}
+
 // toggleWordWrap wraps the lines of every editor, or none: the tabs that
 // chose otherwise follow it again.
 func (a *app) toggleWordWrap() {
@@ -28,9 +37,15 @@ func (a *app) toggleWordWrap() {
 // toggleTabWrap wraps the lines of the editor shown, or stops, until
 // the settings' Word Wrap changes.
 func (a *app) toggleTabWrap() {
-	if t := a.activeTab(); t != nil && t.diff != nil {
-		a.toggleDiffWrap(t.diff)
-		return
+	if t := a.activeTab(); t != nil {
+		if t.diff != nil {
+			a.toggleDiffWrap(t.diff)
+			return
+		}
+		if t.merge != nil {
+			a.toggleMergeWrap(t.merge)
+			return
+		}
 	}
 	d := a.activeEditor()
 	if d == nil {
@@ -38,6 +53,14 @@ func (a *app) toggleTabWrap() {
 	}
 	w := !a.wraps(d)
 	d.wrap, d.wrapGen = &w, a.settings.WrapGen
+	a.invalidate()
+}
+
+// toggleMergeWrap wraps the lines of a merge's panes, or stops, until the
+// settings' Word Wrap changes.
+func (a *app) toggleMergeWrap(v *mergeView) {
+	w := !a.wrapsMerge(v)
+	v.wrap, v.wrapGen = &w, a.settings.WrapGen
 	a.invalidate()
 }
 

@@ -261,17 +261,16 @@ func (a *app) mergePane(c *ui.Context, v *mergeView, k int, label, tip string) {
 			ui.Text(c, label).FontSize(10.5).FontWeight(600).LetterSpacing(0.4).TextColor(p.muted).SingleLine().Shrink(1)
 		})
 		pane := ui.ScrollHorizontal(c.Key(fmt.Sprintf("merge-scroll-%d", k))).TrackScroll(&v.panes[k].hscroll).
-			Grow(1).MinHeight(0).Background(p.editor)
+			FillWidth().Grow(1).MinHeight(0).Background(p.editor)
 		pane.Children(func() {
-			view := v.panes[k].scroll.Bounds(c)
+			// The pane's box, as an editor reads its own: the scroll state
+			// the area tracks is the area's, and reading it would feed the
+			// area's width back into itself.
+			view := v.panes[k].hscroll.Bounds(c)
 			v.viewW, v.viewH = view.W, view.H
 			v.panes[k].viewH = view.H
+			wrap := a.wrapsMerge(v)
 			ver := buf.Version()
-			if v.panes[k].wideVer != ver {
-				v.panes[k].wideVer = ver
-				v.panes[k].widest = widestOf(v.paneLines(k))
-			}
-			contentW := max(view.W, textXOf(f, v.panes[k].widest))
 			area := ui.TextAreaBufferBase(c, buf).
 				Font(f.family).FontSize(f.size).FontWeight(f.weight).FixedLineHeight(f.lineH).TextColor(p.text).
 				FillHeight().Padding(editorPadY, textPadR, editorPadY, mergeTextX).
@@ -285,7 +284,38 @@ func (a *app) mergePane(c *ui.Context, v *mergeView, k int, label, tip string) {
 				area.ReadOnly(true)
 				a.takeKeys(area, placeDiff, func(ev ui.InputEvent) bool { return a.mergePaneKey(v, k, ev) })
 			}
-			area.NoWrap().Width(contentW).TrackScroll(&v.panes[k].scroll).
+			// The area is as wide as the pane as it wraps, or as its
+			// widest line as it does not, and the pane scrolls sideways to
+			// that. The width comes from the pane's box rather than the
+			// area's own: a wrapping area is measured as it currently
+			// wraps, so a width read back from it feeds forward, and an
+			// early frame pins the panes narrow beside a blank. The widest
+			// line only grows, so what the sides read while they load
+			// cannot shrink what stands.
+			contentW := view.W
+			if !wrap {
+				if v.panes[k].wideVer != ver {
+					v.panes[k].wideVer = ver
+					for _, l := range v.paneLines(k) {
+						if n := columns(clipLine(l)); n > v.panes[k].widest {
+							v.panes[k].widest = n
+						}
+					}
+				}
+				contentW = max(view.W, textXOf(f, v.panes[k].widest))
+			}
+			if contentW > 0 {
+				area.Width(contentW)
+			} else {
+				area.FillWidth()
+			}
+			if wrap {
+				v.panes[k].hscroll.X = 0
+				area.TrackLines(&v.panes[k].lines)
+			} else {
+				area.NoWrap()
+			}
+			area.TrackScroll(&v.panes[k].scroll).
 				ScrollbarInsets(2, max(0, v.panes[k].hscroll.MaxX-v.panes[k].hscroll.X)+2, 2, 0)
 			area.Draw(func(pt *ui.Painter, r ui.Rect) { a.paintMergeRegions(pt, v, k, r) })
 		})
@@ -339,10 +369,10 @@ func (a *app) mergePaneKey(v *mergeView, pane int, ev ui.InputEvent) bool {
 	}
 	lineH := a.font.lineH
 	page := max(v.panes[pane].viewH-lineH, lineH)
+	g := a.mergeGeometry(v, pane)
 	scroll := func(dy float32) {
 		s := &v.panes[pane].scroll
-		n := v.paneLineCount(pane)
-		end := max(0, 2*editorPadY+float32(n)*lineH-v.panes[pane].viewH)
+		end := max(0, 2*editorPadY+g.top(v.paneLineCount(pane))-v.panes[pane].viewH)
 		s.Y = clamp(s.Y+dy, 0, end)
 	}
 	switch ev.Key {
@@ -375,10 +405,15 @@ func (a *app) mergePaneKey(v *mergeView, pane int, ev ui.InputEvent) bool {
 // state by them.
 func (a *app) paintMergeRegions(pt *ui.Painter, v *mergeView, k int, r ui.Rect) {
 	p := a.pal
-	lineH := a.font.lineH
+	if a.wrapsMerge(v) {
+		// In Draw the pane's area stands laid out: its lines can be laid
+		// out for their height, rather than estimated.
+		a.layOutMergeLines(v, k, v.paneBuf(k).Version(), r.W)
+	}
+	g := a.mergeGeometry(v, k)
 	sc := v.panes[k].scroll.Y
-	first := max(int((sc-editorPadY)/lineH)-1, 0)
-	last := first + int(v.panes[k].viewH/lineH) + 3
+	first := max(g.at(sc-editorPadY)-1, 0)
+	last := g.at(sc+v.panes[k].viewH) + 2
 	for i, reg := range v.regions {
 		lo, hi := v.regionLines(reg, k)
 		if lo < 0 || hi <= first || lo >= last {
@@ -394,8 +429,8 @@ func (a *app) paintMergeRegions(pt *ui.Painter, v *mergeView, k int, r ui.Rect) 
 		case regionEdited:
 			col = p.changed
 		}
-		y := r.Y + editorPadY + float32(lo)*lineH - sc
-		h := float32(hi-lo) * lineH
+		y := r.Y + editorPadY + g.top(lo) - sc
+		h := g.top(hi) - g.top(lo)
 		bg := col.Alpha(0.09)
 		if i == v.chosen {
 			bg = col.Alpha(0.20)
@@ -442,19 +477,41 @@ func (v *mergeView) paneLineCount(k int) int {
 	return len(v.paneLines(k))
 }
 
-// widestOf returns the longest line of lines, in columns.
-func widestOf(lines []string) int {
-	widest := 0
-	for _, l := range lines {
-		if n := columns(clipLine(l)); n > widest {
-			widest = n
-		}
-	}
-	return widest
-}
-
 // textXOf is where a pane's text starts, past the rail and the padding,
 // and how wide its content is for its longest line.
 func textXOf(f codeFont, widest int) float32 {
 	return mergeTextX + textPadR + float32(widest)*f.charW
+}
+
+// mergeGeometry places the lines of pane k of a merge in its content: a
+// row of its own each as the lines do not wrap, or where the pane laid
+// them out as they do — an editor's geometry over the pane's lines.
+func (a *app) mergeGeometry(v *mergeView, k int) geometry {
+	g := geometry{lineH: a.font.lineH, n: v.paneLineCount(k)}
+	if a.wrapsMerge(v) {
+		g.lines = &v.panes[k].lines
+	}
+	return g
+}
+
+// mergeLayOutMax is how many lines of a wrapping merge pane are laid out
+// for their height at once: every line of the files a merge stops for, or
+// the first ones of a giant one.
+const mergeLayOutMax = 8192
+
+// layOutMergeLines lays out every line of pane k as it wraps, once for
+// its text and the width it has. A pane is narrow, so its lines wrap
+// deep; the heights the area has not measured it estimates, and a scroll
+// into estimated country — as revealing a conflict goes — lands the view
+// where its heights say there is text that is not, and the pane shows a
+// blank. Laid out, every height is a measured one and the view holds.
+func (a *app) layOutMergeLines(v *mergeView, k int, ver uint64, w float32) {
+	p := &v.panes[k]
+	if p.laidVer == ver && p.laidW == w {
+		return
+	}
+	p.laidVer, p.laidW = ver, w
+	for i, n := 0, min(p.lines.Count(), mergeLayOutMax); i < n; i++ {
+		p.lines.Rows(i)
+	}
 }
