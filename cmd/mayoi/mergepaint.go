@@ -64,7 +64,7 @@ func (a *app) mergeViewUI(c *ui.Context, v *mergeView) {
 			v.panes[1].scroll.Focus(c)
 		}
 	}
-	a.syncMergePanes(v)
+	// a.syncMergePanes(v)
 	ui.Column(c).Fill().Background(p.editor).Children(func() {
 		a.mergeHead(c, v)
 		a.mergeActions(c, v)
@@ -329,7 +329,7 @@ func (a *app) mergePane(c *ui.Context, v *mergeView, k int, label, tip string) {
 			ui.Text(c, label).FontSize(10.5).FontWeight(600).LetterSpacing(0.4).TextColor(p.muted).SingleLine().Shrink(1)
 		})
 		pane := ui.ScrollHorizontal(c.Key(fmt.Sprintf("merge-scroll-%d", k))).TrackScroll(&v.panes[k].hscroll).
-			Grow(1).MinHeight(0).Background(p.editor)
+			Fill().Background(p.editor)
 		pane.Children(func() {
 			// The pane's room is the scroller's, which the text area,
 			// as wide as its longest line, may be wider than.
@@ -388,8 +388,11 @@ func (a *app) mergeResultSync(c *ui.Context, area ui.Element, ver uint64) {
 			v.ed.hist.typing = false // the caret moved: typing after starts a step
 		}
 		v.ed.sel = sel
-		v.ed.caretSeen = true
 	}
+	// The area has the selection now, whatever it reads as: a caret that
+	// equals the one kept must not keep the merge re-pushing it, for the
+	// push reveals the caret and the pane would snap back to it forever.
+	v.ed.caretSeen = true
 }
 
 // activeMerge returns the merge view of the tab shown, nil when none is.
