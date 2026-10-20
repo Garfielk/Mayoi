@@ -64,7 +64,7 @@ func (a *app) mergeViewUI(c *ui.Context, v *mergeView) {
 			v.panes[1].scroll.Focus(c)
 		}
 	}
-	// a.syncMergePanes(v)
+	a.syncMergePanes(v)
 	ui.Column(c).Fill().Background(p.editor).Children(func() {
 		a.mergeHead(c, v)
 		a.mergeActions(c, v)

@@ -1152,3 +1152,74 @@ func TestMergeFilesKeys(t *testing.T) {
 		t.Error("the list is open still")
 	}
 }
+
+// TestMergeSyncScrollFollows: scrolling one pane of a merge moves the
+// others with it, so that the line in the middle of the mover stands
+// across from theirs as the hunks between the texts say — and the result
+// pane follows too, which it did not while its selection sync kept
+// revealing a caret it believed unseen, pinning it to the top and, with
+// the panes together, dragging the sides back there with it.
+func TestMergeSyncScrollFollows(t *testing.T) {
+	read := func(p string) string {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	base, ours, theirs := read("/tmp/base.go"), read("/tmp/ours.go"), read("/tmp/theirs.go")
+	hs := newHarness(t, true)
+	hs.mergeRepo(base, ours, theirs)
+	v := hs.mergeOf()
+	a := hs.a
+	lineH := a.font.lineH
+	mid := func(k int) int {
+		return int((v.panes[k].scroll.Y + v.panes[k].viewH/2 - editorPadY) / lineH)
+	}
+	// Scroll ours deep, where the texts have diverged and the mapping is
+	// not one to one: the result lands on the line ours maps to, theirs
+	// on the line that maps back to it, and none stands pinned at the
+	// top.
+	v.panes[0].scroll.Y = 45 * lineH
+	hs.settle()
+	if mid(0) < 40 {
+		t.Fatalf("ours stands at line %d, the scroll did not take", mid(0))
+	}
+	if v.panes[1].scroll.Y <= 0 {
+		t.Error("the result pane stands pinned at the top while ours scrolled")
+	}
+	// A follower stands where the mapping puts it, clamped to its own
+	// ends: a side shorter than the position mapped to ends together
+	// with the rest rather than overshooting into blank.
+	clampedMid := func(k int, at float32) int {
+		h := v.panes[k].viewH
+		end := max(0, 2*editorPadY+float32(v.paneLineCount(k))*lineH-h)
+		y := clamp(editorPadY+at*lineH-h/2, 0, end)
+		return int((y + h/2 - editorPadY) / lineH)
+	}
+	res := mapMergeLine(v.pairHunks(0), float32(mid(0)), false)
+	if d := float32(mid(1)) - res; d < -1 || d > 1 {
+		t.Errorf("the result's middle line %d does not stand across ours' %d (want %.0f)", mid(1), mid(0), res)
+	}
+	at2 := mapMergeLine(v.pairHunks(2), res, true)
+	want := clampedMid(2, at2)
+	if d := float32(mid(2) - want); d < -1 || d > 1 {
+		t.Errorf("theirs' middle line %d does not stand across the result's %.0f (want %d, clamped of %.0f)", mid(2), res, want, at2)
+	}
+	// Scrolling the result leads the sides the same way.
+	v.panes[1].scroll.Y = 30 * lineH
+	hs.settle()
+	if v.panes[0].scroll.Y == 45*lineH {
+		t.Error("ours did not follow the result")
+	}
+	at0 := mapMergeLine(v.pairHunks(0), float32(mid(1)), true)
+	want0 := clampedMid(0, at0)
+	if d := float32(mid(0) - want0); d < -1 || d > 1 {
+		t.Errorf("ours' middle line %d does not stand across the result's %d (want %d, clamped of %.0f)", mid(0), mid(1), want0, at0)
+	}
+	at2 = mapMergeLine(v.pairHunks(2), float32(mid(1)), true)
+	want2 := clampedMid(2, at2)
+	if d := float32(mid(2) - want2); d < -1 || d > 1 {
+		t.Errorf("theirs' middle line %d does not stand across the result's %d (want %d, clamped of %.0f)", mid(2), mid(1), want2, at2)
+	}
+}
