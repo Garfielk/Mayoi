@@ -616,3 +616,79 @@ func (a *app) showTabKey(k ui.Key) {
 	}
 	a.activate(col, i, true)
 }
+
+// appUIMenu fills the titlebar's menu on Windows and Linux, which have no
+// menu bar, with the menu bar's items.
+func (a *app) appUIMenu(m *ui.Menu) {
+	menu := a.menu(false, func(id string, _ *mygo.Window) {
+		a.post(func() { a.run(id) })
+	})
+	a.populateUIMenu(m, menu.Items())
+}
+
+// uiMenuSkips are the roles the titlebar's menu leaves out, which mygo
+// does for the menu bar but an app cannot yet: the edit roles go to the
+// focused element, so Copy would copy the editor's selection while a
+// terminal has the keyboard, and native UI's inspector has no API. Their
+// shortcuts and the context menus still have the edit roles.
+var uiMenuSkips = map[mygo.MenuRole]bool{
+	mygo.RoleCut: true, mygo.RoleCopy: true, mygo.RolePaste: true, mygo.RoleSelectAll: true,
+	mygo.RoleToggleDevTools: true,
+}
+
+// populateUIMenu adds items to m, with a separator only between two items.
+func (a *app) populateUIMenu(m *ui.Menu, items []*mygo.MenuItem) {
+	added, sep := false, false
+	for _, it := range items {
+		if it.Type == mygo.MenuItemSeparator {
+			sep = added
+			continue
+		}
+		if it.Hidden || it.Label == "" || uiMenuSkips[it.Role] {
+			continue
+		}
+		if sep {
+			m.Separator()
+		}
+		added, sep = true, false
+		if len(it.Submenu) > 0 {
+			m.Submenu(it.Label, func(sub *ui.Menu) {
+				a.populateUIMenu(sub, it.Submenu)
+			})
+			continue
+		}
+		item := m.Item(it.Label).Disabled(it.Disabled)
+		if it.Type == mygo.MenuItemCheckbox || it.Type == mygo.MenuItemRadio {
+			item.Checked(it.Checked)
+		}
+		if st, ok := keymap.ParseAccel(it.Accelerator); ok {
+			item.Shortcut(st.Mods, st.Key)
+		}
+		if item.Chosen() {
+			a.post(func() {
+				if it.Click != nil {
+					it.Click(it, nil)
+				} else {
+					a.handleRole(it.Role)
+				}
+			})
+		}
+	}
+}
+
+// handleRole does a role of the titlebar's menu that has no command.
+func (a *app) handleRole(r mygo.MenuRole) {
+	h, ok := a.host.(*desktop)
+	if !ok || h.f == nil || h.f.win == nil {
+		return
+	}
+	w := h.f.win
+	switch r {
+	case mygo.RoleMinimize:
+		w.Minimize()
+	case mygo.RoleClose:
+		w.Close()
+	case mygo.RoleToggleFullScreen:
+		w.SetFullScreen(!w.IsFullScreen())
+	}
+}

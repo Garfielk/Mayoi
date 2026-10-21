@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -57,6 +58,7 @@ func (a *app) view(c *ui.Context) {
 	// The places that take the keys say so as they are built.
 	a.keyFocus = placeNone
 	a.pal = a.applyTheme(c)
+	updateLinuxControlsTheme(a.pal)
 	a.themeTerminals()
 	a.fontTerminals()
 	a.copyTerminals()
@@ -335,7 +337,11 @@ func (a *app) splitter(c *ui.Context, at edge, drag func(d float32)) {
 func (a *app) titleBar(c *ui.Context) {
 	p := a.pal
 	bar := c.TitleBar()
-	ui.Row(c).Height(max(bar.Height, titleBarH)).Padding(0, bar.Right+8, 0, bar.Left+10).AlignItems(ui.Center).
+	rightPad := bar.Right + 8
+	if runtime.GOOS == "linux" && bar.Right > 0 {
+		rightPad = bar.Right - 2
+	}
+	ui.Row(c).Height(max(bar.Height, titleBarH)).Padding(0, rightPad, 0, bar.Left+10).AlignItems(ui.Center).
 		BorderWidth(0, 0, 1, 0).BorderColor(p.border).DragWindow().Children(func() {
 		// The sidebar's button is on its side. The terminal's is on the
 		// panel's: at the left of the bar when the panel is at the
@@ -354,11 +360,18 @@ func (a *app) titleBar(c *ui.Context) {
 			}
 		}
 		terminalButton := func() {
-			if a.iconButton(c, iconTerminal, a.withKey(locales.CmdViewTerminal(), "view.terminal"), a.window.PanelOpen).Clicked() {
+			btn := a.iconButton(c, iconTerminal, a.withKey(locales.CmdViewTerminal(), "view.terminal"), a.window.PanelOpen)
+			if runtime.GOOS == "linux" {
+				btn.Padding(1, 0, 0, 0)
+			}
+			if btn.Clicked() {
 				a.togglePanel()
 			}
 		}
 		ui.Row(c).Basis(0).Grow(1).MinWidth(56).Gap(2).Children(func() {
+			if hostOS != "darwin" {
+				a.iconButton(c, iconMenu, locales.Menu(), false).Menu(a.appUIMenu)
+			}
 			if panelLeft {
 				terminalButton()
 			}
