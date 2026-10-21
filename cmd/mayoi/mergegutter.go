@@ -106,8 +106,8 @@ func bandInBox(lt, lb, rt, rb, top, bot float32) (float32, float32, float32, flo
 	if max(lb, rb) <= top || min(lt, rt) >= bot {
 		return 0, 0, 0, 0, false
 	}
-	cl := func(y float32) float32 { return min(max(y, top), bot) }
-	return cl(lt), cl(lb), cl(rt), cl(rb), true
+	clampToBox := func(y float32) float32 { return min(max(y, top), bot) }
+	return clampToBox(lt), clampToBox(lb), clampToBox(rt), clampToBox(rb), true
 }
 
 // mergeBand is a hunk between a side of a merge and the result, as the

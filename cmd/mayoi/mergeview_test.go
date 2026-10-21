@@ -1153,6 +1153,210 @@ func TestMergeFilesKeys(t *testing.T) {
 	}
 }
 
+// The texts of TestMergeSyncScrollFollows: two sides of a base that
+// moved and added functions, so the mapping between the sides is not
+// one to one, and theirs ends short of where ours scrolls to.
+const (
+	syncScrollBase = `package calc
+
+import "errors"
+
+// Add returns the sum of a and b, the simplest case.
+func Add(a, b int) int {
+	return a + b
+}
+
+// Subtract returns a minus b.
+func Subtract(a, b int) int {
+	return a - b
+}
+
+// Multiply returns the product of a and b.
+func Multiply(a, b int) int {
+	return a * b
+}
+
+// Divide returns a over b, or an error when b is zero.
+func Divide(a, b int) (int, error) {
+	if b == 0 {
+		return 0, errors.New("division by zero")
+	}
+	return a / b, nil
+}
+
+// Sum adds every number in xs.
+func Sum(xs []int) int {
+	total := 0
+	for i := 0; i < len(xs); i++ {
+		total += xs[i]
+	}
+	return total
+}
+
+// Max returns the larger of a and b.
+func Max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// Min returns the smaller of a and b.
+func Min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// Clamp keeps v within low and high.
+func Clamp(v, low, high int) int {
+	if v < low {
+		return low
+	}
+	if v > high {
+		return high
+	}
+	return v
+}
+`
+	syncScrollOurs = `package calc
+
+import "errors"
+
+// Add sums a and b, as ours wrote it.
+func Add(a, b int) int {
+	return a + b
+}
+
+// Subtract returns a minus b.
+func Subtract(a, b int) int {
+	return a - b
+}
+
+// Multiply returns the product of a and b.
+func Multiply(a, b int) int {
+	return a * b
+}
+
+// Divide returns a over b, or an error when b is zero.
+func Divide(a, b int) (int, error) {
+	if b == 0 {
+		return 0, errors.New("ours: zero divisor")
+	}
+	return a / b, nil
+}
+
+// Clamp keeps v within low and high.
+func Clamp(v, low, high int) int {
+	if v < low {
+		return low
+	}
+	if v > high {
+		return high
+	}
+	return v
+}
+
+// Sum adds every number in xs.
+func Sum(xs []int) int {
+	total := 0
+	for i := 0; i < len(xs); i++ {
+		total += xs[i]
+	}
+	return total
+}
+
+// Max returns the larger of a and b.
+func Max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// Min returns the smaller of a and b.
+func Min(a, b int) int {
+	if a < b {
+		return small(a, b)
+	}
+	return b
+}
+
+// Clamp keeps v within low and high.
+func Clamp(v, low, high int) int {
+	if v < low {
+		return low
+	}
+	if v > high {
+		return high
+	}
+	return v
+}
+
+// small is the lesser of a and b, shared by Min.
+func small(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+`
+	syncScrollTheirs = `package calc
+
+import "errors"
+
+// Add sums a and b, as theirs wrote it.
+func Add(a, b int) int {
+	return a + b
+}
+
+// Subtract returns a minus b.
+func Subtract(a, b int) int {
+	return a - b
+}
+
+// Multiply returns the product of a and b.
+func Multiply(a, b int) int {
+	return a * b
+}
+
+// Divide returns a over b, or an error when b is zero.
+func Divide(a, b int) (int, error) {
+	if b == 0 {
+		return 0, errors.New("theirs: zero divisor")
+	}
+	return a / b, nil
+}
+
+// Sum adds every number in xs.
+func Sum(xs []int) int {
+	total := 0
+	for i := 0; i < len(xs); i++ {
+		total += xs[i]
+	}
+	return total
+}
+
+// Max returns the larger of a and b.
+func Max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// Min returns the smaller of a and b.
+func Min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+`
+)
+
 // TestMergeSyncScrollFollows: scrolling one pane of a merge moves the
 // others with it, so that the line in the middle of the mover stands
 // across from theirs as the hunks between the texts say — and the result
@@ -1160,14 +1364,7 @@ func TestMergeFilesKeys(t *testing.T) {
 // revealing a caret it believed unseen, pinning it to the top and, with
 // the panes together, dragging the sides back there with it.
 func TestMergeSyncScrollFollows(t *testing.T) {
-	read := func(p string) string {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(b)
-	}
-	base, ours, theirs := read("/tmp/base.go"), read("/tmp/ours.go"), read("/tmp/theirs.go")
+	base, ours, theirs := syncScrollBase, syncScrollOurs, syncScrollTheirs
 	hs := newHarness(t, true)
 	hs.mergeRepo(base, ours, theirs)
 	v := hs.mergeOf()
