@@ -1190,14 +1190,17 @@ func (hs *harness) mergeOverflowPress(t *testing.T, label string) {
 // TestMergeHeadDropsLeastNeededFirst: as the window narrows, the merge
 // header's file actions go one by one, the least needed first, each only
 // once the row would not hold it, and those left fit. Whatever went
-// stands in the overflow menu, and nothing stays on both.
+// stands in the overflow menu, and nothing stays on both. The bar of the
+// conflict chosen goes as its rows do, into its own overflow.
 func TestMergeHeadDropsLeastNeededFirst(t *testing.T) {
 	skipOnWindows(t, "Windows' wider font holds the actions at 540")
 	hs := newHarness(t, true)
 	hs.mergeOverflowSetup(t)
-	// In the order they go.
+	// In the order they go: the head's file actions, then the bar of the
+	// conflict.
 	parts := []string{"Conflicts…", "Save and Close", "Apply Changes", "Save", "Reset to Base", "Mark Resolved"}
-	gone := 0
+	sideParts := []string{"Resolve using Right", "Resolve using Left", "Ignore Right", "Ignore Left", "Accept Right", "Accept Left"}
+	gone, sideGone := 0, 0
 	for w := 1200; w >= 540; w -= 20 {
 		hs.tt.SetSize(w, 640)
 		hs.settle()
@@ -1212,6 +1215,17 @@ func TestMergeHeadDropsLeastNeededFirst(t *testing.T) {
 				t.Errorf("at %d, %q does not fit: %.0f+%.0f", w, s, box.X, box.W)
 			}
 		}
+		for i, s := range sideParts {
+			box, shown := hs.tt.Find(s)
+			switch {
+			case !shown:
+				sideGone = max(sideGone, i+1)
+			case i < sideGone:
+				t.Errorf("at %d, %q is back", w, s)
+			case box.X+box.W > float32(w):
+				t.Errorf("at %d, %q does not fit: %.0f+%.0f", w, s, box.X, box.W)
+			}
+		}
 		if box, ok := hs.tt.Find(locales.MergeApply()); !ok || box.X+box.W > float32(w) {
 			t.Errorf("at %d, Apply does not fit: %v", w, box)
 		}
@@ -1219,8 +1233,12 @@ func TestMergeHeadDropsLeastNeededFirst(t *testing.T) {
 	if gone == 0 {
 		t.Fatal("the actions never go, though the row ran out of room")
 	}
+	if sideGone == 0 {
+		t.Fatal("the sides of the conflict never go, though their row ran out of room")
+	}
 	// What went stands in the overflow menu, in the row's order, and
-	// nothing stands in both places.
+	// nothing stands in both places. The menu of the head holds no action
+	// of the conflict's bar: each row keeps its own.
 	if err := hs.tt.Click(locales.MergeMoreActions()); err != nil {
 		t.Fatal(err)
 	}
@@ -1232,8 +1250,11 @@ func TestMergeHeadDropsLeastNeededFirst(t *testing.T) {
 	for _, s := range menu {
 		i := slices.Index(parts, s)
 		if i < 0 {
-			if s != locales.MergeApply() {
+			if s != locales.MergeApply() && !slices.Contains(sideParts, s) {
 				t.Errorf("the menu holds %q, which no action of the row is", s)
+			}
+			if slices.Contains(sideParts, s) {
+				t.Errorf("the head's menu holds %q, which the conflict's bar went without", s)
 			}
 			continue
 		}
@@ -1244,6 +1265,35 @@ func TestMergeHeadDropsLeastNeededFirst(t *testing.T) {
 			t.Errorf("%q stands out of the row's order in the menu: %q", s, menu)
 		}
 		last = i
+	}
+	// The conflict's bar keeps its own overflow: it holds what went from
+	// it, and the head's menu held none of it.
+	box, ok := hs.tt.Find(locales.MergePrevConflict())
+	if !ok {
+		t.Fatal("the bar of the conflict is gone altogether")
+	}
+	hs.tt.ClickAt(float32(540)-25, box.Y+box.H/2)
+	sideMenu := hs.tt.Menu()
+	if len(sideMenu) == 0 {
+		t.Fatal("the conflict bar's overflow holds nothing")
+	}
+	sideLast := -1
+	for _, s := range sideMenu {
+		i := slices.Index(sideParts, s)
+		if i < 0 {
+			t.Errorf("the conflict bar's menu holds %q, which no action of it is", s)
+			continue
+		}
+		if _, on := hs.tt.Find(s); on {
+			t.Errorf("%q stands on the bar and in the menu", s)
+		}
+		if i < sideLast {
+			t.Errorf("%q stands out of the row's order in the menu: %q", s, sideMenu)
+		}
+		sideLast = i
+	}
+	if slices.Contains(sideMenu, locales.MergeResetBase()) {
+		t.Error("the conflict bar's menu holds an action of the head")
 	}
 }
 
@@ -1285,5 +1335,38 @@ func TestMergeHeadOverflowMenuActs(t *testing.T) {
 	}
 	if tm := hs.a.activeTab(); tm != nil && tm.merge != nil {
 		t.Error("the merge does not close")
+	}
+}
+
+// TestMergeActionsOverflowMenuActs: an action that went from the bar of
+// the conflict stands in its overflow, and does what its button does.
+func TestMergeActionsOverflowMenuActs(t *testing.T) {
+	hs := newHarness(t, true)
+	v := hs.mergeOverflowSetup(t)
+	// The bar of the conflict cannot hold its actions at this width.
+	hs.tt.SetSize(760, 640)
+	hs.settle()
+	if _, ok := hs.tt.Find(locales.MergeUseRight()); ok {
+		t.Fatal("Resolve using Right still stands on the bar at 760")
+	}
+	box, ok := hs.tt.Find(locales.MergePrevConflict())
+	if !ok {
+		t.Fatal("the bar of the conflict is gone altogether")
+	}
+	hs.tt.ClickAt(760-25, box.Y+box.H/2)
+	if !slices.Contains(hs.tt.Menu(), locales.MergeUseRight()) {
+		t.Fatalf("the conflict bar's overflow lacks Resolve using Right: %q", hs.tt.Menu())
+	}
+	if err := hs.tt.ChooseMenuItem(locales.MergeUseRight()); err != nil {
+		t.Fatal(err)
+	}
+	hs.settle()
+	if v.unresolved() != 0 {
+		t.Errorf("Resolve using Right from the overflow leaves %d conflicts", v.unresolved())
+	}
+	for _, r := range v.regions {
+		if st := v.stateOf(r); st != regionRight {
+			t.Errorf("a conflict stands %v, not theirs", st)
+		}
 	}
 }

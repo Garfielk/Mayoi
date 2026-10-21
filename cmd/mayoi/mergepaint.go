@@ -92,22 +92,13 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 		w, _ := c.MeasureText(0, ui.Span{Text: s, Size: size})
 		return w
 	}
-	// action is a file action of the row: on the bar while it fits, in
-	// the overflow menu once it does not. Rank is the order they go in;
-	// the counts go before them and only hide, the menu holds no word.
-	type action struct {
-		rank  int
-		label string
-		tip   string
-		w     float32
-		act   func()
-		menu  bool
-		onBar bool
-	}
-	button := func(label string) float32 { return measure(label, 11.5) + 2*8 + 2 + 8 }
-	var acts []*action
+	// The file actions of the row: on the bar while it fits, in the
+	// overflow menu once it does not. Rank is the order they go in; the
+	// counts go before them and only hide, the menu holds no word.
+	button := func(label string) float32 { return mergeTextButtonW(c, label) }
+	var acts []*mergeAction
 	add := func(rank int, label, tip string, w float32, act func(), menu bool) {
-		acts = append(acts, &action{rank, label, tip, w, act, menu, true})
+		acts = append(acts, &mergeAction{rank: rank, label: label, tip: tip, w: w, act: act, menu: menu, onBar: true})
 	}
 	if n := len(v.regions); n > 0 {
 		pill := locales.MergeConflictsCount(strconv.Itoa(v.unresolved()), strconv.Itoa(n))
@@ -151,31 +142,8 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 		if !resolved {
 			used += 21
 		}
-		for _, ac := range acts {
-			used += ac.w + 8
-		}
-		// The overflow's button, once an action went there.
-		overflow := float32(12 + 2*8 + 2 + 4)
-		any := false
-		for _, ac := range acts {
-			if used <= width {
-				break
-			}
-			ac.onBar = false
-			used -= ac.w + 8
-			if ac.menu && !any {
-				any = true
-				used += overflow + 8
-			}
-		}
-		onBar := func(rank int) *action {
-			for _, ac := range acts {
-				if ac.rank == rank && ac.onBar {
-					return ac
-				}
-			}
-			return nil
-		}
+		any := mergeDrop(acts, used, width, 8)
+		onBar := func(rank int) *mergeAction { return mergeOnBar(acts, rank) }
 		pillAct, countAct := onBar(-2), onBar(-1)
 		row.Children(func() {
 			ui.Box(c).Size(22, 22).Radius(6).Shrink(0).Background(p.changed.Alpha(0.14)).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
@@ -240,7 +208,10 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 					}
 				}
 			}
-			mergeDivider(c, p)
+			// The divider stands while a button it separates does.
+			if !resolved && (onBar(3) != nil || onBar(2) != nil || onBar(1) != nil || onBar(0) != nil || onBar(5) != nil) {
+				mergeDivider(c, p)
+			}
 			if ac := onBar(3); ac != nil {
 				if a.mergeButton(c, "merge-save", ac.label, ac.tip) {
 					ac.act()
@@ -270,20 +241,7 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 				}
 			}
 			if any {
-				b := a.mergeButtonBase(c, "merge-more", locales.MergeMoreActions(), locales.MergeMoreActionsTip())
-				b.Menu(func(m *ui.Menu) {
-					for _, ac := range acts {
-						if ac.onBar || !ac.menu {
-							continue
-						}
-						if m.Item(ac.label).Chosen() {
-							ac.act()
-						}
-					}
-				})
-				b.Children(func() {
-					ui.Icon(c, iconMore).FontSize(12).TextColor(p.muted)
-				})
+				a.mergeMore(c, "merge-more", acts)
 			}
 		})
 		// How far the conflicts are resolved, filling as they are.
@@ -305,11 +263,61 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 }
 
 // mergeActions is the bar of the conflict chosen, or of the file once it
-// stands resolved.
+// stands resolved. Its actions go into its overflow menu one by one as
+// the window narrows, as the head's do.
 func (a *app) mergeActions(c *ui.Context, v *mergeView) {
 	p := a.pal
-	ui.Row(c).Height(30).Padding(0, 10, 0, 6).Gap(6).AlignItems(ui.Center).Background(p.chrome).Children(func() {
-		if a.mergeResolved(v) {
+	resolved := a.mergeResolved(v)
+	row := ui.Row(c.Key("merge-actions-row")).Height(30).Padding(0, 10, 0, 6).Gap(6).AlignItems(ui.Center).Background(p.chrome)
+	// The row's room, as the last frame laid it out — a frame behind.
+	width := row.Bounds().W
+	if width <= 0 {
+		width, _ = c.Size()
+	}
+	button := func(label string) float32 { return mergeTextButtonW(c, label) }
+	var acts []*mergeAction
+	add := func(rank int, label, tip string, act func()) {
+		acts = append(acts, &mergeAction{rank: rank, label: label, tip: tip, w: button(label), act: act, menu: true, onBar: true})
+	}
+	if resolved {
+		if v.op != "" {
+			add(2, locales.MergeContinueOp(v.op.Title()), locales.MergeContinueOpTip(v.op.Title()), func() { a.post(a.continueOp) })
+		}
+		add(1, locales.MergeRestoreConflict(), locales.MergeRestoreConflictTip(), func() { a.post(func() { a.restoreMerge(v) }) })
+		add(0, locales.OpenFile(), locales.MergeOpenFileTip(), func() { a.post(func() { a.openPath(v.path, true) }) })
+	} else if i := v.chosen; i >= 0 && i < len(v.regions) {
+		// The bluntest go first: the whole-file sides, then the sides of
+		// the conflict, the right before the left, keeping to the left.
+		add(0, locales.MergeUseRight(), locales.MergeUseRightTip(), func() { a.post(func() { a.resolveUsingMerge(v, false) }) })
+		add(1, locales.MergeUseLeft(), locales.MergeUseLeftTip(), func() { a.post(func() { a.resolveUsingMerge(v, true) }) })
+		add(2, locales.MergeIgnoreRight(), locales.MergeIgnoreRightTip(), func() {
+			a.post(func() { a.dropMergeSide(v, i, false); a.flashMergeRegion(v, i) })
+		})
+		add(3, locales.MergeIgnoreLeft(), locales.MergeIgnoreLeftTip(), func() {
+			a.post(func() { a.dropMergeSide(v, i, true); a.flashMergeRegion(v, i) })
+		})
+		add(4, locales.DiffAcceptRight(), locales.MergeAcceptRightTip(), func() {
+			a.post(func() { a.takeMergeSide(v, i, false); a.flashMergeRegion(v, i) })
+		})
+		add(5, locales.DiffAcceptLeft(), locales.MergeAcceptLeftTip(), func() {
+			a.post(func() { a.takeMergeSide(v, i, true); a.flashMergeRegion(v, i) })
+		})
+	}
+	// What the row holds besides the actions: its padding, the gaps, and
+	// then the arrows of the conflicts and the state's dot, or the check
+	// of a file resolved. The dividers come with their sides below.
+	used := float32(2*10 + 6*6 + 6 + 6)
+	if resolved {
+		used += 13
+	} else {
+		used += 2*26 + 7
+		if v.chosen >= 0 && v.chosen < len(v.regions) {
+			used += 2 * 17 // the dividers between the groups
+		}
+	}
+	any := mergeDrop(acts, used, width, 6)
+	row.Children(func() {
+		if resolved {
 			ui.Icon(c, iconCheck).FontSize(13).TextColor(p.added).Shrink(0)
 			done := locales.MergeFileResolved()
 			if op := v.op.Title(); op != "" {
@@ -317,14 +325,23 @@ func (a *app) mergeActions(c *ui.Context, v *mergeView) {
 			}
 			ui.Text(c, done).FontSize(11.5).TextColor(p.muted).SingleLine().Shrink(1)
 			ui.Spacer(c)
-			if v.op != "" && a.mergeButton(c, "merge-continue", locales.MergeContinueOp(v.op.Title()), locales.MergeContinueOpTip(v.op.Title())) {
-				a.post(a.continueOp)
+			if ac := mergeOnBar(acts, 2); ac != nil {
+				if a.mergeButton(c, "merge-continue", ac.label, ac.tip) {
+					ac.act()
+				}
 			}
-			if a.mergeButton(c, "merge-restore", locales.MergeRestoreConflict(), locales.MergeRestoreConflictTip()) {
-				a.post(func() { a.restoreMerge(v) })
+			if ac := mergeOnBar(acts, 1); ac != nil {
+				if a.mergeButton(c, "merge-restore", ac.label, ac.tip) {
+					ac.act()
+				}
 			}
-			if a.mergeButton(c, "merge-open", locales.OpenFile(), locales.MergeOpenFileTip()) {
-				a.post(func() { a.openPath(v.path, true) })
+			if ac := mergeOnBar(acts, 0); ac != nil {
+				if a.mergeButton(c, "merge-open", ac.label, ac.tip) {
+					ac.act()
+				}
+			}
+			if any {
+				a.mergeMore(c, "merge-actions-more", acts)
 			}
 			return
 		}
@@ -361,25 +378,50 @@ func (a *app) mergeActions(c *ui.Context, v *mergeView) {
 		ui.Text(c, locales.MergeConflictOf(strconv.Itoa(i+1), strconv.Itoa(len(v.regions)), state)).
 			FontSize(11.5).TextColor(p.muted).SingleLine().Shrink(1)
 		ui.Spacer(c)
-		if a.mergeIconButton(c, "merge-accept-l", iconChevronsRight, locales.DiffAcceptLeft(), locales.MergeAcceptLeftTip()) {
-			a.post(func() { a.takeMergeSide(v, i, true); a.flashMergeRegion(v, i) })
+		if ac := mergeOnBar(acts, 5); ac != nil {
+			if a.mergeIconButton(c, "merge-accept-l", iconChevronsRight, ac.label, ac.tip) {
+				ac.act()
+			}
 		}
-		if a.mergeIconButton(c, "merge-ignore-l", iconX, locales.MergeIgnoreLeft(), locales.MergeIgnoreLeftTip()) {
-			a.post(func() { a.dropMergeSide(v, i, true); a.flashMergeRegion(v, i) })
+		if ac := mergeOnBar(acts, 3); ac != nil {
+			if a.mergeIconButton(c, "merge-ignore-l", iconX, ac.label, ac.tip) {
+				ac.act()
+			}
 		}
-		mergeDivider(c, p)
-		if a.mergeIconButton(c, "merge-ignore-r", iconX, locales.MergeIgnoreRight(), locales.MergeIgnoreRightTip()) {
-			a.post(func() { a.dropMergeSide(v, i, false); a.flashMergeRegion(v, i) })
+		// The dividers stand while a button of each side they separate
+		// does: the conflict's left, its right, the whole file's sides.
+		if mergeOnBar(acts, 5) != nil || mergeOnBar(acts, 3) != nil {
+			if mergeOnBar(acts, 2) != nil || mergeOnBar(acts, 4) != nil {
+				mergeDivider(c, p)
+			}
 		}
-		if a.mergeIconButton(c, "merge-accept-r", iconChevronsLeft, locales.DiffAcceptRight(), locales.MergeAcceptRightTip()) {
-			a.post(func() { a.takeMergeSide(v, i, false); a.flashMergeRegion(v, i) })
+		if ac := mergeOnBar(acts, 2); ac != nil {
+			if a.mergeIconButton(c, "merge-ignore-r", iconX, ac.label, ac.tip) {
+				ac.act()
+			}
 		}
-		mergeDivider(c, p)
-		if a.mergeButton(c, "merge-use-l", locales.MergeUseLeft(), locales.MergeUseLeftTip()) {
-			a.post(func() { a.resolveUsingMerge(v, true) })
+		if ac := mergeOnBar(acts, 4); ac != nil {
+			if a.mergeIconButton(c, "merge-accept-r", iconChevronsLeft, ac.label, ac.tip) {
+				ac.act()
+			}
 		}
-		if a.mergeButton(c, "merge-use-r", locales.MergeUseRight(), locales.MergeUseRightTip()) {
-			a.post(func() { a.resolveUsingMerge(v, false) })
+		if mergeOnBar(acts, 5) != nil || mergeOnBar(acts, 3) != nil || mergeOnBar(acts, 2) != nil || mergeOnBar(acts, 4) != nil {
+			if mergeOnBar(acts, 1) != nil || mergeOnBar(acts, 0) != nil {
+				mergeDivider(c, p)
+			}
+		}
+		if ac := mergeOnBar(acts, 1); ac != nil {
+			if a.mergeButton(c, "merge-use-l", ac.label, ac.tip) {
+				ac.act()
+			}
+		}
+		if ac := mergeOnBar(acts, 0); ac != nil {
+			if a.mergeButton(c, "merge-use-r", ac.label, ac.tip) {
+				ac.act()
+			}
+		}
+		if any {
+			a.mergeMore(c, "merge-actions-more", acts)
 		}
 	})
 }
@@ -388,6 +430,81 @@ func (a *app) mergeActions(c *ui.Context, v *mergeView) {
 // bars.
 func mergeDivider(c *ui.Context, p *palette) {
 	ui.Box(c).Size(1, 14).Shrink(0).Margin(0, 2, 0, 2).Background(p.border)
+}
+
+// mergeAction is an action of a merge bar: on its row while it fits, in
+// the row's overflow menu once it does not. Rank is the order they go in,
+// the least needed first; menu says the overflow holds it. The words of
+// the head, which only hide, have none.
+type mergeAction struct {
+	rank  int
+	label string
+	tip   string
+	w     float32
+	act   func()
+	menu  bool
+	onBar bool
+}
+
+// mergeTextButtonW is the width of a merge bar's button of a label: the text,
+// its padding and border, and a little the measure misses.
+func mergeTextButtonW(c *ui.Context, label string) float32 {
+	w, _ := c.MeasureText(0, ui.Span{Text: label, Size: 11.5})
+	return w + 2*8 + 2 + 8
+}
+
+// mergeDrop marks the actions of a merge bar as its row drops them, the
+// least needed first, each only once the row would not hold it, and says
+// whether one went to the overflow. Used is what the row holds besides
+// the actions, width the room it has, gap the room after every child.
+func mergeDrop(acts []*mergeAction, used, width, gap float32) bool {
+	const overflow = float32(12 + 2*8 + 2 + 4)
+	for _, ac := range acts {
+		used += ac.w + gap
+	}
+	any := false
+	for _, ac := range acts {
+		if used <= width {
+			break
+		}
+		ac.onBar = false
+		used -= ac.w + gap
+		if ac.menu && !any {
+			any = true
+			used += overflow + gap
+		}
+	}
+	return any
+}
+
+// mergeOnBar returns the action of a rank while it stands on the row.
+func mergeOnBar(acts []*mergeAction, rank int) *mergeAction {
+	for _, ac := range acts {
+		if ac.rank == rank && ac.onBar {
+			return ac
+		}
+	}
+	return nil
+}
+
+// mergeMore is the ⋯ button of a merge bar's row, holding the actions
+// that went from it, in the row's order.
+func (a *app) mergeMore(c *ui.Context, key string, acts []*mergeAction) {
+	p := a.pal
+	b := a.mergeButtonBase(c, key, locales.MergeMoreActions(), locales.MergeMoreActionsTip())
+	b.Menu(func(m *ui.Menu) {
+		for _, ac := range acts {
+			if ac.onBar || !ac.menu {
+				continue
+			}
+			if m.Item(ac.label).Chosen() {
+				ac.act()
+			}
+		}
+	})
+	b.Children(func() {
+		ui.Icon(c, iconMore).FontSize(12).TextColor(p.muted)
+	})
 }
 
 // mergeButtonBase is a small button of the merge's bars, outlined, its
