@@ -81,13 +81,103 @@ func (a *app) mergeViewUI(c *ui.Context, v *mergeView) {
 // mergeHead is the bar over the panes: the file in conflict, how many of
 // its conflicts stand, how many of the files of the merge stand resolved,
 // and what ends them, over a line that fills as the conflicts resolve.
+// As the window narrows, the file actions go one by one into the
+// overflow menu, the least needed first, each only once the row would
+// not hold it, as the status bar's parts go.
 func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 	p := a.pal
 	resolved := a.mergeResolved(v)
 	filesResolved, filesTotal := a.mergeResolvedCount()
+	measure := func(s string, size float32) float32 {
+		w, _ := c.MeasureText(0, ui.Span{Text: s, Size: size})
+		return w
+	}
+	// action is a file action of the row: on the bar while it fits, in
+	// the overflow menu once it does not. Rank is the order they go in;
+	// the counts go before them and only hide, the menu holds no word.
+	type action struct {
+		rank  int
+		label string
+		tip   string
+		w     float32
+		act   func()
+		menu  bool
+		onBar bool
+	}
+	button := func(label string) float32 { return measure(label, 11.5) + 2*8 + 2 + 8 }
+	var acts []*action
+	add := func(rank int, label, tip string, w float32, act func(), menu bool) {
+		acts = append(acts, &action{rank, label, tip, w, act, menu, true})
+	}
+	if n := len(v.regions); n > 0 {
+		pill := locales.MergeConflictsCount(strconv.Itoa(v.unresolved()), strconv.Itoa(n))
+		add(-2, pill, "", measure(pill, 10.5)+2*7, nil, false)
+	}
+	if filesTotal > 1 {
+		count := locales.MergeFilesResolved(strconv.Itoa(filesResolved), strconv.Itoa(filesTotal))
+		add(-1, count, "", measure(count, 11.5), nil, false)
+	}
+	if filesTotal > 0 {
+		tip := locales.MergeConflictsTip(cmp.Or(v.op.Title(), locales.MergeOpMerge()))
+		add(0, locales.MergeConflictsEllipsis(), tip, button(locales.MergeConflictsEllipsis()), a.openConflicts, true)
+		add(1, locales.MergeSaveClose(), locales.MergeSaveCloseTip(), button(locales.MergeSaveClose()),
+			func() { a.post(func() { a.saveCloseMerge(v) }) }, true)
+	}
+	if !resolved && filesTotal > 1 {
+		add(2, locales.MergeApplyChanges(), locales.MergeApplyChangesTip(), button(locales.MergeApplyChanges()),
+			func() { a.post(func() { a.applyMergeChanges(v) }) }, true)
+	}
+	add(3, locales.ButtonSave(), locales.MergeSaveTip(), button(locales.ButtonSave()),
+		func() { a.post(func() { a.saveMerge(v) }) }, true)
+	if !resolved {
+		add(4, locales.MergeResetBase(), locales.MergeResetBaseTip(), button(locales.MergeResetBase())+12+5,
+			func() { a.post(func() { a.resetMerge(v) }) }, true)
+		add(5, locales.MergeMarkResolved(), locales.MergeMarkResolvedTip(), measure(locales.MergeMarkResolved(), 13)+2*14+8,
+			func() { a.post(func() { a.completeMerge(v) }) }, true)
+	}
 	head := ui.Column(c.Key("merge-head")).Background(p.chrome)
 	head.Children(func() {
-		ui.Row(c).Height(34).Padding(0, 10, 0, 10).Gap(8).AlignItems(ui.Center).Children(func() {
+		row := ui.Row(c.Key("merge-head-row")).Height(34).Padding(0, 10, 0, 10).Gap(8).AlignItems(ui.Center)
+		// The row's room, as the last frame laid it out — a frame behind,
+		// as the panel's title and the commit message have it.
+		width := row.Bounds().W
+		if width <= 0 {
+			width, _ = c.Size()
+		}
+		// What the row holds besides them: its padding, the icon, the
+		// name, and the divider between Apply and the rest. The tip's
+		// gaps and the name's weight the measures miss go in too.
+		used := 2*10 + 22 + measure(v.name(), 13) + 6 + 3*8 + 2*8 + 4
+		if !resolved {
+			used += 21
+		}
+		for _, ac := range acts {
+			used += ac.w + 8
+		}
+		// The overflow's button, once an action went there.
+		overflow := float32(12 + 2*8 + 2 + 4)
+		any := false
+		for _, ac := range acts {
+			if used <= width {
+				break
+			}
+			ac.onBar = false
+			used -= ac.w + 8
+			if ac.menu && !any {
+				any = true
+				used += overflow + 8
+			}
+		}
+		onBar := func(rank int) *action {
+			for _, ac := range acts {
+				if ac.rank == rank && ac.onBar {
+					return ac
+				}
+			}
+			return nil
+		}
+		pillAct, countAct := onBar(-2), onBar(-1)
+		row.Children(func() {
 			ui.Box(c).Size(22, 22).Radius(6).Shrink(0).Background(p.changed.Alpha(0.14)).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, iconMerge).FontSize(13).TextColor(p.changed)
 			})
@@ -97,26 +187,25 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 				tip = locales.MergeOpStoppedFile(op)
 			}
 			ui.Text(c, tip).FontSize(11.5).TextColor(p.muted).SingleLine().Shrink(1)
-			if n := len(v.regions); n > 0 {
-				un := v.unresolved()
-				pill := ui.Box(c.Key("merge-count")).Height(18).Padding(0, 7).Radius(9).Shrink(0).
+			if pillAct != nil {
+				col := p.text
+				pillBox := ui.Box(c.Key("merge-count")).Height(18).Padding(0, 7).Radius(9).Shrink(0).
 					AlignItems(ui.Center).Justify(ui.Center).
 					Label(locales.MergeConflictsUnresolved()).Tooltip(locales.MergeConflictsUnresolvedTip())
-				col := p.text
-				if un > 0 {
-					pill.Background(p.danger.Alpha(0.16))
+				if v.unresolved() > 0 {
+					pillBox.Background(p.danger.Alpha(0.16))
 					col = p.dangerFg
 				} else {
-					pill.Background(p.added.Alpha(0.16))
+					pillBox.Background(p.added.Alpha(0.16))
 					col = p.addedFg
 				}
-				pill.Transition(hoverFade)
-				pill.Children(func() {
-					ui.RichText(c, ui.Span{Text: locales.MergeConflictsCount(strconv.Itoa(un), strconv.Itoa(n)), Size: 10.5, Weight: 650, Color: col}).SingleLine()
+				pillBox.Transition(hoverFade)
+				pillBox.Children(func() {
+					ui.RichText(c, ui.Span{Text: pillAct.label, Size: 10.5, Weight: 650, Color: col}).SingleLine()
 				})
 			}
-			if filesTotal > 1 {
-				ui.Text(c, locales.MergeFilesResolved(strconv.Itoa(filesResolved), strconv.Itoa(filesTotal))).
+			if countAct != nil {
+				ui.Text(c, countAct.label).
 					FontSize(11.5).TextColor(p.muted).SingleLine().Shrink(0).
 					Tooltip(locales.MergeFilesResolvedTip(cmp.Or(v.op.Title(), locales.MergeOpMerge())))
 			}
@@ -145,30 +234,56 @@ func (a *app) mergeHead(c *ui.Context, v *mergeView) {
 				})
 			}
 			if !resolved {
-				if a.mergeIconButton(c, "merge-reset", iconUndo, locales.MergeResetBase(), locales.MergeResetBaseTip()) {
-					a.post(func() { a.resetMerge(v) })
+				if ac := onBar(4); ac != nil {
+					if a.mergeIconButton(c, "merge-reset", iconUndo, ac.label, ac.tip) {
+						ac.act()
+					}
 				}
 			}
 			mergeDivider(c, p)
-			if a.mergeButton(c, "merge-save", locales.ButtonSave(), locales.MergeSaveTip()) {
-				a.post(func() { a.saveMerge(v) })
+			if ac := onBar(3); ac != nil {
+				if a.mergeButton(c, "merge-save", ac.label, ac.tip) {
+					ac.act()
+				}
 			}
-			if !resolved && filesTotal > 1 && a.mergeButton(c, "merge-apply-next", locales.MergeApplyChanges(), locales.MergeApplyChangesTip()) {
-				a.post(func() { a.applyMergeChanges(v) })
+			if ac := onBar(2); ac != nil {
+				if a.mergeButton(c, "merge-apply-next", ac.label, ac.tip) {
+					ac.act()
+				}
 			}
-			if filesTotal > 0 && a.mergeButton(c, "merge-save-close", locales.MergeSaveClose(), locales.MergeSaveCloseTip()) {
-				a.post(func() { a.saveCloseMerge(v) })
+			if ac := onBar(1); ac != nil {
+				if a.mergeButton(c, "merge-save-close", ac.label, ac.tip) {
+					ac.act()
+				}
 			}
-			if filesTotal > 0 && a.mergeButton(c, "merge-files", locales.MergeConflictsEllipsis(), locales.MergeConflictsTip(cmp.Or(v.op.Title(), locales.MergeOpMerge()))) {
-				a.post(a.openConflicts)
+			if ac := onBar(0); ac != nil {
+				if a.mergeButton(c, "merge-files", ac.label, ac.tip) {
+					ac.act()
+				}
 			}
-			if !resolved {
-				b := ui.PrimaryButton(c.Key("merge-resolved"), locales.MergeMarkResolved()).Height(24)
-				b.Tooltip(locales.MergeMarkResolvedTip())
+			if ac := onBar(5); ac != nil {
+				b := ui.PrimaryButton(c.Key("merge-resolved"), ac.label).Height(24)
+				b.Tooltip(ac.tip)
 				pressPose(b)
 				if b.Clicked() {
-					a.post(func() { a.completeMerge(v) })
+					ac.act()
 				}
+			}
+			if any {
+				b := a.mergeButtonBase(c, "merge-more", locales.MergeMoreActions(), locales.MergeMoreActionsTip())
+				b.Menu(func(m *ui.Menu) {
+					for _, ac := range acts {
+						if ac.onBar || !ac.menu {
+							continue
+						}
+						if m.Item(ac.label).Chosen() {
+							ac.act()
+						}
+					}
+				})
+				b.Children(func() {
+					ui.Icon(c, iconMore).FontSize(12).TextColor(p.muted)
+				})
 			}
 		})
 		// How far the conflicts are resolved, filling as they are.

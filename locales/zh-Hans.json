@@ -522,6 +522,8 @@
   "mergeIgnoreRightTip": "恢复冲突的基线内容，移除对方一侧",
   "mergeMarkResolved": "标记为已解决",
   "mergeMarkResolvedTip": "保存结果并暂存文件，结束其冲突",
+  "mergeMoreActions": "更多操作",
+  "mergeMoreActionsTip": "合并中放不下的操作",
   "mergeMarkedResolved": "已将 {name} 标记为解决",
   "mergeNextConflict": "下一处冲突 (])",
   "mergeOpMerge": "合并",

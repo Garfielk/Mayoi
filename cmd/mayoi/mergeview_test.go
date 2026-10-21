@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	gitpkg "mayoi/internal/git"
+	"mayoi/locales"
 )
 
 func TestMergeRegions(t *testing.T) {
@@ -1150,5 +1151,139 @@ func TestMergeFilesKeys(t *testing.T) {
 	}
 	if a.conflicts.open {
 		t.Error("the list is open still")
+	}
+}
+
+// mergeOverflowSetup makes a two-file merge and opens one.txt's merge,
+// its first conflict taken so the result differs from the base.
+func (hs *harness) mergeOverflowSetup(t *testing.T) *mergeView {
+	hs.mergeFilesRepo()
+	v := hs.mergeOfRel("one.txt")
+	hs.a.takeMergeSide(v, 0, true)
+	hs.settle()
+	if got := v.resultLines(); slices.Equal(got, []string{"a", "b", "c", "m", "z"}) || v.unresolved() >= len(v.regions) {
+		t.Fatalf("the conflict did not go in: %q unresolved=%d", got, v.unresolved())
+	}
+	return v
+}
+
+// mergeOverflowPress presses the merge header's action where it stands:
+// on the bar while it fits, from the overflow menu once it went there.
+func (hs *harness) mergeOverflowPress(t *testing.T, label string) {
+	if _, on := hs.tt.Find(label); on {
+		if err := hs.tt.Click(label); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if err := hs.tt.Click(locales.MergeMoreActions()); err != nil {
+		t.Fatalf("%q is neither on the bar nor has the menu a place to open: %v", label, err)
+	}
+	if !slices.Contains(hs.tt.Menu(), label) {
+		t.Fatalf("%q is neither on the bar nor in the menu: %q", label, hs.tt.Menu())
+	}
+	if err := hs.tt.ChooseMenuItem(label); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestMergeHeadDropsLeastNeededFirst: as the window narrows, the merge
+// header's file actions go one by one, the least needed first, each only
+// once the row would not hold it, and those left fit. Whatever went
+// stands in the overflow menu, and nothing stays on both.
+func TestMergeHeadDropsLeastNeededFirst(t *testing.T) {
+	skipOnWindows(t, "Windows' wider font holds the actions at 540")
+	hs := newHarness(t, true)
+	hs.mergeOverflowSetup(t)
+	// In the order they go.
+	parts := []string{"Conflicts…", "Save and Close", "Apply Changes", "Save", "Reset to Base", "Mark Resolved"}
+	gone := 0
+	for w := 1200; w >= 540; w -= 20 {
+		hs.tt.SetSize(w, 640)
+		hs.settle()
+		for i, s := range parts {
+			box, shown := hs.tt.Find(s)
+			switch {
+			case !shown:
+				gone = max(gone, i+1)
+			case i < gone:
+				t.Errorf("at %d, %q is back", w, s)
+			case box.X+box.W > float32(w):
+				t.Errorf("at %d, %q does not fit: %.0f+%.0f", w, s, box.X, box.W)
+			}
+		}
+		if box, ok := hs.tt.Find(locales.MergeApply()); !ok || box.X+box.W > float32(w) {
+			t.Errorf("at %d, Apply does not fit: %v", w, box)
+		}
+	}
+	if gone == 0 {
+		t.Fatal("the actions never go, though the row ran out of room")
+	}
+	// What went stands in the overflow menu, in the row's order, and
+	// nothing stands in both places.
+	if err := hs.tt.Click(locales.MergeMoreActions()); err != nil {
+		t.Fatal(err)
+	}
+	menu := hs.tt.Menu()
+	if len(menu) == 0 {
+		t.Fatal("the overflow menu holds nothing")
+	}
+	last := -1
+	for _, s := range menu {
+		i := slices.Index(parts, s)
+		if i < 0 {
+			if s != locales.MergeApply() {
+				t.Errorf("the menu holds %q, which no action of the row is", s)
+			}
+			continue
+		}
+		if _, on := hs.tt.Find(s); on {
+			t.Errorf("%q stands on the bar and in the menu", s)
+		}
+		if i < last {
+			t.Errorf("%q stands out of the row's order in the menu: %q", s, menu)
+		}
+		last = i
+	}
+}
+
+// TestMergeHeadOverflowMenuActs: an action of the overflow menu does what
+// the button it went from does, on the bar or in the menu as the width
+// has it.
+func TestMergeHeadOverflowMenuActs(t *testing.T) {
+	hs := newHarness(t, true)
+	v := hs.mergeOverflowSetup(t)
+	// The row cannot hold every action at this width.
+	hs.tt.SetSize(760, 640)
+	hs.settle()
+	if _, ok := hs.tt.Find(locales.MergeMoreActions()); !ok {
+		t.Fatal("no overflow menu at 760, though the actions cannot fit")
+	}
+	// Reset to Base puts the base back, wherever it stands.
+	hs.mergeOverflowPress(t, locales.MergeResetBase())
+	hs.settle()
+	if got := v.doc.buf.String(); got != "a\nb\nc\nm\nz\n" {
+		t.Fatalf("the result is not the base: %q", got)
+	}
+	// Conflicts… opens the files in conflict.
+	hs.mergeOverflowPress(t, locales.MergeConflictsEllipsis())
+	hs.settle()
+	if !hs.a.conflicts.open {
+		t.Error("the files in conflict do not open")
+	}
+	hs.a.closeConflicts()
+	hs.settle()
+	// Save and Close saves the file and ends the merge.
+	hs.mergeOverflowPress(t, locales.MergeSaveClose())
+	hs.settle()
+	body, err := os.ReadFile(hs.path("one.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "a\nb\nc\nm\nz\n" {
+		t.Errorf("the file does not hold the result: %q", body)
+	}
+	if tm := hs.a.activeTab(); tm != nil && tm.merge != nil {
+		t.Error("the merge does not close")
 	}
 }
