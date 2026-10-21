@@ -97,19 +97,6 @@ func (a *app) syncMergePanes(v *mergeView) {
 	}
 }
 
-// bandInBox reports whether a band whose edges stand at lt..lb on the
-// left and rt..rb on the right crosses the box top..bot, and clamps the
-// four edges into it. A band the scrolling has carried partly past the
-// gutter's box shows only the part inside, cut at the box's edge, rather
-// than running past the panes and up over the merge's header.
-func bandInBox(lt, lb, rt, rb, top, bot float32) (float32, float32, float32, float32, bool) {
-	if max(lb, rb) <= top || min(lt, rt) >= bot {
-		return 0, 0, 0, 0, false
-	}
-	clampToBox := func(y float32) float32 { return min(max(y, top), bot) }
-	return clampToBox(lt), clampToBox(lb), clampToBox(rt), clampToBox(rb), true
-}
-
 // mergeBand is a hunk between a side of a merge and the result, as the
 // gutter between their panes joins them: the side's lines and the
 // result's, the conflict it is of, -1 for none, whether it is a change
@@ -297,28 +284,32 @@ func (a *app) mergeGutter(c *ui.Context, v *mergeView, left int) {
 			}
 			xL, xR := r.X, r.X+r.W
 			cx := (xL + xR) / 2
-			for i, b := range bands {
-				ll, lh, rl, rh := b.h.A, b.h.A+b.h.ALen, b.h.B, b.h.B+b.h.BLen
-				if side == 2 {
-					ll, lh, rl, rh = rl, rh, ll, lh
+			// A band the scrolling carried partly past the box is cut at
+			// its edge, not drawn on over the merge's header.
+			pt.Clip(r, 0, func() {
+				for i, b := range bands {
+					ll, lh, rl, rh := b.h.A, b.h.A+b.h.ALen, b.h.B, b.h.B+b.h.BLen
+					if side == 2 {
+						ll, lh, rl, rh = rl, rh, ll, lh
+					}
+					lt, lb, rt, rb := r.Y+y(lk, ll), r.Y+y(lk, lh), r.Y+y(rk, rl), r.Y+y(rk, rh)
+					if max(lb, rb) < r.Y || min(lt, rt) > r.Y+r.H {
+						continue
+					}
+					alpha := float32(0.16)
+					if b.region >= 0 && b.region == v.chosen {
+						alpha = 0.26
+					}
+					alpha += 0.2 * glow[i]
+					var band ui.Path
+					band.MoveTo(xL, lt).CubeTo(cx, lt, cx, rt, xR, rt).LineTo(xR, rb).CubeTo(cx, rb, cx, lb, xL, lb).Close()
+					pt.FillPath(&band, b.col.Alpha(alpha))
+					var edges ui.Path
+					edges.MoveTo(xL, lt).CubeTo(cx, lt, cx, rt, xR, rt)
+					edges.MoveTo(xL, lb).CubeTo(cx, lb, cx, rb, xR, rb)
+					pt.StrokePath(&edges, 1, b.col.Alpha(0.45+0.35*glow[i]))
 				}
-				lt, lb, rt, rb, ok := bandInBox(r.Y+y(lk, ll), r.Y+y(lk, lh), r.Y+y(rk, rl), r.Y+y(rk, rh), r.Y, r.Y+r.H)
-				if !ok {
-					continue
-				}
-				alpha := float32(0.16)
-				if b.region >= 0 && b.region == v.chosen {
-					alpha = 0.26
-				}
-				alpha += 0.2 * glow[i]
-				var band ui.Path
-				band.MoveTo(xL, lt).CubeTo(cx, lt, cx, rt, xR, rt).LineTo(xR, rb).CubeTo(cx, rb, cx, lb, xL, lb).Close()
-				pt.FillPath(&band, b.col.Alpha(alpha))
-				var edges ui.Path
-				edges.MoveTo(xL, lt).CubeTo(cx, lt, cx, rt, xR, rt)
-				edges.MoveTo(xL, lb).CubeTo(cx, lb, cx, rb, xR, rb)
-				pt.StrokePath(&edges, 1, b.col.Alpha(0.45+0.35*glow[i]))
-			}
+			})
 		})
 	})
 }

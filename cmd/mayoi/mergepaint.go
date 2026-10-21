@@ -329,7 +329,7 @@ func (a *app) mergePane(c *ui.Context, v *mergeView, k int, label, tip string) {
 			ui.Text(c, label).FontSize(10.5).FontWeight(600).LetterSpacing(0.4).TextColor(p.muted).SingleLine().Shrink(1)
 		})
 		pane := ui.ScrollHorizontal(c.Key(fmt.Sprintf("merge-scroll-%d", k))).TrackScroll(&v.panes[k].hscroll).
-			Fill().Background(p.editor)
+			Grow(1).MinHeight(0).Background(p.editor)
 		pane.Children(func() {
 			// The pane's room is the scroller's, which the text area,
 			// as wide as its longest line, may be wider than.
