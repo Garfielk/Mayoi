@@ -751,7 +751,6 @@
   "mergeMarkResolved": "Mark Resolved",
   "mergeMarkResolvedTip": "Save the result and stage the file, which ends its conflict",
   "mergeMoreActions": "More Actions",
-  "mergeMoreActionsTip": "The actions of the merge that the row has no room for",
   "mergeMarkedResolved": "Marked {name} resolved",
   "mergeNextConflict": "Next Conflict (])",
   "mergeOpMerge": "merge",

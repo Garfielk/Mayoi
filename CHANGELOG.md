@@ -5,12 +5,9 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
-- The merge view's bars drop their actions into an overflow **⋯** menu
-  one by one as the window narrows — the header's Conflicts…, Save and
-  Close, Apply Changes, Save, Reset to Base, then Mark Resolved, and the
-  conflict bar's Resolve using, Ignore and Accept sides, the whole-file
-  sides first — so both rows stay whole and every action stays reachable
-  at any width.
+- As the window narrows, the merge view's bars move their actions into a
+  **⋯** menu one by one, the least needed first, instead of cutting them
+  off.
 - Clicking the branch in the status bar opens the same searchable branch
   picker as Source Control, with **Create Branch…** at the top; fetch, pull
   and push stay in Source Control and the Git menu. Invalid branch names are

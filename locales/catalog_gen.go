@@ -5305,16 +5305,6 @@ func (msgs Messages) MergeMoreActions() string {
 	return Catalog.Format(msgs.locale, "mergeMoreActions", nil)
 }
 
-// MergeMoreActionsTip says "The actions of the merge that the row has no room for"
-// in the language the app shows.
-func MergeMoreActionsTip() string { return In(i18n.Locale()).MergeMoreActionsTip() }
-
-// MergeMoreActionsTip says "The actions of the merge that the row has no room for"
-// in the language of msgs.
-func (msgs Messages) MergeMoreActionsTip() string {
-	return Catalog.Format(msgs.locale, "mergeMoreActionsTip", nil)
-}
-
 // MergeMarkedResolved says "Marked {name} resolved"
 // in the language the app shows.
 func MergeMarkedResolved(name string) string { return In(i18n.Locale()).MergeMarkedResolved(name) }

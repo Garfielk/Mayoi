@@ -491,7 +491,7 @@ func mergeOnBar(acts []*mergeAction, rank int) *mergeAction {
 // that went from it, in the row's order.
 func (a *app) mergeMore(c *ui.Context, key string, acts []*mergeAction) {
 	p := a.pal
-	b := a.mergeButtonBase(c, key, locales.MergeMoreActions(), locales.MergeMoreActionsTip())
+	b := a.mergeButtonBase(c, key, locales.MergeMoreActions(), locales.MergeMoreActions())
 	b.Menu(func(m *ui.Menu) {
 		for _, ac := range acts {
 			if ac.onBar || !ac.menu {
