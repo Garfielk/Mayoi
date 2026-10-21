@@ -15,6 +15,15 @@ func (a *app) wraps(d *editor) bool {
 	return a.settings.WordWrap
 }
 
+// wrapsMerge reports whether a merge wraps the lines of its panes: as its
+// tab chose, or else as the settings say.
+func (a *app) wrapsMerge(v *mergeView) bool {
+	if v.wrap != nil && v.wrapGen == a.settings.WrapGen {
+		return *v.wrap
+	}
+	return a.settings.WordWrap
+}
+
 // toggleWordWrap wraps the lines of every editor, or none: the tabs that
 // chose otherwise follow it again.
 func (a *app) toggleWordWrap() {
@@ -28,9 +37,15 @@ func (a *app) toggleWordWrap() {
 // toggleTabWrap wraps the lines of the editor shown, or stops, until
 // the settings' Word Wrap changes.
 func (a *app) toggleTabWrap() {
-	if t := a.activeTab(); t != nil && t.diff != nil {
-		a.toggleDiffWrap(t.diff)
-		return
+	if t := a.activeTab(); t != nil {
+		if t.diff != nil {
+			a.toggleDiffWrap(t.diff)
+			return
+		}
+		if t.merge != nil {
+			a.toggleMergeWrap(t.merge)
+			return
+		}
 	}
 	d := a.activeEditor()
 	if d == nil {
@@ -38,6 +53,14 @@ func (a *app) toggleTabWrap() {
 	}
 	w := !a.wraps(d)
 	d.wrap, d.wrapGen = &w, a.settings.WrapGen
+	a.invalidate()
+}
+
+// toggleMergeWrap wraps the lines of a merge's panes, or stops, until the
+// settings' Word Wrap changes.
+func (a *app) toggleMergeWrap(v *mergeView) {
+	w := !a.wrapsMerge(v)
+	v.wrap, v.wrapGen = &w, a.settings.WrapGen
 	a.invalidate()
 }
 
@@ -72,6 +95,40 @@ func (g geometry) at(y float32) int {
 		return g.lines.At(y)
 	}
 	return min(max(0, int(y/g.lineH)), g.n-1)
+}
+
+// topF returns the top of a fractional line i, between the tops of the
+// lines its whole part falls between: where a line across from i stands.
+// Below the first line it goes negative, as i*lineH does.
+func (g geometry) topF(i float32) float32 {
+	if g.lines == nil {
+		return i * g.lineH
+	}
+	lo, f := i, float32(0)
+	if lo >= 0 {
+		lo = float32(int(i))
+		f = i - lo
+	}
+	t0 := g.lines.Top(int(lo))
+	if f == 0 {
+		return t0
+	}
+	return t0 + f*(g.lines.Top(int(lo)+1)-t0)
+}
+
+// atF returns the fractional line at y: the line y falls in, and how far
+// into it, as the line across from y goes.
+func (g geometry) atF(y float32) float32 {
+	if g.lines == nil {
+		return y / g.lineH
+	}
+	i := g.lines.At(y)
+	t0 := g.lines.Top(i)
+	t1 := g.lines.Top(i + 1)
+	if t1 <= t0 {
+		return float32(i)
+	}
+	return float32(i) + (y-t0)/(t1-t0)
 }
 
 // height returns the height of all the lines.

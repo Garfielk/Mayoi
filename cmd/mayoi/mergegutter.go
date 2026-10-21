@@ -69,14 +69,13 @@ func (a *app) syncMergePanes(v *mergeView) {
 		}
 	}
 	if moved >= 0 && v.loaded && v.doc != nil {
-		lineH := a.font.lineH
 		end := func(k int) float32 {
-			return max(0, 2*editorPadY+float32(v.paneLineCount(k))*lineH-v.panes[k].viewH)
+			return max(0, 2*editorPadY+a.mergeGeometry(v, k).top(v.paneLineCount(k))-v.panes[k].viewH)
 		}
 		h := v.panes[moved].viewH
 		s := v.panes[moved].scroll.Y
 		off := clamp(min(s, h/2)+h/2-min(end(moved)-s, h/2), 0, h)
-		line := (s + off - editorPadY) / lineH
+		line := a.mergeGeometry(v, moved).atF(s + off - editorPadY)
 		res := line
 		if moved != 1 {
 			res = mapMergeLine(v.pairHunks(moved), line, false)
@@ -89,7 +88,7 @@ func (a *app) syncMergePanes(v *mergeView) {
 			if k != 1 {
 				at = mapMergeLine(v.pairHunks(k), res, true)
 			}
-			v.panes[k].scroll.Y = clamp(editorPadY+at*lineH-off, 0, end(k))
+			v.panes[k].scroll.Y = clamp(editorPadY+a.mergeGeometry(v, k).topF(at)-off, 0, end(k))
 		}
 	}
 	for k := range 3 {
@@ -191,18 +190,24 @@ func (a *app) mergeGutter(c *ui.Context, v *mergeView, left int) {
 		side = 2
 	}
 	bands := a.mergeBands(v, side)
+	// Where a pane's lines stand as that pane wraps them: the sides and
+	// the result wrap each at their width, and the bands join their rows.
+	var gs [3]geometry
+	for k := range gs {
+		gs[k] = a.mergeGeometry(v, k)
+	}
 	ui.Column(c.Key(fmt.Sprintf("merge-gutter-%d", left))).Width(mergeMidW).Shrink(0).Children(func() {
 		ui.Box(c).Height(20).Background(p.chrome)
 		box := ui.Box(c.Key(fmt.Sprintf("merge-bands-%d", left))).Grow(1).MinHeight(0).Background(p.text.Alpha(0.02)).Clip()
 		viewH := v.panes[side].viewH
-		y := func(k int, line int) float32 { return editorPadY + float32(line)*lineH - v.panes[k].scroll.Y }
+		y := func(k int, line int) float32 { return editorPadY + gs[k].top(line) - v.panes[k].scroll.Y }
 		glow := map[int]float32{}
 		box.Children(func() {
 			hot := -1
 			for i, b := range bands {
 				sy := y(side, b.h.A)
 				if b.h.ALen > 0 {
-					sy += min(lineH, float32(b.h.ALen)*lineH) / 2
+					sy = (y(side, b.h.A) + y(side, b.h.A+b.h.ALen)) / 2
 				}
 				if sy < -lineH || sy > viewH+lineH {
 					continue
@@ -361,8 +366,8 @@ func (a *app) paintMergeFlash(pt *ui.Painter, v *mergeView, r ui.Rect) {
 		return
 	}
 	k := (1 - t) * (1 - t)
-	lineH := a.font.lineH
-	y := r.Y + editorPadY + float32(fl.lo)*lineH - v.panes[1].scroll.Y
-	pt.Fill(ui.Rect{X: r.X, Y: y, W: r.W, H: float32(fl.hi-fl.lo) * lineH}, a.pal.accent.Alpha(0.30*k), 0)
+	g := a.mergeGeometry(v, 1)
+	y := r.Y + editorPadY + g.top(fl.lo) - v.panes[1].scroll.Y
+	pt.Fill(ui.Rect{X: r.X, Y: y, W: r.W, H: g.top(fl.hi) - g.top(fl.lo)}, a.pal.accent.Alpha(0.30*k), 0)
 	pt.AnimationFrame()
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1636,5 +1637,241 @@ func TestMergeActionsOverflowMenuActs(t *testing.T) {
 		if st := v.stateOf(r); st != regionRight {
 			t.Errorf("a conflict stands %v, not theirs", st)
 		}
+	}
+}
+
+// TestMergePaneWrapsLines: a merge's panes wrap their lines at their
+// width as Word Wrap says, ⌥Z unwraps the merge alone, and a change of
+// the setting takes the tab's choice away again.
+func TestMergePaneWrapsLines(t *testing.T) {
+	hs := newHarness(t, true)
+	long := strings.Repeat("a long merge line ", 20)
+	hs.mergeRepo("a\n"+long+"\nz\n", "ours\n"+long+"\nz\n", "theirs\n"+long+"\nz\n")
+	v := hs.mergeOf()
+	a := hs.a
+	lineH := a.font.lineH
+	// Without wrapping, a line stands one lineH apart.
+	if top := a.mergeGeometry(v, 0).top(2); top != 2*lineH {
+		t.Fatalf("line 2 of ours stands %v from the top, want %v", top, 2*lineH)
+	}
+	// Word Wrap on: the long line of every pane wraps, and the line after
+	// it stands lower than the lines apart of no wrapping — but not to
+	// ribbons either, as a pane that hugged its content would, wrapping
+	// every line again and again in a collapsed column.
+	a.toggleWordWrap()
+	hs.settle()
+	for k := range v.panes {
+		top := a.mergeGeometry(v, k).top(2)
+		if top <= 2*lineH {
+			t.Errorf("pane %d does not wrap: line 2 stands %v from the top", k, top)
+		}
+		if top >= 20*lineH {
+			t.Errorf("pane %d wraps to ribbons: line 2 stands %v from the top", k, top)
+		}
+	}
+	// ⌥Z unwraps the merge alone: the setting stays on.
+	a.toggleTabWrap()
+	hs.settle()
+	if top := a.mergeGeometry(v, 0).top(2); top != 2*lineH {
+		t.Fatalf("after ⌥Z line 2 stands %v, want %v", top, 2*lineH)
+	}
+	if !a.settings.WordWrap {
+		t.Error("⌥Z turned the Word Wrap setting off")
+	}
+	// A change of the setting takes the tab's choice away: the panes
+	// wrap again.
+	a.toggleWordWrap()
+	a.toggleWordWrap()
+	hs.settle()
+	if top := a.mergeGeometry(v, 0).top(2); top <= 2*lineH {
+		t.Fatalf("the tab's choice outlived the setting: line 2 stands %v", top)
+	}
+}
+
+// TestMergePaneWrapChoosesRegion: a click on a row of a wrapped line
+// finds the conflict the line belongs to, not the line its row sits at.
+func TestMergePaneWrapChoosesRegion(t *testing.T) {
+	hs := newHarness(t, true)
+	long := strings.Repeat("a long merge line ", 20)
+	hs.mergeRepo(long+"\n"+long+"\nz\n", long+"\n"+long+"\nours\n", long+"\n"+long+"\ntheirs\n")
+	v := hs.mergeOf()
+	a := hs.a
+	a.toggleWordWrap()
+	hs.settle()
+	// The conflict holds line 2; the rows its wrapped lines above take
+	// push it far past where one line a row would have it. A click on its
+	// first row still finds it. chooseMergeLine takes the pointer's place
+	// in the pane: the scroll and the padding come off inside it.
+	v.chosen = -1
+	y := a.mergeGeometry(v, 0).top(2) + a.font.lineH/2 - v.panes[0].scroll.Y + editorPadY
+	a.chooseMergeLine(v, 0, y)
+	if v.chosen != 0 {
+		t.Fatalf("a click on line 2 chose region %d, want 0", v.chosen)
+	}
+}
+
+// TestMergePaneWrapHoldsNoEstimates: as a merge's panes wrap, every line
+// of them is laid out for its height, so that none stands on an estimate
+// — a pane is narrow and wraps deep, and a scroll into estimated
+// country, as revealing a far conflict goes, shows a blank where the
+// heights say text is. All measured, the height of the lines is the rows
+// they wrap to.
+func TestMergePaneWrapHoldsNoEstimates(t *testing.T) {
+	hs := newHarness(t, true)
+	var base, ours, theirs []string
+	for i := 0; i < 80; i++ {
+		switch i % 4 {
+		case 0:
+			base = append(base, fmt.Sprintf("// comment %02d — a fairly long line of commentary text that wraps in a narrow merge pane", i))
+		case 1:
+			base = append(base, fmt.Sprintf("func f%02d() int {", i))
+		case 2:
+			base = append(base, "	return 1")
+		default:
+			base = append(base, "}")
+		}
+	}
+	ours, theirs = append([]string{}, base...), append([]string{}, base...)
+	ours[61] = "// comment 61 changed by ours — a fairly long line of it"
+	theirs[61] = "// comment 61 changed by theirs — a fairly long line"
+	hs.mergeRepo(strings.Join(base, "\n")+"\n", strings.Join(ours, "\n")+"\n", strings.Join(theirs, "\n")+"\n")
+	v := hs.mergeOf()
+	a := hs.a
+	a.toggleWordWrap()
+	hs.settle()
+	a.stepMergeRegion(v, 1)
+	hs.settle()
+	lineH := a.font.lineH
+	for k := 0; k < 3; k++ {
+		g := a.mergeGeometry(v, k)
+		rows := float32(0)
+		for i := 0; i < v.paneLineCount(k); i++ {
+			rows += float32(len(v.panes[k].lines.Rows(i)))
+		}
+		if h := g.top(v.paneLineCount(k)); h < rows*lineH-lineH/8 || h > rows*lineH+lineH/8 {
+			t.Errorf("pane %d stands on estimated heights: %v high, its rows %v", k, h, rows*lineH)
+		}
+	}
+}
+
+// TestMergeSyncScrollFollowsWrapped: with the panes wrapping, scrolling
+// one pane of a merge still moves the others with it, so that the line in
+// the middle of the mover stands across from theirs — by the rows the
+// lines wrap to, which put the mapped lines far from where one row a line
+// would stand them.
+func TestMergeSyncScrollFollowsWrapped(t *testing.T) {
+	hs := newHarness(t, true)
+	head := []string{"package calc", "", "// one", "// two", "// three", ""}
+	longs := make([]string, 36)
+	for i := range longs {
+		longs[i] = fmt.Sprintf("// wrapped note %02d — a fairly long line of commentary text that keeps going well past the width of a merge pane, wrapping deep", i)
+	}
+	base := strings.Join(slices.Concat(head,
+		[]string{"func Conflict() int {", "\treturn 1", "\treturn 2", "\treturn 3", "}"}, longs), "\n")
+	ours := strings.Join(slices.Concat(head,
+		[]string{"func Conflict() int {", "\treturn 12 // ours took its own line", "}"}, longs), "\n")
+	theirs := strings.Join(slices.Concat(head,
+		[]string{"func Conflict() int {", "\treturn 13", "\treturn 14", "\treturn 15", "\treturn 16", "\treturn 17", "}"}, longs), "\n")
+	hs.mergeRepo(base+"\n", ours+"\n", theirs+"\n")
+	v := hs.mergeOf()
+	a := hs.a
+	a.toggleWordWrap()
+	hs.settle()
+	midAt := func(k int) float32 {
+		return a.mergeGeometry(v, k).atF(v.panes[k].scroll.Y + v.panes[k].viewH/2 - editorPadY)
+	}
+	// Scroll ours so the middle of its view stands in the long stretch,
+	// well past the conflict and well before the end, where the follower
+	// takes the anchor unhindered: ours' line there maps two lines on in
+	// the result and four on in theirs.
+	g := a.mergeGeometry(v, 0)
+	v.panes[0].scroll.Y = editorPadY + g.top(20) - v.panes[0].viewH/2
+	hs.settle()
+	if at := midAt(0); at < 19 || at > 21 {
+		t.Fatalf("ours stands at line %v, the scroll did not take", at)
+	}
+	res := mapMergeLine(v.pairHunks(0), midAt(0), false)
+	if d := midAt(1) - res; d < -0.1 || d > 0.1 {
+		t.Errorf("the result's middle line %.2f does not stand across ours' %.2f (want %.2f)", midAt(1), midAt(0), res)
+	}
+	at2 := mapMergeLine(v.pairHunks(2), res, true)
+	if d := midAt(2) - at2; d < -0.1 || d > 0.1 {
+		t.Errorf("theirs' middle line %.2f does not stand across the result's %.2f (want %.2f)", midAt(2), res, at2)
+	}
+	// Scrolling the result leads the sides the same way.
+	g1 := a.mergeGeometry(v, 1)
+	v.panes[1].scroll.Y = editorPadY + g1.top(24) - v.panes[1].viewH/2
+	hs.settle()
+	if v.panes[0].scroll.Y == editorPadY+g.top(20)-v.panes[0].viewH/2 {
+		t.Error("ours did not follow the result")
+	}
+	res = midAt(1)
+	at0 := mapMergeLine(v.pairHunks(0), res, true)
+	if d := midAt(0) - at0; d < -0.1 || d > 0.1 {
+		t.Errorf("ours' middle line %.2f does not stand across the result's %.2f (want %.2f)", midAt(0), res, at0)
+	}
+	at2 = mapMergeLine(v.pairHunks(2), res, true)
+	if d := midAt(2) - at2; d < -0.1 || d > 0.1 {
+		t.Errorf("theirs' middle line %.2f does not stand across the result's %.2f (want %.2f)", midAt(2), res, at2)
+	}
+}
+
+// TestMergeGutterButtonChoosesWrapped: with the panes wrapping, the
+// button of a conflict whose lines the rows above have pushed deep still
+// stands with its band, and taking its side takes that conflict's, not
+// the first's, whose rows stand above the view.
+func TestMergeGutterButtonChoosesWrapped(t *testing.T) {
+	hs := newHarness(t, true)
+	longs := make([]string, 10)
+	for i := range longs {
+		longs[i] = fmt.Sprintf("// wrapped note %02d — a fairly long line of commentary that keeps going well past the width of a merge pane", i)
+	}
+	join := func(ss ...[]string) string {
+		var all []string
+		for _, s := range ss {
+			all = append(all, s...)
+		}
+		return strings.Join(all, "\n") + "\n"
+	}
+	one := []string{"func conflictOne() int {", "\treturn 1", "}"}
+	oneOurs := []string{"func conflictOne() int {", "\treturn 11", "}"}
+	oneTheirs := []string{"func conflictOne() int {", "\treturn 12", "}"}
+	two := []string{"func conflictTwo() int {", "\treturn 2", "}"}
+	twoOurs := []string{"func conflictTwo() int {", "\treturn 21", "}"}
+	twoTheirs := []string{"func conflictTwo() int {", "\treturn 22", "}"}
+	hs.mergeRepo(join([]string{"package calc", ""}, one, longs, two),
+		join([]string{"package calc", ""}, oneOurs, longs, twoOurs),
+		join([]string{"package calc", ""}, oneTheirs, longs, twoTheirs))
+	v := hs.mergeOf()
+	a := hs.a
+	a.toggleWordWrap()
+	// The head's bar of the conflict chosen holds an Accept Left of its
+	// own: none chosen, so the gutter's is the one the click finds.
+	v.chosen, v.current = -1, -1
+	hs.settle()
+	// Ours scrolled so the second conflict's band stands in the middle of
+	// the view; the first's stands above it, culled.
+	g := a.mergeGeometry(v, 0)
+	lo, hi := v.regionLines(v.regions[1], 0)
+	mid := (g.top(lo) + g.top(hi)) / 2
+	v.panes[0].scroll.Y = max(0, editorPadY+mid-v.panes[0].viewH/2)
+	hs.settle()
+	for i, r := range v.regions {
+		if st := v.stateOf(r); st != regionUndecided {
+			t.Fatalf("conflict %d stands %v before the click", i, st)
+		}
+	}
+	if err := hs.tt.Click("Accept Left"); err != nil {
+		t.Fatalf("the second conflict's button: %v", err)
+	}
+	hs.settle()
+	if st := v.stateOf(v.regions[1]); st != regionLeft {
+		t.Errorf("the second conflict stands %v, not ours' side", st)
+	}
+	if st := v.stateOf(v.regions[0]); st != regionUndecided {
+		t.Errorf("the first conflict moved too: %v", st)
+	}
+	if got := v.resultLines(); !slices.Contains(got, "\treturn 21") {
+		t.Errorf("the result lacks ours' second conflict: %q", got)
 	}
 }

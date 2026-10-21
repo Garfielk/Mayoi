@@ -5,6 +5,13 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
+- The panes of a merge wrap their lines as the Word Wrap setting says, and
+  ⌥Z wraps or unwraps the merge of the tab alone. The marks of the
+  conflicts, the click that chooses one, the jump that reveals one, the
+  gutter's bands and buttons and the panes' scrolling together follow the
+  rows a line wraps to, and every line of a wrapping pane is laid out for
+  its height, so that revealing a far conflict does not land on an
+  estimated height and show a blank.
 - Long file paths in diff headers shorten to fit narrow columns, keeping
   filenames clear of change counts, status badges and file actions.
 
