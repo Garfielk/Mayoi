@@ -1814,6 +1814,17 @@ func TestMergeSyncScrollFollowsWrapped(t *testing.T) {
 	if d := midAt(2) - at2; d < -0.1 || d > 0.1 {
 		t.Errorf("theirs' middle line %.2f does not stand across the result's %.2f (want %.2f)", midAt(2), res, at2)
 	}
+	// At the very top the mapped line goes negative: the followers rest
+	// at the top too, their first line across the leader's, not one pad
+	// below it.
+	v.panes[0].scroll.Y = 0
+	hs.settle()
+	if y := v.panes[1].scroll.Y; y != 0 {
+		t.Errorf("the result rests at %v with ours at the top, want 0", y)
+	}
+	if y := v.panes[2].scroll.Y; y != 0 {
+		t.Errorf("theirs rests at %v with ours at the top, want 0", y)
+	}
 }
 
 // TestMergeGutterButtonChoosesWrapped: with the panes wrapping, the
@@ -1873,5 +1884,50 @@ func TestMergeGutterButtonChoosesWrapped(t *testing.T) {
 	}
 	if got := v.resultLines(); !slices.Contains(got, "\treturn 21") {
 		t.Errorf("the result lacks ours' second conflict: %q", got)
+	}
+}
+
+// TestMergeGutterButtonSurvivesTallConflict: a wrapped conflict taller
+// than the pane keeps its buttons while any part of it shows, even once
+// its middle has scrolled past — the buttons pin to the pane's edge
+// instead of vanishing with the middle.
+func TestMergeGutterButtonSurvivesTallConflict(t *testing.T) {
+	hs := newHarness(t, true)
+	base := make([]string, 24)
+	ours := make([]string, 24)
+	theirs := make([]string, 24)
+	for i := range base {
+		base[i] = fmt.Sprintf("// base note %02d", i)
+		ours[i] = fmt.Sprintf("// ours note %02d — a fairly long line of commentary that keeps going well past the width of a merge pane, wrapping deep", i)
+		theirs[i] = fmt.Sprintf("// theirs note %02d — a fairly long line of commentary that keeps going well past the width of a merge pane, wrapping deep", i)
+	}
+	join := func(ss []string) string { return "package calc\n\n" + strings.Join(ss, "\n") + "\n" }
+	hs.mergeRepo(join(base), join(ours), join(theirs))
+	v := hs.mergeOf()
+	a := hs.a
+	a.toggleWordWrap()
+	// The head's bar of the conflict chosen holds an Accept Left of its
+	// own: none chosen, so the gutter's is the one the click finds.
+	v.chosen, v.current = -1, -1
+	hs.settle()
+	if n := len(v.regions); n != 1 {
+		t.Fatalf("%d conflicts, want 1", n)
+	}
+	// Scroll ours so the conflict's top stands at the top of the pane:
+	// its middle, tens of wrapped rows down, lies past the pane's
+	// bottom, and the buttons used to be culled away with it.
+	lo, _ := v.regionLines(v.regions[0], 0)
+	g := a.mergeGeometry(v, 0)
+	v.panes[0].scroll.Y = max(0, editorPadY+g.top(lo))
+	hs.settle()
+	if st := v.stateOf(v.regions[0]); st != regionUndecided {
+		t.Fatalf("the conflict stands %v before the click", st)
+	}
+	if err := hs.tt.Click("Accept Left"); err != nil {
+		t.Fatalf("the tall conflict's button: %v", err)
+	}
+	hs.settle()
+	if st := v.stateOf(v.regions[0]); st != regionLeft {
+		t.Errorf("the conflict stands %v, not ours' side", st)
 	}
 }

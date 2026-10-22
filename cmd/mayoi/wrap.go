@@ -99,16 +99,16 @@ func (g geometry) at(y float32) int {
 
 // topF returns the top of a fractional line i, between the tops of the
 // lines its whole part falls between: where a line across from i stands.
-// Below the first line it goes negative, as i*lineH does.
+// Below the first line it goes on by the first line's rows, as i*lineH
+// does and as atF reads it back.
 func (g geometry) topF(i float32) float32 {
 	if g.lines == nil {
 		return i * g.lineH
 	}
-	lo, f := i, float32(0)
-	if lo >= 0 {
-		lo = float32(int(i))
-		f = i - lo
+	if i < 0 {
+		return i * (g.lines.Top(1) - g.lines.Top(0))
 	}
+	lo, f := float32(int(i)), i-float32(int(i))
 	t0 := g.lines.Top(int(lo))
 	if f == 0 {
 		return t0

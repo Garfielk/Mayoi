@@ -184,7 +184,7 @@ type mergeGlow struct{ side, i int }
 // take the side's lines or ignore them, by its lines on the side; a
 // change of the side's own that is no conflict has one that applies it.
 func (a *app) mergeGutter(c *ui.Context, v *mergeView, left int) {
-	p, lineH := a.pal, a.font.lineH
+	p := a.pal
 	side := 0
 	if left == 1 {
 		side = 2
@@ -205,12 +205,22 @@ func (a *app) mergeGutter(c *ui.Context, v *mergeView, left int) {
 		box.Children(func() {
 			hot := -1
 			for i, b := range bands {
-				sy := y(side, b.h.A)
-				if b.h.ALen > 0 {
-					sy = (y(side, b.h.A) + y(side, b.h.A+b.h.ALen)) / 2
-				}
-				if sy < -lineH || sy > viewH+lineH {
+				top, bot := y(side, b.h.A), y(side, b.h.A+b.h.ALen)
+				// A band keeps its buttons while any part of it stands in
+				// the box: a wrapped conflict can run past the pane, and
+				// its middle, the buttons' anchor, scrolls away long
+				// before the band does. The anchor pins inside instead.
+				if bot < 0 || top > viewH {
 					continue
+				}
+				sy := top
+				if b.h.ALen > 0 {
+					sy = (top + bot) / 2
+				}
+				if sy < mergeButtonW/2 {
+					sy = mergeButtonW / 2
+				} else if sy > viewH-mergeButtonW/2 {
+					sy = viewH - mergeButtonW/2
 				}
 				type button struct {
 					icon       *ui.SVG
