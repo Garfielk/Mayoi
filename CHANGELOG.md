@@ -14,7 +14,10 @@ needs a `## <version>` section here, or its build fails.
   gutter's bands and buttons and the panes' scrolling together follow the
   rows a line wraps to, and every line of a wrapping pane is laid out for
   its height, so that revealing a far conflict does not land on an
-  estimated height and show a blank.
+  estimated height and show a blank. Each pane wraps at its own width,
+  as the split diff's sides do not: a conflict's marks can start at a
+  different height in every pane, and the gutter's bands slant to join
+  them.
 - The Grok Bot theme: **View → Theme → Grok Bot** takes the Grok Bot app's
   Sand Light and Sand Dark colors, light or dark as the Appearance is:
   white or near-black greys, near-black or near-white buttons, and its blue

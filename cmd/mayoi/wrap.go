@@ -117,10 +117,11 @@ func (g geometry) topF(i float32) float32 {
 }
 
 // atF returns the fractional line at y: the line y falls in, and how far
-// into it, as the line across from y goes.
+// into it, as the line across from y goes. Past the last line it stays
+// at the last.
 func (g geometry) atF(y float32) float32 {
 	if g.lines == nil {
-		return y / g.lineH
+		return min(y/g.lineH, float32(g.n))
 	}
 	i := g.lines.At(y)
 	t0 := g.lines.Top(i)
@@ -128,7 +129,7 @@ func (g geometry) atF(y float32) float32 {
 	if t1 <= t0 {
 		return float32(i)
 	}
-	return float32(i) + (y-t0)/(t1-t0)
+	return min(float32(i)+(y-t0)/(t1-t0), float32(g.n))
 }
 
 // height returns the height of all the lines.
