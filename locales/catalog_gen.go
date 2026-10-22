@@ -1687,6 +1687,16 @@ func (msgs Messages) CmdGitPrevFile() string {
 	return Catalog.Format(msgs.locale, "cmdGitPrevFile", nil)
 }
 
+// CmdGitToggleCommitFiles says "Show Files of Commits"
+// in the language the app shows.
+func CmdGitToggleCommitFiles() string { return In(i18n.Locale()).CmdGitToggleCommitFiles() }
+
+// CmdGitToggleCommitFiles says "Show Files of Commits"
+// in the language of msgs.
+func (msgs Messages) CmdGitToggleCommitFiles() string {
+	return Catalog.Format(msgs.locale, "cmdGitToggleCommitFiles", nil)
+}
+
 // CmdGitPull says "Pull"
 // in the language the app shows.
 func CmdGitPull() string { return In(i18n.Locale()).CmdGitPull() }
@@ -3417,6 +3427,46 @@ func DiffNextFile() string { return In(i18n.Locale()).DiffNextFile() }
 // in the language of msgs.
 func (msgs Messages) DiffNextFile() string {
 	return Catalog.Format(msgs.locale, "diffNextFile", nil)
+}
+
+// DiffToggleCommitFiles says "Files of the Commit"
+// in the language the app shows.
+func DiffToggleCommitFiles() string { return In(i18n.Locale()).DiffToggleCommitFiles() }
+
+// DiffToggleCommitFiles says "Files of the Commit"
+// in the language of msgs.
+func (msgs Messages) DiffToggleCommitFiles() string {
+	return Catalog.Format(msgs.locale, "diffToggleCommitFiles", nil)
+}
+
+// DiffCommitFiles says "Files"
+// in the language the app shows.
+func DiffCommitFiles() string { return In(i18n.Locale()).DiffCommitFiles() }
+
+// DiffCommitFiles says "Files"
+// in the language of msgs.
+func (msgs Messages) DiffCommitFiles() string {
+	return Catalog.Format(msgs.locale, "diffCommitFiles", nil)
+}
+
+// DiffHideCommitFiles says "Hide Files"
+// in the language the app shows.
+func DiffHideCommitFiles() string { return In(i18n.Locale()).DiffHideCommitFiles() }
+
+// DiffHideCommitFiles says "Hide Files"
+// in the language of msgs.
+func (msgs Messages) DiffHideCommitFiles() string {
+	return Catalog.Format(msgs.locale, "diffHideCommitFiles", nil)
+}
+
+// DiffGoToFile says "Go to File in Diff"
+// in the language the app shows.
+func DiffGoToFile() string { return In(i18n.Locale()).DiffGoToFile() }
+
+// DiffGoToFile says "Go to File in Diff"
+// in the language of msgs.
+func (msgs Messages) DiffGoToFile() string {
+	return Catalog.Format(msgs.locale, "diffGoToFile", nil)
 }
 
 // DiffNoChanges says "No Changes"
@@ -9321,6 +9371,26 @@ func ScmViewAsTree() string { return In(i18n.Locale()).ScmViewAsTree() }
 // in the language of msgs.
 func (msgs Messages) ScmViewAsTree() string {
 	return Catalog.Format(msgs.locale, "scmViewAsTree", nil)
+}
+
+// ScmShowCommitFiles says "Show Files"
+// in the language the app shows.
+func ScmShowCommitFiles() string { return In(i18n.Locale()).ScmShowCommitFiles() }
+
+// ScmShowCommitFiles says "Show Files"
+// in the language of msgs.
+func (msgs Messages) ScmShowCommitFiles() string {
+	return Catalog.Format(msgs.locale, "scmShowCommitFiles", nil)
+}
+
+// ScmHideCommitFiles says "Hide Files"
+// in the language the app shows.
+func ScmHideCommitFiles() string { return In(i18n.Locale()).ScmHideCommitFiles() }
+
+// ScmHideCommitFiles says "Hide Files"
+// in the language of msgs.
+func (msgs Messages) ScmHideCommitFiles() string {
+	return Catalog.Format(msgs.locale, "scmHideCommitFiles", nil)
 }
 
 // ScmWriteMessage says "Write the Message with AI"

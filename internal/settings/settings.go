@@ -312,10 +312,14 @@ type Layout struct {
 	SidebarWidth  float32 `json:"sidebarWidth,omitempty"`
 	PanelHeight   float32 `json:"panelHeight,omitempty"`
 	PanelWidth    float32 `json:"panelWidth,omitempty"`
+	// CommitFilesClosed hides the panel of the files of a commit's tab,
+	// and CommitFilesWidth is how wide it is.
+	CommitFilesClosed bool    `json:"commitFilesClosed,omitempty"`
+	CommitFilesWidth  float32 `json:"commitFilesWidth,omitempty"`
 }
 
 // DefaultLayout is the layout of a first launch.
-var DefaultLayout = Layout{SidebarWidth: 248, PanelHeight: 260, PanelWidth: 400}
+var DefaultLayout = Layout{SidebarWidth: 248, PanelHeight: 260, PanelWidth: 400, CommitFilesWidth: 240}
 
 // Normalize keeps the layout in its bounds, as base has it where it has
 // none, as a session an older version kept.
@@ -326,8 +330,12 @@ func (l *Layout) Normalize(base Layout) {
 	if l.PanelWidth == 0 {
 		l.PanelWidth = base.PanelWidth
 	}
+	if l.CommitFilesWidth == 0 {
+		l.CommitFilesWidth = base.CommitFilesWidth
+	}
 	l.SidebarWidth = clamp(l.SidebarWidth, 160, 600)
 	l.PanelWidth = clamp(l.PanelWidth, 160, 2000)
+	l.CommitFilesWidth = clamp(l.CommitFilesWidth, 140, 800)
 	l.PanelHeight = clamp(l.PanelHeight, 100, 2000)
 }
 

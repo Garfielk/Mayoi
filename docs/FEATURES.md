@@ -199,7 +199,12 @@ color, while it is on.
 Click a commit to see it in the preview tab, the keyboard staying in the list, so clicking through commits leaves one
 tab; Enter, a double click or **Open Changes** in its menu keeps it in a tab of its own, focused. The tab shows its
 message, author, date, hash, branches and tags at the top, then each file it changed from its first parent, as the
-**Changes** tab shows them. Its menu checks it out (switching to
+**Changes** tab shows them. A panel at the tab's right lists those files, in a tree of their folders or by path as
+**View as Tree** has the changes: a click, or the arrows, scrolls the diff to a file, and the file at the top of the
+diff is chosen as it scrolls. Drag its edge to widen it; the button in the diff's toolbar or **Git → Show Files of
+Commits** hides it, in every commit's tab. The arrow at the start of a commit's row lists the files it changed under it,
+→ and ← doing the same; a click on one shows the commit's changes at that file in the preview tab, and Enter keeps it.
+The commit's menu checks it out (switching to
 its branch when it has one, or detaching HEAD at it once asked), creates a branch or a tag there, copies the hash, the
 message or the name of a branch or tag, and on HEAD undoes it.
 

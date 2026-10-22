@@ -63,11 +63,16 @@ type scmRow struct {
 	name  string
 	depth int
 	panel *scmPanelRow
+	// under is the commit of the history a row of its files is under, at
+	// at in it: a folder's, a file's, or one with a note, while its files
+	// are read or when they could not be.
+	under *git.Commit
+	note  string
 }
 
 // file reports whether a row is a file's.
 func (r *scmRow) file() bool {
-	return r.panel == nil && !r.header && r.commit == nil && !r.more && r.dir == ""
+	return r.panel == nil && !r.header && r.commit == nil && !r.more && r.dir == "" && r.under == nil
 }
 
 // scmState is the source control view's: its list, the row chosen, and
@@ -94,6 +99,14 @@ type scmState struct {
 	rowsTree      bool
 	panels        scmPanels
 	rowsPanels    int
+	// openCommits are the commits of the history whose files show under
+	// them, by hash, and commitFiles what was read of each; commitsGen
+	// counts their changes, and rowsCommits is what the rows were made
+	// for.
+	openCommits map[string]bool
+	commitFiles map[string]*commitFilesRead
+	commitsGen  int
+	rowsCommits int
 }
 
 // groupEntries returns the files of each group, by path. They are worked
@@ -143,7 +156,8 @@ func (a *gitContext) scmRows() []scmRow {
 	g := a.git
 	tree := a.app.settings.ScmTree
 	if s.rows != nil && s.rowsOf == g.status && s.rowsCollapsed == s.collapsed && s.rowsHistory == g.historyGen &&
-		s.rowsDirs == s.dirsGen && s.rowsTree == tree && s.rowsPanels == s.panels.gen && s.rowsSection == s.section {
+		s.rowsDirs == s.dirsGen && s.rowsTree == tree && s.rowsPanels == s.panels.gen && s.rowsSection == s.section &&
+		s.rowsCommits == s.commitsGen {
 		return s.rows
 	}
 	var rows []scmRow
@@ -172,6 +186,9 @@ func (a *gitContext) scmRows() []scmRow {
 		if !s.collapsed[groupCommits] {
 			for i := range h {
 				rows = append(rows, scmRow{group: groupCommits, commit: &h[i], at: i, key: "commit:" + h[i].Hash})
+				if s.openCommits[h[i].Hash] {
+					rows = a.commitFileRows(rows, &h[i], i)
+				}
 			}
 			if len(h) >= max(g.historyN, historyPage) {
 				rows = append(rows, scmRow{group: groupCommits, more: true, key: "commits:more"})
@@ -184,7 +201,7 @@ func (a *gitContext) scmRows() []scmRow {
 	s.rowsSection = s.section
 	s.rowsPanels = s.panels.gen
 	s.rows, s.rowsOf, s.rowsCollapsed, s.rowsHistory = rows, g.status, s.collapsed, g.historyGen
-	s.rowsDirs, s.rowsTree = s.dirsGen, tree
+	s.rowsDirs, s.rowsTree, s.rowsCommits = s.dirsGen, tree, s.commitsGen
 	// A refresh or a collapsed folder must not leave invisible files chosen.
 	if s.selection.Len() > 0 {
 		visible := make(map[string]bool, len(rows))
@@ -211,12 +228,19 @@ type scmDir struct {
 	files      []git.Entry
 }
 
-// treeRows adds the rows of a group's files, es by path, to rows, in a
-// tree of their folders under root: a folder's folders first, then its
-// files, and a folder with a single folder in it and no files shown as
-// one, as "internal/git". The folders closed, by their rows' keys, show
-// without what is in them.
-func treeRows(rows []scmRow, g scmGroup, es []git.Entry, root string, closed map[string]bool) []scmRow {
+// treeRow is a row of a tree of files: a folder's, dir its path and name
+// what it shows of it, or a file's, e; depth is how deep it is.
+type treeRow struct {
+	dir, name string
+	e         git.Entry
+	depth     int
+}
+
+// fileTree lays out files, es by path, in a tree of their folders under
+// root: a folder's folders first, then its files, and a folder with a
+// single folder in it and no files shown as one, as "internal/git". The
+// folders closed show without what is in them.
+func fileTree(es []git.Entry, root string, closed func(dir string) bool) []treeRow {
 	top := &scmDir{path: root}
 	at := map[string]*scmDir{root: top}
 	var dirOf func(path string) *scmDir
@@ -246,6 +270,7 @@ func treeRows(rows []scmRow, g scmGroup, es []git.Entry, root string, closed map
 		d := dirOf(dir)
 		d.files = append(d.files, e)
 	}
+	var rows []treeRow
 	var add func(d *scmDir, depth int)
 	add = func(d *scmDir, depth int) {
 		slices.SortFunc(d.dirs, func(x, y *scmDir) int { return strings.Compare(x.name, y.name) })
@@ -255,17 +280,31 @@ func treeRows(rows []scmRow, g scmGroup, es []git.Entry, root string, closed map
 				sub = sub.dirs[0]
 				name += "/" + sub.name
 			}
-			key := fmt.Sprintf("%d:dir:%s", g, sub.path)
-			rows = append(rows, scmRow{group: g, dir: sub.path, name: name, depth: depth, key: key})
-			if !closed[key] {
+			rows = append(rows, treeRow{dir: sub.path, name: name, depth: depth})
+			if closed == nil || !closed(sub.path) {
 				add(sub, depth+1)
 			}
 		}
 		for _, e := range d.files {
-			rows = append(rows, scmRow{group: g, e: e, depth: depth, key: fmt.Sprintf("%d:%s", g, e.Path)})
+			rows = append(rows, treeRow{e: e, depth: depth})
 		}
 	}
 	add(top, 0)
+	return rows
+}
+
+// treeRows adds the rows of a group's files, es by path, to rows, in a
+// tree of their folders under root, as fileTree lays them out. The
+// folders closed, by their rows' keys, show without what is in them.
+func treeRows(rows []scmRow, g scmGroup, es []git.Entry, root string, closed map[string]bool) []scmRow {
+	dirKey := func(dir string) string { return fmt.Sprintf("%d:dir:%s", g, dir) }
+	for _, t := range fileTree(es, root, func(dir string) bool { return closed[dirKey(dir)] }) {
+		if t.dir != "" {
+			rows = append(rows, scmRow{group: g, dir: t.dir, name: t.name, depth: t.depth, key: dirKey(t.dir)})
+			continue
+		}
+		rows = append(rows, scmRow{group: g, e: t.e, depth: t.depth, key: fmt.Sprintf("%d:%s", g, t.e.Path)})
+	}
 	return rows
 }
 
@@ -428,6 +467,8 @@ func (a *gitContext) scmList(c *ui.Context) {
 			return r.panel.label
 		case r.header:
 			return ""
+		case r.note != "":
+			return r.note
 		case r.dir != "":
 			return r.name
 		case r.commit != nil:
@@ -455,6 +496,8 @@ func (a *gitContext) scmList(c *ui.Context) {
 				a.scmHeader(c, r, &action)
 			case r.commit != nil:
 				a.scmCommit(c, i, r, &action)
+			case r.under != nil:
+				a.scmCommitFile(c, i, r, &action)
 			case r.more:
 				a.scmMore(c, &action)
 			case r.dir != "":
@@ -530,6 +573,8 @@ func (a *gitContext) scmList(c *ui.Context) {
 		switch r := rows[s.row]; {
 		case r.panel != nil:
 			a.activateScmPanelRow(r)
+		case r.under != nil && r.dir == "" && r.note == "":
+			a.showCommitFile(*r.under, r.e.Path, true)
 		case r.dir != "":
 			a.toggleDir(r)
 		case r.commit != nil:
@@ -540,6 +585,28 @@ func (a *gitContext) scmList(c *ui.Context) {
 	}
 	if r, ok := chosen(); ok && out.Submitted() {
 		a.openChange(r, true)
+	}
+	// Right shows the files of the commit chosen, or opens the folder of
+	// them; Left hides them, or closes the folder.
+	if s.row >= 0 && s.row < len(rows) {
+		r := rows[s.row]
+		right, left := out.Shortcut(0, ui.KeyRight), out.Shortcut(0, ui.KeyLeft)
+		switch {
+		case r.commit != nil && r.at >= 0:
+			if right && !s.openCommits[r.commit.Hash] || left && s.openCommits[r.commit.Hash] {
+				a.toggleCommitOpen(*r.commit)
+			}
+		case r.under != nil && r.dir != "" && (right && s.closedDirs[r.key] || left && !s.closedDirs[r.key]):
+			a.toggleDir(r)
+		case r.under != nil && left:
+			for k := s.row - 1; k >= 0; k-- {
+				if rows[k].commit == r.under {
+					s.row = k
+					s.list.ScrollIntoView(k)
+					break
+				}
+			}
+		}
 	}
 	if r, ok := chosen(); ok && out.Shortcut(0, ui.KeySpace) {
 		a.toggleStaged(r)
@@ -1021,6 +1088,7 @@ func (a *gitContext) scmCommit(c *ui.Context, i int, r scmRow, action *func()) {
 	row := ui.Row(c).Grow(1).Gap(6).AlignItems(ui.Center).Height(22).Padding(0, 4, 0, indent).Tooltip(tip)
 	clicked := row.Clicked()
 	row.ContextMenu(func(m *ui.Menu) { a.scmCommitMenu(m, cm, head, action) })
+	open := a.scm.openCommits[cm.Hash]
 	graph := a.historyGraph()
 	var gr *graphRow
 	if r.at >= 0 && r.at < len(graph) {
@@ -1029,6 +1097,17 @@ func (a *gitContext) scmCommit(c *ui.Context, i int, r scmRow, action *func()) {
 	lanes := min(graphLanes(graph), graphMaxLanes)
 	row.Children(func() {
 		if r.at >= 0 {
+			// The arrow that shows the files of the commit under it.
+			label := locales.ScmShowCommitFiles()
+			if open {
+				label = locales.ScmHideCommitFiles()
+			}
+			b := ui.ButtonBase(c.Key("files:"+cm.Hash)).Size(12, 22).Shrink(0).Justify(ui.Center).AlignItems(ui.Center).
+				Label(label).Tooltip(label)
+			b.Children(func() { chevron(c, open).FontSize(12).TextColor(p.muted) })
+			if b.Clicked() {
+				*action = func() { a.toggleCommitOpen(*cm) }
+			}
 			ui.Box(c).Size(graphLaneW*float32(lanes-1)+12, 22).Shrink(0).Draw(func(pt *ui.Painter, b ui.Rect) {
 				if gr != nil {
 					a.app.paintGraphRow(pt, b, gr, cm, head)
@@ -1048,7 +1127,7 @@ func (a *gitContext) scmCommit(c *ui.Context, i int, r scmRow, action *func()) {
 		// the author.
 		lead := indent + 15 + 6
 		if r.at >= 0 {
-			lead += graphLaneW*float32(lanes-1) + 12 + 6
+			lead += 12 + 6 + graphLaneW*float32(lanes-1) + 12 + 6
 		}
 		shown, badgeW := a.app.badgeRoom(len(badges), indent-6, lead)
 		for i, bd := range badges {

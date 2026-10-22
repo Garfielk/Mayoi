@@ -89,11 +89,11 @@ func (a *app) rowUnder(v *diffView, x, y float32, l diffGeometry) int {
 	return v.rowAt(y, a.font.lineH)
 }
 
-// diffViewUI shows a diff: its rows painted in a pane that scrolls both
+// diffPaneUI shows a diff: its rows painted in a pane that scrolls both
 // ways, keeping the line numbers in place, or down only as its lines wrap.
 // While its writable side is edited, the edits run first, as a frame is
 // built.
-func (a *app) diffViewUI(c *ui.Context, v *diffView) {
+func (a *app) diffPaneUI(c *ui.Context, v *diffView) {
 	p, f := a.pal, a.font
 	a.refreshDiff(v)
 	a.runDiffEdits(v, v.pane.FocusWithin(c))
@@ -232,6 +232,9 @@ func (a *app) diffViewUI(c *ui.Context, v *diffView) {
 		at := v.focusRowAt(v.topRow(lineH))
 		if v.cursor >= first && v.cursor <= last {
 			at = v.cursor
+		}
+		if at >= 0 && v.commit != nil {
+			v.tree.top = v.files[rows[at].file]
 		}
 		if at >= 0 {
 			if fl := v.files[rows[at].file]; fl != v.synced && v.commit == nil {

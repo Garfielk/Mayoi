@@ -3,7 +3,7 @@
 The update window shows the section of the version it offers. Every release
 needs a `## <version>` section here, or its build fails.
 
-## Unreleased
+## 0.11.9
 
 - A sideways swipe scrolls the result pane of a merge, as the side panes'
   does; the swipe used to be lost on the result editor's own sideways
@@ -34,6 +34,16 @@ needs a `## <version>` section here, or its build fails.
   in `keybindings.json`, as `cmd+k cmd+t` does in VS Code.
 - Changing the theme or the appearance fades every color of the window to
   the new one's, rather than switching at once, but with reduced motion.
+- A commit's tab lists the files it changed in a panel at its right, in a
+  tree of their folders or by path as **View as Tree** has the changes:
+  click one, or choose it with the arrows, to scroll the diff to it, and
+  the file at the top of the diff is chosen as it scrolls. Drag its edge to
+  widen it; the button in the diff's toolbar, or **Git → Show Files of
+  Commits**, hides it. Comparisons of two commits have it too.
+- The arrow at the start of a commit in **COMMITS** lists the files it
+  changed under it, the graph running past them, and → and ← do it from
+  the keyboard. Click a file to see the commit's changes at it in the
+  preview tab; Enter or **Open Changes** keeps it in a tab of its own.
 
 ## 0.11.8
 
