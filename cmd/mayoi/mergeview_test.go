@@ -2017,3 +2017,35 @@ func TestMergePaneWrapLaysOutViewFirst(t *testing.T) {
 		t.Fatalf("after the sweep, %d..%d of %d lines stand measured", p.laidFrom, p.laidTo, n)
 	}
 }
+
+// TestSwipeSideways: a swipe mostly sideways moves the scroll state it
+// is given, clamped at its ends; a mostly vertical one, and a mouse's
+// Shift+wheel, are left for the caller.
+func TestSwipeSideways(t *testing.T) {
+	hs := newHarness(t, true)
+	a := hs.a
+	s := &ui.ScrollState{MaxX: 100}
+	if !a.swipeSideways(s, ui.InputEvent{Kind: ui.InputScroll, DX: 30, DY: 2}) {
+		t.Fatal("a sideways swipe was not taken")
+	}
+	if s.X != 30 {
+		t.Fatalf("the swipe stood the scroll at %v, want 30", s.X)
+	}
+	if a.swipeSideways(s, ui.InputEvent{Kind: ui.InputScroll, DX: 2, DY: 30}) {
+		t.Error("a mostly vertical swipe was taken")
+	}
+	if a.swipeSideways(s, ui.InputEvent{Kind: ui.InputScroll, DX: 30, DY: 2, Mods: ui.Shift}) {
+		t.Error("a Shift+wheel was taken")
+	}
+	if a.swipeSideways(s, ui.InputEvent{Kind: ui.InputPointerDown, DX: 30, DY: 2}) {
+		t.Error("a pointer event was taken")
+	}
+	a.swipeSideways(s, ui.InputEvent{Kind: ui.InputScroll, DX: 500})
+	if s.X != 100 {
+		t.Fatalf("the swipe ran past the end: %v, want 100", s.X)
+	}
+	a.swipeSideways(s, ui.InputEvent{Kind: ui.InputScroll, DX: -500})
+	if s.X != 0 {
+		t.Fatalf("the swipe ran before the start: %v, want 0", s.X)
+	}
+}

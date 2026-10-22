@@ -589,13 +589,14 @@ func (a *app) mergePane(c *ui.Context, v *mergeView, k int, label, tip string) {
 				vimKeys := a.settings.Vim && v.ed.vim.mode != vimInsert
 				area.ReadOnly(vimKeys || a.chording() || v.ed.locked())
 				a.takeKeys(area, placeEditor, func(ev ui.InputEvent) bool {
-					if ev.Kind == ui.InputScroll && ev.Mods&ui.Shift == 0 && max(ev.DX, -ev.DX) > max(ev.DY, -ev.DY) {
-						// A swipe mostly sideways scrolls the pane, as
-						// the side panes' does: the editor's own
-						// sideways scroll is no scroller's here, and
-						// taking the swipe for it would stand the pane
-						// still. Wrapped, there is nothing to scroll,
-						// and the swipe stands the text where it is.
+					if ev.Kind == ui.InputScroll && max(ev.DX, -ev.DX) > max(ev.DY, -ev.DY) {
+						// A sideways swipe, or a mouse's Shift+wheel,
+						// scrolls the pane, as the side panes' swipe
+						// does: the editor's own sideways scroll is no
+						// scroller's here, and taking either for it
+						// would stand the pane still. Wrapped, there is
+						// nothing to scroll, and the swipe stands the
+						// text where it is.
 						s := &v.panes[1].hscroll
 						if x := clamp(s.X+ev.DX, 0, s.MaxX); x != s.X {
 							s.X = x
