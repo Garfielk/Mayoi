@@ -1951,3 +1951,69 @@ func TestMergeResultScrollsSideways(t *testing.T) {
 		t.Errorf("the result pane stands at %v after a sideways swipe", v.panes[1].hscroll.X)
 	}
 }
+
+// TestMergePaneWrapLaysOutViewFirst: a change of the width lays the
+// lines in view out first and sweeps outward a band a frame, so dragging
+// the window does not reshape every far line of a giant file a frame,
+// and what is in view stands measured at once.
+func TestMergePaneWrapLaysOutViewFirst(t *testing.T) {
+	hs := newHarness(t, true)
+	body := make([]string, 3000)
+	for i := range body {
+		switch i % 4 {
+		case 0:
+			body[i] = fmt.Sprintf("// note %04d — a fairly long line of commentary text that keeps going well past the width of a merge pane, wrapping deep", i)
+		case 1:
+			body[i] = fmt.Sprintf("func f%04d() int {", i)
+		case 2:
+			body[i] = "\treturn 1"
+		default:
+			body[i] = "}"
+		}
+	}
+	mk := func(tag string) string {
+		return "package calc\n\n" + strings.Replace(strings.Join(body, "\n"), "// note 0000", "// "+tag+" 0000", 1) + "\n"
+	}
+	hs.a.settings.MergeAutoApply = false
+	hs.mergeRepo(mk("base"), mk("ours"), mk("theirs"))
+	v := hs.mergeOf()
+	a := hs.a
+	// Anchor the view at the top of the file: the sweep starts from the
+	// view as the last frame drew it.
+	v.panes[0].scroll.Y = 0
+	hs.settle()
+	a.toggleWordWrap()
+	hs.settle()
+	p := &v.panes[0]
+	n := v.paneLineCount(0)
+	if p.laidTo < n {
+		t.Fatalf("after settling, only %d of %d lines stand measured", p.laidTo, n)
+	}
+	// The width changes: the frame of the change lays out the view and
+	// leaves the far lines for the frames after.
+	ver := v.paneBuf(0).Version()
+	a.layOutMergeLines(v, 0, ver, p.laidW-40)
+	if p.laidFrom != 0 {
+		t.Errorf("the sweep does not cover the top of the view: from %d", p.laidFrom)
+	}
+	if p.laidTo >= n {
+		t.Fatalf("the frame of the width change laid out all %d lines at once", n)
+	}
+	// The frames after sweep outward, a band a frame, until all stand
+	// measured.
+	frames := 0
+	for p.laidFrom > 0 || p.laidTo < n {
+		to0, from0 := p.laidTo, p.laidFrom
+		a.layOutMergeLines(v, 0, ver, p.laidW)
+		if p.laidTo == to0 && p.laidFrom == from0 {
+			t.Fatal("the sweep stands still")
+		}
+		frames++
+		if frames > 10 {
+			t.Fatalf("the sweep needs more than %d frames of %d lines", frames, n)
+		}
+	}
+	if p.laidFrom != 0 || p.laidTo < n {
+		t.Fatalf("after the sweep, %d..%d of %d lines stand measured", p.laidFrom, p.laidTo, n)
+	}
+}

@@ -731,6 +731,11 @@ func (a *app) paintMergeRegions(pt *ui.Painter, v *mergeView, k int, r ui.Rect) 
 	sc := v.panes[k].scroll.Y
 	first := max(g.at(sc-editorPadY)-1, 0)
 	last := g.at(sc+v.panes[k].viewH) + 2
+	if !v.panes[k].sweeping {
+		// A sweeping frame reads estimates: its range says nothing about
+		// where the view is.
+		v.panes[k].viewFirst, v.panes[k].viewLast = first, last
+	}
 	// The changes of a side's own that are no conflict, which the result
 	// lacks.
 	if k != 1 {
@@ -849,19 +854,57 @@ func (a *app) mergeGeometry(v *mergeView, k int) geometry {
 // the first ones of a giant one.
 const mergeLayOutMax = 8192
 
-// layOutMergeLines lays out every line of pane k as it wraps, once for
+// mergeLayOutStep is how many lines of a wrapping merge pane a frame
+// lays out beyond those in view, until every line stands measured.
+const mergeLayOutStep = 768
+
+// layOutMergeLines lays out the lines of pane k as it wraps, once for
 // its text and the width it has. A pane is narrow, so its lines wrap
 // deep; the heights the area has not measured it estimates, and a scroll
 // into estimated country — as revealing a conflict goes — lands the view
 // where its heights say there is text that is not, and the pane shows a
-// blank. Laid out, every height is a measured one and the view holds.
+// blank. The lines in view are laid out at once; the rest follow a band
+// a frame, so that dragging the window or the sidebar lays out the view
+// of the frame, not every line of a giant file three times over.
 func (a *app) layOutMergeLines(v *mergeView, k int, ver uint64, w float32) {
 	p := &v.panes[k]
-	if p.laidVer == ver && p.laidW == w {
+	n := min(p.lines.Count(), mergeLayOutMax)
+	if p.laidVer == ver && p.laidW == w && p.laidFrom == 0 && p.laidTo >= n {
 		return
 	}
-	p.laidVer, p.laidW = ver, w
-	for i, n := 0, min(p.lines.Count(), mergeLayOutMax); i < n; i++ {
+	if p.laidVer != ver || p.laidW != w {
+		// A new text or a new width: the lines in view first, the rest a
+		// band a frame, sweeping outward until all stand measured. While
+		// the width keeps changing the far lines wait, so a drag does
+		// not reshape thousands of them a frame. The window is the view
+		// as the last frame drew it, by line: the heights of this frame
+		// are estimates until the area lays the new width out, and
+		// reading them here would place the window by a guess.
+		p.laidVer, p.laidW = ver, w
+		slack := int(v.panes[k].viewH/a.font.lineH) + 48
+		p.laidFrom = max(p.viewFirst-slack, 0)
+		p.laidTo = min(p.viewLast+slack, n)
+		if p.viewLast <= p.viewFirst {
+			p.laidFrom, p.laidTo = 0, min(slack, n) // no frame has drawn: the head of the file
+		}
+		for i := p.laidFrom; i < p.laidTo; i++ {
+			p.lines.Rows(i)
+		}
+		p.sweeping = p.laidFrom > 0 || p.laidTo < n
+		return
+	}
+	if !p.sweeping {
+		return
+	}
+	// The width stands: sweep outward a band a frame.
+	from := max(p.laidFrom-mergeLayOutStep, 0)
+	to := min(p.laidTo+mergeLayOutStep, n)
+	for i := p.laidFrom; i < from; i++ {
 		p.lines.Rows(i)
 	}
+	for i := p.laidTo; i < to; i++ {
+		p.lines.Rows(i)
+	}
+	p.laidFrom, p.laidTo = from, to
+	p.sweeping = p.laidFrom > 0 || p.laidTo < n
 }

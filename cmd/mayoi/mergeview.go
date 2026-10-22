@@ -112,13 +112,16 @@ type mergeView struct {
 // scrolling, how wide its widest line was, and where it laid its lines
 // out as they wrap.
 type paneScroll struct {
-	scroll, hscroll ui.ScrollState
-	viewH           float32
-	widest          int
-	wideVer         uint64
-	lines           ui.TextLines
-	laidVer         uint64  // the version the wrapping lines were all laid out at
-	laidW           float32 // the width they were laid out for
+	scroll, hscroll     ui.ScrollState
+	viewH               float32
+	widest              int
+	wideVer             uint64
+	lines               ui.TextLines
+	laidVer             uint64  // the version the wrapping lines were laid out at
+	laidW               float32 // the width they were laid out for
+	laidFrom, laidTo    int     // the lines measured so far, sweeping outward
+	sweeping            bool    // until every line stands measured at this width
+	viewFirst, viewLast int     // the lines in view, as the last frame drew them
 }
 
 // oursLabel is what the pane of ours says it is.
