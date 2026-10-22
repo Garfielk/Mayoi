@@ -47,19 +47,22 @@ type markdownPreview struct {
 	// long it takes to read, which the status bar shows.
 	words, minutes int
 	// lines are the lines of the text parsed.
-	lines int
-	sync           markdownSync
-	cache          markdownCache
-	root           string
-	measure        float32
-	measured       ui.Font
-	list           ui.ListState
-	scroll         ui.ScrollState
-	observed       uint64
-	path           string
-	pending        bool
-	running        bool
-	generation     atomic.Uint64
+	lines    int
+	sync     markdownSync
+	cache    markdownCache
+	root     string
+	measure  float32
+	measured ui.Font
+	list     ui.ListState
+	scroll   ui.ScrollState
+	observed uint64
+	path     string
+	pending  bool
+	// refetch is whether a picture of the web arrived since the last
+	// parse, for the text to be parsed again to show it.
+	refetch    bool
+	running    bool
+	generation atomic.Uint64
 }
 
 type markdownInline struct {
@@ -77,7 +80,6 @@ const (
 	markdownHeading
 	markdownRule
 	markdownCodeBlock
-	markdownHTML
 	markdownImageBlock
 	markdownTable
 	markdownTableHeader
@@ -115,6 +117,10 @@ type markdownImageKey struct {
 type markdownCache struct {
 	images map[markdownImageKey]markdownInline
 	code   map[[2]string][]markdownInline
+	// arrived is called once a picture of the web a parse asked for is
+	// fetched, for the preview to parse again; without it, those pictures
+	// are not fetched.
+	arrived func()
 }
 
 // markdownBlock is a paragraph-sized row, including its enclosing lists and quotes.
@@ -142,6 +148,8 @@ type markdownBlock struct {
 	// line is the line of the text the block starts on, from 0, which the
 	// preview scrolls with as the text scrolls.
 	line int
+	// center is whether the block is centered, as in <p align="center">.
+	center bool
 }
 
 func isMarkdown(d *document) bool {
@@ -312,11 +320,66 @@ func parseMarkdown(source []byte, path, root string, current func() bool, caches
 		return skip + i - 1
 	}
 	var blocks []markdownBlock
+	// picture is a run of style of the picture at dest, its bitmap if it
+	// is a file or a picture of the web fetched, else its alt text.
+	picture := func(s markdownInline, alt, dest string) markdownInline {
+		s.text, s.image = alt, dest
+		if current == nil || current() {
+			if local := markdownPath(root, path, dest); local != "" {
+				if info, err := vfs.Stat(local); err == nil && info.Mode().IsRegular() {
+					key := markdownImageKey{local, info.ModTime(), info.Size()}
+					used[key] = true
+					image, ok := cache[key]
+					if !ok {
+						if data, err := readImage(local); err == nil {
+							image = markdownDecode(data, strings.EqualFold(filepath.Ext(local), ".svg"))
+						}
+						cache[key] = image
+					}
+					s.bitmap, s.w, s.h = image.bitmap, image.w, image.h
+				}
+			} else if u, err := url.Parse(dest); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+				if image, ok := markdownFetch(dest, c.arrived); ok {
+					s.bitmap, s.w, s.h = image.bitmap, image.w, image.h
+				}
+			}
+		}
+		if s.text == "" {
+			s.text = filepath.Base(s.image)
+			if s.text == "." || s.text == "" {
+				s.text = "image"
+			}
+		}
+		s.raw = s.bitmap == nil
+		return s
+	}
+	// htmlImage is the picture of an <img>, as wide and high as it says.
+	htmlImage := func(t markdownTag, style markdownInline) markdownInline {
+		s := picture(style, t.attrs["alt"], t.attrs["src"])
+		if s.bitmap == nil {
+			return s
+		}
+		w, werr := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(t.attrs["width"]), "px"), 32)
+		h, herr := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(t.attrs["height"]), "px"), 32)
+		switch ok := werr == nil && w > 0; {
+		case ok && herr == nil && h > 0:
+			s.w, s.h = float32(w), float32(h)
+		case ok:
+			s.w, s.h = float32(w), s.h*float32(w)/s.w
+		case herr == nil && h > 0:
+			s.w, s.h = s.w*float32(h)/s.h, float32(h)
+		}
+		return s
+	}
 	var inline func(ast.Node, markdownInline) []markdownInline
 	inline = func(n ast.Node, style markdownInline) []markdownInline {
 		var out []markdownInline
+		// cur is the style of the text, as the tags of HTML before it
+		// left it, which open keeps the styles before of.
+		cur := style
+		var open []markdownOpen
 		for ch := n.FirstChild(); ch != nil; ch = ch.NextSibling() {
-			s := style
+			s := cur
 			switch x := ch.(type) {
 			case *ast.Text:
 				s.text = string(x.Segment.Value(source))
@@ -353,49 +416,26 @@ func parseMarkdown(source []byte, path, root string, current func() bool, caches
 			case *ast.AutoLink:
 				s.text, s.link = string(x.Label(source)), string(x.URL(source))
 			case *ast.Image:
-				s.text = string(x.Text(source))
-				s.image = string(x.Destination)
-				if local := markdownPath(root, path, s.image); local != "" && (current == nil || current()) {
-					if info, err := vfs.Stat(local); err == nil && info.Mode().IsRegular() {
-						key := markdownImageKey{local, info.ModTime(), info.Size()}
-						used[key] = true
-						image, ok := cache[key]
-						if !ok {
-							if strings.EqualFold(filepath.Ext(local), ".svg") {
-								if data, err := readImage(local); err == nil {
-									if svg, err := ui.ParseSVG(data); err == nil {
-										image.bitmap = svg
-										image.w, image.h = svg.Size()
-										if image.w <= 0 || image.h <= 0 {
-											image.bitmap = nil
-										}
-									}
-								}
-							} else {
-								bm, w, h, _, _ := decodeImage(local)
-								image.bitmap, image.w, image.h = bm, float32(w), float32(h)
-								if bm == nil {
-									image.bitmap = nil
-								}
-							}
-							cache[key] = image
-						}
-						s.bitmap, s.w, s.h = image.bitmap, image.w, image.h
-					}
-				}
-				if s.text == "" {
-					s.text = filepath.Base(s.image)
-					if s.text == "." || s.text == "" {
-						s.text = "image"
-					}
-				}
-				s.raw = s.bitmap == nil
+				s = picture(s, string(x.Text(source)), string(x.Destination))
 			case *ast.RawHTML:
-				s.raw = true
-				s.text = markdownHTMLText(string(x.Segments.Value(source)))
-				if tag := strings.ToLower(strings.TrimSpace(s.text)); tag == "<br>" || tag == "<br/>" || tag == "<br />" {
-					s.text, s.raw = "\n", false
+				// A tag of HTML styles the text up to its end tag, as
+				// <a href> does, or is a picture or a break.
+				for _, t := range markdownTags(string(x.Segments.Value(source))) {
+					r := cur
+					switch {
+					case t.name == "":
+						r.text = t.text
+					case t.name == "br" && !t.end:
+						r.text = "\n"
+					case t.name == "img" && !t.end:
+						r = htmlImage(t, cur)
+					default:
+						markdownStyleTag(t, &cur, &open)
+						continue
+					}
+					out = append(out, r)
 				}
+				continue
 			case *east.TaskCheckBox:
 				s.text = "☐ "
 				if x.IsChecked {
@@ -413,9 +453,76 @@ func parseMarkdown(source []byte, path, root string, current func() bool, caches
 	// length of its marker, which its first paragraph drops.
 	alert, alertAt, strip := alertNone, 0, 0
 	slugs := map[string]int{}
+	// anchor gives a heading its slug, numbered after the first of a text.
+	anchor := func(b *markdownBlock) {
+		b.slug = markdownSlug(markdownRunsText(b.runs))
+		if k := slugs[b.slug]; k > 0 {
+			slugs[b.slug] = k + 1
+			b.slug += "-" + strconv.Itoa(k)
+		} else {
+			slugs[b.slug] = 1
+		}
+	}
+	// boxes are the blocks of HTML open, as <div align="center">, which
+	// may end in a later block of HTML, the Markdown between them in them.
+	var boxes []markdownBox
+	// emit adds a block, its decoded images on rows of their own, so that
+	// paragraphs retain native text wrapping, those next to each other on
+	// one, as a row of badges.
+	emit := func(b markdownBlock) {
+		if b.kind == markdownParagraph || b.kind == markdownHeading {
+			b.runs = markdownMerge(b.runs)
+			if !markdownHasText(b.runs) && !slices.ContainsFunc(b.runs, func(r markdownInline) bool { return r.bitmap != nil }) {
+				return
+			}
+		}
+		if (b.kind == markdownParagraph || b.kind == markdownHeading) && slices.ContainsFunc(b.runs, func(r markdownInline) bool { return r.bitmap != nil }) {
+			runs := b.runs
+			b.runs = nil
+			row := -1
+			for _, r := range runs {
+				if r.bitmap == nil {
+					b.runs = append(b.runs, r)
+					continue
+				}
+				if markdownHasText(b.runs) {
+					b.runs = markdownTrimRuns(b.runs, 0)
+					blocks = append(blocks, b)
+					row = -1
+					if b.marker != "" {
+						b.offset += b.markerWidth + 0.5
+					}
+					b.markerWidth = 0
+					b.marker = ""
+				} else if strings.Contains(markdownRunsText(b.runs), "\n") {
+					row = -1
+				}
+				b.runs = nil
+				if row >= 0 {
+					blocks[row].runs = append(blocks[row].runs, r)
+					continue
+				}
+				ib := b
+				ib.kind = markdownImageBlock
+				ib.runs = []markdownInline{r}
+				blocks = append(blocks, ib)
+				row = len(blocks) - 1
+				if b.marker != "" {
+					b.offset += b.markerWidth + 0.5
+				}
+				b.markerWidth = 0
+				b.marker = ""
+			}
+			if !markdownHasText(b.runs) {
+				return
+			}
+			b.runs = markdownTrimRuns(b.runs, 0)
+		}
+		blocks = append(blocks, b)
+	}
 	var walk func(ast.Node, int, int, string, bool, float32, float32)
 	walk = func(n ast.Node, indent, quote int, marker string, tight bool, offset, markerWidth float32) {
-		b := markdownBlock{indent: indent, quote: quote, marker: marker, tight: tight, offset: offset, markerWidth: markerWidth, alert: alert, alertAt: alertAt}
+		b := markdownBlock{indent: indent, quote: quote, marker: marker, tight: tight, offset: offset, markerWidth: markerWidth, alert: alert, alertAt: alertAt, center: markdownCentered(boxes)}
 		if _, doc := n.(*ast.Document); !doc {
 			b.line = lineOf(n)
 		}
@@ -423,13 +530,7 @@ func parseMarkdown(source []byte, path, root string, current func() bool, caches
 		case *ast.Heading:
 			b.kind, b.level = markdownHeading, x.Level
 			b.runs = inline(n, markdownInline{bold: true})
-			b.slug = markdownSlug(markdownRunsText(b.runs))
-			if k := slugs[b.slug]; k > 0 {
-				slugs[b.slug] = k + 1
-				b.slug += "-" + strconv.Itoa(k)
-			} else {
-				slugs[b.slug] = 1
-			}
+			anchor(&b)
 		case *ast.Paragraph, *ast.TextBlock:
 			b.kind = markdownParagraph
 			b.runs = inline(n, markdownInline{})
@@ -455,12 +556,8 @@ func parseMarkdown(source []byte, path, root string, current func() bool, caches
 			if x.HasClosure() {
 				raw += string(x.ClosureLine.Value(source))
 			}
-			b.kind = markdownHTML
-			raw = markdownHTMLText(raw)
-			if strings.TrimSpace(raw) == "" {
-				return
-			}
-			b.runs = []markdownInline{{text: raw, raw: true}}
+			markdownHTMLBlock(raw, b, &boxes, emit, anchor, htmlImage)
+			return
 		case *ast.Blockquote:
 			outer, outerAt := alert, alertAt
 			if k, n := markdownAlertOf(x, source); k != alertNone {
@@ -536,45 +633,7 @@ func parseMarkdown(source []byte, path, root string, current func() bool, caches
 			}
 			return
 		}
-		// Decoded images get their own rows so that paragraphs retain native text wrapping.
-		if b.kind == markdownParagraph || b.kind == markdownHeading {
-			b.runs = markdownMerge(b.runs)
-			if !markdownHasText(b.runs) && !slices.ContainsFunc(b.runs, func(r markdownInline) bool { return r.bitmap != nil }) {
-				return
-			}
-		}
-		if (b.kind == markdownParagraph || b.kind == markdownHeading) && slices.ContainsFunc(b.runs, func(r markdownInline) bool { return r.bitmap != nil }) {
-			runs := b.runs
-			b.runs = nil
-			for _, r := range runs {
-				if r.bitmap != nil {
-					if markdownHasText(b.runs) {
-						blocks = append(blocks, b)
-						b.runs = nil
-						if b.marker != "" {
-							b.offset += b.markerWidth + 0.5
-						}
-						b.markerWidth = 0
-						b.marker = ""
-					}
-					ib := b
-					ib.kind = markdownImageBlock
-					ib.runs = []markdownInline{r}
-					blocks = append(blocks, ib)
-					if b.marker != "" {
-						b.offset += b.markerWidth + 0.5
-					}
-					b.markerWidth = 0
-					b.marker = ""
-				} else {
-					b.runs = append(b.runs, r)
-				}
-			}
-			if !markdownHasText(b.runs) {
-				return
-			}
-		}
-		blocks = append(blocks, b)
+		emit(b)
 	}
 	walk(tree, 0, 0, "", false, 0, 0)
 	// A block without a place in the text, as a rule, is where the one
@@ -741,7 +800,7 @@ func markdownWords(blocks []markdownBlock) (words, minutes int) {
 		}
 	}
 	for _, b := range blocks {
-		if b.kind == markdownCodeBlock || b.kind == markdownHTML {
+		if b.kind == markdownCodeBlock {
 			continue
 		}
 		count(b.runs)
@@ -763,21 +822,6 @@ func markdownRunsText(runs []markdownInline) string {
 		b.WriteString(r.text)
 	}
 	return b.String()
-}
-
-// HTML comments may span lines; other HTML remains literal.
-func markdownHTMLText(s string) string {
-	for {
-		start := strings.Index(s, "<!--")
-		if start < 0 {
-			return s
-		}
-		end := strings.Index(s[start+4:], "-->")
-		if end < 0 {
-			return s[:start]
-		}
-		s = s[:start] + s[start+4+end+3:]
-	}
 }
 
 // Soft breaks between standalone images must not become empty paragraph rows.
@@ -827,8 +871,11 @@ func (a *app) followMarkdown(v *viewer) {
 	ver := d.buf.Version()
 	// Idle keeps the loaded version; debouncing keeps its timer; running keeps one
 	// worker; running+dirty advances the generation and schedules after that worker.
-	if (m.pending || v.loaded && v.version == ver) && m.observed == ver && m.path == d.path {
+	if (m.pending || v.loaded && v.version == ver && !m.refetch) && m.observed == ver && m.path == d.path {
 		return
+	}
+	if m.cache.arrived == nil {
+		m.cache.arrived = func() { a.post(func() { m.refetch = true }) }
 	}
 	first := m.generation.Load() == 0
 	generation := m.generation.Add(1)
@@ -847,10 +894,10 @@ func (a *app) followMarkdown(v *viewer) {
 			return
 		}
 		v.wait = nil
-		m.running = true
+		m.running, m.refetch = true, false
 		source, path, workspace := []byte(d.buf.String()), d.path, a.folder()
 		// Give the worker its own cache snapshot; publish it on the UI thread.
-		cache := &markdownCache{maps.Clone(m.cache.images), maps.Clone(m.cache.code)}
+		cache := &markdownCache{images: maps.Clone(m.cache.images), code: maps.Clone(m.cache.code), arrived: m.cache.arrived}
 		go func() {
 			defer recoverCrash()
 			root := markdownRoot(path, workspace)
@@ -1115,11 +1162,12 @@ func (a *app) markdownImage(c *ui.Context, m *markdownPreview, path string, r ma
 
 // markdownNoImage stands for a picture alone in its paragraph that does
 // not show, as a remote one or one missing: a card with its alt text and
-// its file's name, which opens its link, or a remote picture itself.
-func (a *app) markdownNoImage(c *ui.Context, m *markdownPreview, path string, r markdownInline, size float32) {
+// its file's name, which opens its link, or a remote picture itself, at
+// the start of its row, or its middle.
+func (a *app) markdownNoImage(c *ui.Context, m *markdownPreview, path string, r markdownInline, size float32, align ui.Align) {
 	p := a.pal
 	card := func() {
-		ui.Row(c).AlignSelf(ui.Start).MaxWidthPercent(100).AlignItems(ui.Center).Gap(size*0.5).Padding(size*0.45, size*0.8).
+		ui.Row(c).AlignSelf(align).MaxWidthPercent(100).AlignItems(ui.Center).Gap(size*0.5).Padding(size*0.45, size*0.8).
 			Radius(6).Border(1, p.border).Background(p.chrome).Children(func() {
 			ui.Icon(c, iconImage).FontSize(size).TextColor(p.faint)
 			ui.Text(c, r.text).FontSize(size * 0.93).TextColor(p.muted).SingleLine().MinWidth(0)
@@ -1133,7 +1181,7 @@ func (a *app) markdownNoImage(c *ui.Context, m *markdownPreview, path string, r 
 		link = r.image
 	}
 	if e := a.markdownLink(c, m, path, link, true); link != "" && e.Valid() {
-		e.AlignSelf(ui.Start).MaxWidthPercent(100).Children(card)
+		e.AlignSelf(align).MaxWidthPercent(100).Children(card)
 		return
 	}
 	card()
@@ -1146,7 +1194,7 @@ func (a *app) markdownCodeCard(c *ui.Context, m *markdownPreview, path string, b
 	card := ui.Column(c.Key("code")).WidthPercent(100).Padding(size*0.85, size).Background(p.chrome).Border(1, p.border).Radius(8)
 	over := card.Hovered()
 	card.Children(func() {
-		a.markdownText(c, m, path, b.runs, size*0.93, b.kind == markdownHTML, true)
+		a.markdownText(c, m, path, b.runs, size*0.93, false, true)
 		if b.kind != markdownCodeBlock || !over && b.language == "" {
 			return
 		}
@@ -1301,14 +1349,28 @@ func (a *app) markdownView(c *ui.Context, v *viewer, name string) {
 					a.markdownMarker(c, b, size)
 				}
 
-				ui.Column(c).Grow(1).MinWidth(0).Padding(top, 0, bottom, 0).Children(func() {
+				align := ui.Start
+				if b.center {
+					align = ui.Center
+				}
+				ui.Column(c).Grow(1).MinWidth(0).Padding(top, 0, bottom, 0).TextAlign(align).Children(func() {
 					switch b.kind {
 					case markdownRule:
 						ui.Box(c).Height(2).WidthPercent(100).Radius(1).Background(p.border).Margin(size*lh*0.375, 0)
 					case markdownImageBlock:
 						imageWidth := max(1, width-(b.offset+b.markerWidth)*size-float32(b.quote)*size)
-						a.markdownImage(c, m, path, b.runs[0], imageWidth)
-					case markdownCodeBlock, markdownHTML:
+						// Pictures next to each other, as badges, wrap
+						// as words do.
+						images := ui.Row(c).WidthPercent(100).Wrap().Gap(size * 0.25)
+						if b.center {
+							images.Justify(ui.Center)
+						}
+						images.Children(func() {
+							for _, r := range b.runs {
+								a.markdownImage(c, m, path, r, imageWidth)
+							}
+						})
+					case markdownCodeBlock:
 						a.markdownCodeCard(c, m, path, b, size)
 					case markdownTable, markdownTableHeader:
 						a.markdownTableRow(c, m, path, b, size, width, font)
@@ -1324,7 +1386,7 @@ func (a *app) markdownView(c *ui.Context, v *viewer, name string) {
 						// GitHub; the text of an alert is not.
 						muted := b.quote > b.alertAt || b.kind == markdownHeading && b.level == 6
 						if r := b.runs[0]; b.kind == markdownParagraph && len(b.runs) == 1 && r.image != "" && r.bitmap == nil {
-							a.markdownNoImage(c, m, path, r, size)
+							a.markdownNoImage(c, m, path, r, size, align)
 							return
 						}
 						a.markdownText(c, m, path, b.runs, a.markdownSize(b), muted, false)

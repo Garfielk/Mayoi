@@ -1,5 +1,6 @@
 {
   "@@locale": "en",
+  "cmdViewSelectTheme": "Color Theme…",
   "@diffSummary": {
     "placeholders": {
       "files": {},
@@ -211,6 +212,17 @@
       }
     }
   },
+  "themeAboutClaude": "Ivory and near-black, with Claude's orange",
+  "themeAboutGrokBot": "Grok Bot's Sand: monochrome, with its blue",
+  "themeAboutMatrix": "Phosphor green, with digital rain",
+  "themeAboutMayoi": "Mayoi's own, in violet",
+  "themeAboutQoder": "Qoder's Forest greens",
+  "themeAlwaysDark": "Always dark",
+  "themeAppearance": "appearance",
+  "themeKeep": "keep",
+  "themeLabel": "Color Theme",
+  "themeNoMatches": "No matching themes",
+  "themePlaceholder": "Select a color theme",
   "@untitledName": {
     "placeholders": {
       "n": {
@@ -452,6 +464,7 @@
   "cmdViewSidebarRight": "Sidebar on Right",
   "cmdViewSplitRight": "Split Right",
   "cmdViewTerminal": "Toggle Terminal",
+  "cmdViewTerminalLocation": "New Terminals in Editor Area",
   "cmdViewTerminalLockRight": "Move Terminal to Locked Right Column",
   "cmdViewTerminalMove": "Move Terminal to Editor Area or Panel",
   "cmdViewTerminalTab": "New Terminal in Editor Area",

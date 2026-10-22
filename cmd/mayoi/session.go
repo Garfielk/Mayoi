@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"slices"
 
 	"mayoi/internal/settings"
 )
@@ -64,6 +65,18 @@ func (a *app) switchTo(dir string) {
 func (a *app) closeKeeping(then func()) {
 	ses := a.session()
 	a.closeAll(func() {
+		a.kept = &ses
+		then()
+	})
+}
+
+// closeQuitting closes the documents as the app quits, as closeKeeping
+// does, but for the untitled ones whose text is kept, which the next
+// start opens again.
+func (a *app) closeQuitting(then func()) {
+	ses := a.session()
+	tabs := slices.DeleteFunc(a.editorTabs(), func(t *colTab) bool { return t.ed != nil && t.ed.keptNow() })
+	a.closeTabs(tabs, func() {
 		a.kept = &ses
 		then()
 	})

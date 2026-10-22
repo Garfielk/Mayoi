@@ -137,28 +137,38 @@ func decodeImage(path string) (bm *ui.Bitmap, w, h int, size int64, err error) {
 	if err != nil {
 		return nil, 0, 0, 0, err
 	}
-	bm, err = ui.DecodeBitmap(data)
-	if errors.Is(err, image.ErrFormat) {
-		return nil, 0, 0, 0, errors.New(locales.ErrNotImage())
-	}
+	bm, w, h, err = decodeImageData(data)
 	if err != nil {
 		return nil, 0, 0, 0, err
 	}
+	return bm, w, h, int64(len(data)), nil
+}
+
+// decodeImageData decodes an image into a bitmap, at most maxBitmapSide
+// on a side, and returns its own size.
+func decodeImageData(data []byte) (bm *ui.Bitmap, w, h int, err error) {
+	bm, err = ui.DecodeBitmap(data)
+	if errors.Is(err, image.ErrFormat) {
+		return nil, 0, 0, errors.New(locales.ErrNotImage())
+	}
+	if err != nil {
+		return nil, 0, 0, err
+	}
 	w, h = bm.Size()
 	if w == 0 || h == 0 {
-		return nil, 0, 0, 0, errors.New(locales.ErrImageEmpty())
+		return nil, 0, 0, errors.New(locales.ErrImageEmpty())
 	}
 	if side := max(w, h); side > maxBitmapSide {
 		img, _, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
-			return nil, 0, 0, 0, err
+			return nil, 0, 0, err
 		}
 		s := float64(maxBitmapSide) / float64(side)
 		dst := image.NewRGBA(image.Rect(0, 0, max(1, int(float64(w)*s)), max(1, int(float64(h)*s))))
 		xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, img.Bounds(), xdraw.Src, nil)
 		bm = ui.NewBitmap(dst)
 	}
-	return bm, w, h, int64(len(data)), nil
+	return bm, w, h, nil
 }
 
 // readImage reads an image file that a document names, so may be a FIFO

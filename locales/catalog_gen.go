@@ -35,6 +35,126 @@ type Messages struct{ locale string }
 // source language.
 func In(locale string) Messages { return Messages{locale} }
 
+// CmdViewSelectTheme says "Color Theme…"
+// in the language the app shows.
+func CmdViewSelectTheme() string { return In(i18n.Locale()).CmdViewSelectTheme() }
+
+// CmdViewSelectTheme says "Color Theme…"
+// in the language of msgs.
+func (msgs Messages) CmdViewSelectTheme() string {
+	return Catalog.Format(msgs.locale, "cmdViewSelectTheme", nil)
+}
+
+// ThemeAboutClaude says "Ivory and near-black, with Claude's orange"
+// in the language the app shows.
+func ThemeAboutClaude() string { return In(i18n.Locale()).ThemeAboutClaude() }
+
+// ThemeAboutClaude says "Ivory and near-black, with Claude's orange"
+// in the language of msgs.
+func (msgs Messages) ThemeAboutClaude() string {
+	return Catalog.Format(msgs.locale, "themeAboutClaude", nil)
+}
+
+// ThemeAboutGrokBot says "Grok Bot's Sand: monochrome, with its blue"
+// in the language the app shows.
+func ThemeAboutGrokBot() string { return In(i18n.Locale()).ThemeAboutGrokBot() }
+
+// ThemeAboutGrokBot says "Grok Bot's Sand: monochrome, with its blue"
+// in the language of msgs.
+func (msgs Messages) ThemeAboutGrokBot() string {
+	return Catalog.Format(msgs.locale, "themeAboutGrokBot", nil)
+}
+
+// ThemeAboutMatrix says "Phosphor green, with digital rain"
+// in the language the app shows.
+func ThemeAboutMatrix() string { return In(i18n.Locale()).ThemeAboutMatrix() }
+
+// ThemeAboutMatrix says "Phosphor green, with digital rain"
+// in the language of msgs.
+func (msgs Messages) ThemeAboutMatrix() string {
+	return Catalog.Format(msgs.locale, "themeAboutMatrix", nil)
+}
+
+// ThemeAboutMayoi says "Mayoi's own, in violet"
+// in the language the app shows.
+func ThemeAboutMayoi() string { return In(i18n.Locale()).ThemeAboutMayoi() }
+
+// ThemeAboutMayoi says "Mayoi's own, in violet"
+// in the language of msgs.
+func (msgs Messages) ThemeAboutMayoi() string {
+	return Catalog.Format(msgs.locale, "themeAboutMayoi", nil)
+}
+
+// ThemeAboutQoder says "Qoder's Forest greens"
+// in the language the app shows.
+func ThemeAboutQoder() string { return In(i18n.Locale()).ThemeAboutQoder() }
+
+// ThemeAboutQoder says "Qoder's Forest greens"
+// in the language of msgs.
+func (msgs Messages) ThemeAboutQoder() string {
+	return Catalog.Format(msgs.locale, "themeAboutQoder", nil)
+}
+
+// ThemeAlwaysDark says "Always dark"
+// in the language the app shows.
+func ThemeAlwaysDark() string { return In(i18n.Locale()).ThemeAlwaysDark() }
+
+// ThemeAlwaysDark says "Always dark"
+// in the language of msgs.
+func (msgs Messages) ThemeAlwaysDark() string {
+	return Catalog.Format(msgs.locale, "themeAlwaysDark", nil)
+}
+
+// ThemeAppearance says "appearance"
+// in the language the app shows.
+func ThemeAppearance() string { return In(i18n.Locale()).ThemeAppearance() }
+
+// ThemeAppearance says "appearance"
+// in the language of msgs.
+func (msgs Messages) ThemeAppearance() string {
+	return Catalog.Format(msgs.locale, "themeAppearance", nil)
+}
+
+// ThemeKeep says "keep"
+// in the language the app shows.
+func ThemeKeep() string { return In(i18n.Locale()).ThemeKeep() }
+
+// ThemeKeep says "keep"
+// in the language of msgs.
+func (msgs Messages) ThemeKeep() string {
+	return Catalog.Format(msgs.locale, "themeKeep", nil)
+}
+
+// ThemeLabel says "Color Theme"
+// in the language the app shows.
+func ThemeLabel() string { return In(i18n.Locale()).ThemeLabel() }
+
+// ThemeLabel says "Color Theme"
+// in the language of msgs.
+func (msgs Messages) ThemeLabel() string {
+	return Catalog.Format(msgs.locale, "themeLabel", nil)
+}
+
+// ThemeNoMatches says "No matching themes"
+// in the language the app shows.
+func ThemeNoMatches() string { return In(i18n.Locale()).ThemeNoMatches() }
+
+// ThemeNoMatches says "No matching themes"
+// in the language of msgs.
+func (msgs Messages) ThemeNoMatches() string {
+	return Catalog.Format(msgs.locale, "themeNoMatches", nil)
+}
+
+// ThemePlaceholder says "Select a color theme"
+// in the language the app shows.
+func ThemePlaceholder() string { return In(i18n.Locale()).ThemePlaceholder() }
+
+// ThemePlaceholder says "Select a color theme"
+// in the language of msgs.
+func (msgs Messages) ThemePlaceholder() string {
+	return Catalog.Format(msgs.locale, "themePlaceholder", nil)
+}
+
 // AbortDetail says "HEAD, the staged changes and the files go back to how they were before it."
 // in the language the app shows.
 func AbortDetail() string { return In(i18n.Locale()).AbortDetail() }
@@ -2275,6 +2395,16 @@ func CmdViewTerminal() string { return In(i18n.Locale()).CmdViewTerminal() }
 // in the language of msgs.
 func (msgs Messages) CmdViewTerminal() string {
 	return Catalog.Format(msgs.locale, "cmdViewTerminal", nil)
+}
+
+// CmdViewTerminalLocation says "New Terminals in Editor Area"
+// in the language the app shows.
+func CmdViewTerminalLocation() string { return In(i18n.Locale()).CmdViewTerminalLocation() }
+
+// CmdViewTerminalLocation says "New Terminals in Editor Area"
+// in the language of msgs.
+func (msgs Messages) CmdViewTerminalLocation() string {
+	return Catalog.Format(msgs.locale, "cmdViewTerminalLocation", nil)
 }
 
 // CmdViewTerminalLockRight says "Move Terminal to Locked Right Column"

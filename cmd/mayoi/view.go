@@ -58,7 +58,7 @@ func (a *app) view(c *ui.Context) {
 	// The places that take the keys say so as they are built.
 	a.keyFocus = placeNone
 	a.pal = a.applyTheme(c)
-	updateLinuxControlsTheme(a.pal)
+	updateLinuxControlsTheme(a.fade.to)
 	a.themeTerminals()
 	a.fontTerminals()
 	a.copyTerminals()
@@ -163,6 +163,7 @@ func (a *app) view(c *ui.Context) {
 	a.branchPickerView(c)
 	a.repositoryPickerView(c)
 	a.recentPickerView(c)
+	a.themePickerView(c)
 	a.remotePickerView(c)
 	a.conflictsView(c)
 	a.promptView(c)
@@ -1040,12 +1041,13 @@ func (a *app) vimBadge(c *ui.Context, v *vimState, text func(string) ui.Element)
 		bg, fg = p.modified.Alpha(0.22), p.modifiedFg
 	}
 	row := ui.Row(c.Key("status:vim")).Height(statusBarH).Padding(0, 6).Gap(6).AlignItems(ui.Center)
-	// From mode to mode, the badge's colors and name cross over.
+	// From mode to mode, the badge's colors cross over. Its name changes at
+	// once: the old fading out over the new broke up the strokes of both.
 	fade := ui.Animation{Duration: 140 * time.Millisecond}
 	bg, fg = row.AnimateColor("bg", bg, fade), row.AnimateColor("fg", fg, fade)
 	row.Children(func() {
 		ui.Text(c, v.mode.String()).FontSize(10.5).FontWeight(650).LetterSpacing(0.6).TextColor(fg).SingleLine().
-			Padding(1, 6).Radius(4).Background(bg).ContentTransition(ui.ContentTransition{})
+			Padding(1, 6).Radius(4).Background(bg)
 		if a.vimRec != 0 {
 			// A register recording, as vim says: a red dot, and its name.
 			ui.Row(c.Key("status:vim-rec")).Gap(5).AlignItems(ui.Center).
@@ -1357,6 +1359,7 @@ func (a *app) welcome(c *ui.Context) {
 					a.welcomeAction(c, iconFilePlus, locales.CmdFileNew(), a.keyHint("file.new"), a.newFile)
 					a.welcomeAction(c, iconTerminal, locales.CmdViewTerminal(), a.keyHint("view.terminal"), a.togglePanel)
 					a.welcomeAction(c, iconSidebar, locales.CmdViewSidebar(), a.keyHint("view.sidebar"), a.toggleSidebar)
+					a.welcomeAction(c, iconSparkles, locales.CmdViewSelectTheme(), a.keyHint("view.selectTheme"), a.openThemePicker)
 					if a.host.account() == "" && a.settings.Path() != "" {
 						a.welcomeAction(c, iconCloud, locales.CmdAccountSignIn(), "", func() { a.host.signIn() })
 					}
@@ -1527,6 +1530,17 @@ func (a *app) togglePanel() {
 		a.focusTerminal()
 	} else {
 		a.focusColumn()
+	}
+	a.settings.Changed()
+}
+
+// toggleTerminalLocation has new terminals open in the editor area, or in
+// the panel again.
+func (a *app) toggleTerminalLocation() {
+	if a.settings.TerminalLocation == "" {
+		a.settings.TerminalLocation = "editor"
+	} else {
+		a.settings.TerminalLocation = ""
 	}
 	a.settings.Changed()
 }

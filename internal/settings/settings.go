@@ -162,8 +162,8 @@ type Prefs struct {
 	// Appearance is "light", "dark", or "" to follow the system.
 	Appearance string `json:"appearance,omitempty"`
 	// Theme is "matrix" for The Matrix, which is always dark, "claude" for
-	// Claude or "qoder" for Qoder, light or dark as Appearance is, or ""
-	// for Mayoi's own.
+	// Claude, "qoder" for Qoder or "grokbot" for Grok Bot, light or dark as
+	// Appearance is, or "" for Mayoi's own.
 	Theme string `json:"theme,omitempty"`
 	// SidebarRight puts the sidebar right of the editors, rather than left.
 	SidebarRight bool `json:"sidebarRight,omitempty"`
@@ -171,6 +171,9 @@ type Prefs struct {
 	// below the editors, "left" or "right" at the window's side, past
 	// the sidebar.
 	PanelPosition string `json:"panelPosition,omitempty"`
+	// TerminalLocation is where a new terminal opens: "" in the panel, or
+	// "editor" in a tab of the editor area.
+	TerminalLocation string `json:"terminalLocation,omitempty"`
 	// ProjectTabs keeps the folders open in one window, a rail on its left
 	// choosing which shows, rather than a window for each.
 	ProjectTabs bool `json:"projectTabs,omitempty"`
@@ -364,6 +367,11 @@ type Tab struct {
 	ScrollX float32 `json:"scrollX,omitempty"`
 	ScrollY float32 `json:"scrollY,omitempty"`
 	Wrap    *bool   `json:"wrap,omitempty"`
+	// Untitled is the file in the untitled folder beside the settings that
+	// keeps the text of an untitled document as the app quit, and Number
+	// the number of its name.
+	Untitled string `json:"untitled,omitempty"`
+	Number   int    `json:"number,omitempty"`
 }
 
 // MaxDiffContext is as many unchanged lines around a change as a diff
@@ -478,6 +486,9 @@ func (s *Settings) normalize() {
 	// "" and "bottom" are the same panel position.
 	if s.PanelPosition != "left" && s.PanelPosition != "right" {
 		s.PanelPosition = ""
+	}
+	if s.TerminalLocation != "editor" {
+		s.TerminalLocation = ""
 	}
 	// The themes were appearances once.
 	if s.Appearance == "matrix" || s.Appearance == "claude" {

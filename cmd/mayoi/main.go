@@ -318,13 +318,18 @@ func main() {
 		m.open([]string{path})
 	})
 	mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
-		if m.quitting || !m.anyDirty() {
+		if !m.quitting {
+			for _, w := range m.wins {
+				w.a.keepUntitled()
+			}
+		}
+		if m.quitting || !m.anyUnkept() {
 			m.quitting = true
 			return
 		}
 		// Ask about the changes of each window first, then quit again.
 		e.PreventDefault()
-		m.settle(slices.Clone(m.wins), func() {
+		m.settle(slices.Clone(m.wins), true, func() {
 			m.quitting = true
 			mygo.App.Quit()
 		})
@@ -747,14 +752,17 @@ func (m *mayoi) run(id string, win *mygo.Window) {
 	h.do(func() { a.run(id) })
 }
 
-func (m *mayoi) anyDirty() bool {
-	return slices.ContainsFunc(m.wins, func(w *desktop) bool { return w.a.anyDirty() })
+// anyUnkept reports whether quitting loses changes, those of documents
+// other than the untitled ones kept.
+func (m *mayoi) anyUnkept() bool {
+	return slices.ContainsFunc(m.wins, func(w *desktop) bool { return w.a.anyUnkept() })
 }
 
 // settle saves the files of wins that save themselves, asks about the
 // other changes of each, a window at a time, then calls done, unless a
-// change was kept.
-func (m *mayoi) settle(wins []*desktop, done func()) {
+// change was kept. As the app quits, the untitled documents are kept
+// rather than asked about.
+func (m *mayoi) settle(wins []*desktop, quit bool, done func()) {
 	if len(wins) == 0 {
 		done()
 		return
@@ -762,16 +770,25 @@ func (m *mayoi) settle(wins []*desktop, done func()) {
 	w, a := wins[0], wins[0].a
 	if !a.started {
 		// Not shown since the app started, it has nothing open.
-		m.settle(wins[1:], done)
+		m.settle(wins[1:], quit, done)
 		return
 	}
+	next := func() { m.settle(wins[1:], quit, done) }
 	w.do(func() {
-		if a.autoSaveAll(); !a.anyDirty() {
-			m.settle(wins[1:], done)
+		a.autoSaveAll()
+		if quit {
+			a.keepUntitled()
+		}
+		if !a.anyDirty() || quit && !a.anyUnkept() {
+			next()
 			return
 		}
 		w.show()
-		a.closeKeeping(func() { m.settle(wins[1:], done) })
+		if quit {
+			a.closeQuitting(next)
+		} else {
+			a.closeKeeping(next)
+		}
 	})
 }
 

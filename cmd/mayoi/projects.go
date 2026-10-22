@@ -97,7 +97,7 @@ func (m *mayoi) newFrame(h *desktop) *frame {
 			return
 		}
 		e.PreventDefault()
-		m.settle(slices.Clone(f.tabs), func() {
+		m.settle(slices.Clone(f.tabs), false, func() {
 			f.closing = true
 			win.Close()
 		})

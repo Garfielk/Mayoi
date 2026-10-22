@@ -116,7 +116,10 @@ type app struct {
 	// window is what the settings keep of this window.
 	window *settings.Window
 
-	pal      *palette
+	pal *palette
+	// fade is the window's way from one palette to another, as the
+	// theme or the appearance changes.
+	fade     paletteFade
 	font     codeFont
 	services ui.Services
 	// vimReg is what vim mode put on the clipboard last, which tells
@@ -266,6 +269,7 @@ type app struct {
 	hints      map[string]string // the keys of the commands, as tooltips show them
 	branches   branchPicker      // the box that switches branches
 	recents    recentPicker      // the box of the recent folders
+	themes     themePicker       // the box of the color themes
 	remotePick remotePicker      // the box that connects to a host
 	conflicts  conflictsList     // the box of the files in conflict
 	find       findState
@@ -514,6 +518,7 @@ func (a *app) saveDoc(d *document, then func()) {
 			if path == "" {
 				return
 			}
+			a.dropKept(d)
 			d.path = path
 			d.hl.Close()
 			d.hl = highlight.New(highlight.Lexer(path), a.invalidate)

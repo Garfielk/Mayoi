@@ -355,13 +355,9 @@ func (a *app) openImage(col *column, at int, path string, focus bool) {
 
 // newFile opens an untitled document.
 func (a *app) newFile() {
-	a.nextID++
 	a.untitled++
-	doc := newDocument(a.nextID, "", "", highlight.New(nil, nil))
-	doc.title = locales.UntitledName(a.untitled)
-	a.docs = append(a.docs, doc)
 	col := a.fileColumn()
-	a.addTab(col, len(col.tabs), &colTab{ed: newEditor(doc)})
+	a.addUntitled(col, a.untitled, "")
 	a.activate(col, len(col.tabs)-1, true)
 }
 
@@ -528,6 +524,7 @@ func (a *app) closeTab(t *colTab, then func()) {
 		case 0:
 			a.saveDoc(doc, remove)
 		case 1:
+			a.dropKept(doc)
 			remove()
 		}
 	})
@@ -807,6 +804,8 @@ func (a *app) rememberTabs() {
 				continue // a merge opens again from its conflict, not a session
 			case t.path() != "":
 				ts = settings.Tab{File: t.path(), Preview: t.ed != nil && t.ed.preview != nil, Transient: t.transient}
+			case t.ed != nil && t.ed.kept != "":
+				ts = settings.Tab{Untitled: t.ed.kept, Number: t.ed.number}
 			default:
 				continue
 			}
@@ -993,6 +992,8 @@ func (a *app) restoreTabs() {
 						a.setPreview(t.ed, true)
 					}
 				}
+			case ts.Untitled != "":
+				a.restoreUntitled(col, ts)
 			}
 			if len(col.tabs) > n {
 				a.restoreTab(col.tab(), ts)

@@ -185,6 +185,16 @@ func (a *app) newTerminalIn(dir string) {
 	a.focusTerminal()
 }
 
+// openTerminal starts a terminal in dir where terminalLocation says: in
+// the panel, or in a tab of the file column.
+func (a *app) openTerminal(dir string) {
+	if a.settings.TerminalLocation == "editor" {
+		a.newTerminalTab(a.fileColumn(), dir, true)
+		return
+	}
+	a.newTerminalIn(dir)
+}
+
 // newTerminalTab starts a terminal in dir in a new tab of a column, after
 // the one shown, and reports whether it did.
 func (a *app) newTerminalTab(col *column, dir string, focus bool) bool {

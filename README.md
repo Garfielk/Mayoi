@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/673e7907-2b2c-4ed6-9093-1ba9633cd61c
 - **Previews:** a live preview of Markdown and SVG beside the source (⇧⌘V)
 - **Windows:** a window per folder or every folder in one window as project tabs, a welcome page with the recent
   folders and hosts, Open Recent (⌃R), and a `mayoi` shell command
-- **Themes:** light and dark, The Matrix with digital rain, and Claude and Qoder, each in light and dark
+- **Themes:** light and dark, The Matrix with digital rain, and Claude, Qoder and Grok Bot, each in light and dark
 - **Auto save,** and every window reopened as you left it, with its columns, tabs and carets
 - **Settings:** JSON files applied as you save them, with the code's and the terminal's fonts, weight, ligatures and
   line height, and keyboard shortcuts in VS Code's format (see [docs/SETTINGS.md](docs/SETTINGS.md))

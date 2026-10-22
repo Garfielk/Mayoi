@@ -923,6 +923,49 @@ func TestReopenClosedTerminal(t *testing.T) {
 	a.closeTerminals()
 }
 
+// With terminalLocation "editor", New Terminal opens a tab of the editor
+// area, while Toggle Terminal still shows the panel. Set back, New
+// Terminal opens in the panel again.
+func TestTerminalLocation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("starts a shell")
+	}
+	hs := newHarness(t, true)
+	a := hs.a
+	a.openFile(hs.path("main.go"), true)
+	a.run("view.terminalLocation")
+	if a.settings.TerminalLocation != "editor" {
+		t.Fatalf("terminalLocation %q after the toggle", a.settings.TerminalLocation)
+	}
+	a.run("view.newTerminal")
+	hs.settle()
+	tabs := a.column().tabs
+	if len(tabs) != 2 || tabs[1].term == nil || tabs[1].term.dir != hs.root || a.column().active != 1 {
+		t.Fatalf("no terminal tab: %d tabs", len(tabs))
+	}
+	if a.panelTerm != nil || a.window.PanelOpen {
+		t.Errorf("the panel opened too: open %v", a.window.PanelOpen)
+	}
+	a.openTerminal(filepath.Join(hs.root, "web"))
+	hs.settle()
+	if tabs := a.column().tabs; len(tabs) != 3 || tabs[2].term == nil || tabs[2].term.dir != filepath.Join(hs.root, "web") {
+		t.Fatalf("Open in Terminal: %d tabs", len(tabs))
+	}
+	a.run("view.terminal")
+	hs.settle()
+	if a.panelTerm == nil || !a.window.PanelOpen {
+		t.Fatal("Toggle Terminal didn't show the panel")
+	}
+	a.run("view.terminalLocation")
+	panel := a.panelTerm
+	a.run("view.newTerminal")
+	hs.settle()
+	if a.settings.TerminalLocation != "" || a.panelTerm == panel || len(a.column().tabs) != 3 {
+		t.Errorf("New Terminal with terminalLocation %q: %d tabs", a.settings.TerminalLocation, len(a.column().tabs))
+	}
+	a.closeTerminals()
+}
+
 // The panel's header has a menu that moves the panel to a side, and back.
 func TestTerminalPanelHeaderMenu(t *testing.T) {
 	if testing.Short() {

@@ -15,6 +15,47 @@ needs a `## <version>` section here, or its build fails.
   rows a line wraps to, and every line of a wrapping pane is laid out for
   its height, so that revealing a far conflict does not land on an
   estimated height and show a blank.
+- The Grok Bot theme: **View → Theme → Grok Bot** takes the Grok Bot app's
+  Sand Light and Sand Dark colors, light or dark as the Appearance is:
+  white or near-black greys, near-black or near-white buttons, and its blue
+  for the accent, with the code in the warm colors of x.ai's terminal.
+  Grok Bot's face, a round head with two slanted eyes, takes the logo's
+  place on the welcome page and sits at the start of the status bar,
+  blinking now and then and hopping while Git or a search works, as Clawd
+  and Qoduck do, and glancing to one side and the other now and then.
+- **View → Theme → Color Theme…**, or **Color Theme…** on the welcome page,
+  opens a box of the themes, each with a little window in its colors and
+  its character. The window takes each theme as ↑ and ↓ move to it, and ←
+  and → switch between the system's appearance, light and dark: Return
+  keeps them, and Escape goes back. `workbench.action.selectTheme` binds it
+  in `keybindings.json`, as `cmd+k cmd+t` does in VS Code.
+- Changing the theme or the appearance fades every color of the window to
+  the new one's, rather than switching at once, but with reduced motion.
+
+## 0.11.8
+
+- **View → New Terminals in Editor Area**, or `"terminalLocation": "editor"`
+  in `settings.json`, has New Terminal and **Open in Terminal** open a tab
+  of the editor area rather than the panel.
+- The Markdown preview shows the HTML in Markdown as GitHub does, rather
+  than its tags as code: pictures as wide as `<img width>` says, from a
+  `<picture>` too, links, bold, italic and code, headings and paragraphs,
+  and centers what `align="center"` centers, Markdown between the tags of
+  a `<div>` included.
+- The Markdown preview shows pictures of the web, as badges, fetching them
+  in the background, and the pictures of a paragraph next to each other on
+  one row; an SVG with text, which it would draw without its text, shows
+  its alt text.
+- The mode badge of vim mode in the status bar switches to the new mode's
+  name at once, rather than fading the old name out over it, which broke
+  up the letters of both for a moment.
+
+## 0.11.7
+
+- Untitled documents keep their text as Mayoi quits, and open again,
+  changed, at the next launch, rather than asking where to save them, so
+  restarting or shutting down the Mac no longer stops on them.
+>>>>>>> origin/main
 - Switching, creating and tracking branches, checking out a commit, and
   unstaging or discarding changes also work on hosts with Git older than
   2.23, which has no `git switch` or `git restore`.

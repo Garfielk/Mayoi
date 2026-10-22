@@ -28,8 +28,13 @@ type document struct {
 	id    int
 	path  string // absolute; "" for an untitled document
 	title string // an untitled document's name
-	buf   *ui.TextBuffer
-	saved uint64 // the buffer's version on disk
+	// number is the number of an untitled document's name, and kept the
+	// file that keeps its text as the app quits, of version keptVersion.
+	number      int
+	kept        string
+	keptVersion uint64
+	buf         *ui.TextBuffer
+	saved       uint64 // the buffer's version on disk
 	// savedSnap is the text on disk, which undoing back to makes the
 	// document clean again.
 	savedSnap ui.TextSnapshot
