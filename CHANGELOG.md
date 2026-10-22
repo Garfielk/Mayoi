@@ -12,8 +12,18 @@ needs a `## <version>` section here, or its build fails.
   rows a line wraps to, and every line of a wrapping pane is laid out for
   its height, so that revealing a far conflict does not land on an
   estimated height and show a blank.
+- Switching, creating and tracking branches, checking out a commit, and
+  unstaging or discarding changes also work on hosts with Git older than
+  2.23, which has no `git switch` or `git restore`.
 - Long file paths in diff headers shorten to fit narrow columns, keeping
   filenames clear of change counts, status badges and file actions.
+- Files copied in the Finder paste into a terminal as their full paths,
+  quoted for the shell, rather than only their names.
+- On macOS, holding a key down repeats it, in the terminal and the editor,
+  rather than opening the accents of a letter.
+- Linux: tabs indent code to their tab stops again, and text is dark and
+  crisp again on Ubuntu 22.04, where it was faint and tinted; MyGo 0.6.0
+  had undone both.
 
 ## 0.11.6
 

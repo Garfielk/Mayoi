@@ -275,6 +275,7 @@ func settingsPath() string {
 
 func main() {
 	mygo.App.SetName("Mayoi")
+	keyRepeat()
 	// MAYOI_DATA_DIR keeps the settings and window state elsewhere, such as
 	// scripts/dev.sh's Mayoi-dev, so a development app leaves Mayoi's alone.
 	if dir := os.Getenv("MAYOI_DATA_DIR"); dir != "" {

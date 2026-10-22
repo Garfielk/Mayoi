@@ -127,17 +127,15 @@ func sessionConn(s *session) *remote.Conn {
 	return nil
 }
 
-// terminalPaste takes a paste into a terminal of a host, as OnPaste does,
-// when the clipboard has files or an image alone.
+// terminalPaste takes a paste into a terminal, as OnPaste does, when the
+// clipboard has files, as the Finder copies them, which any terminal gets
+// as their paths, or, in a terminal of a host, an image alone.
 func (a *app) terminalPaste(s *session, text string) bool {
-	if sessionConn(s) == nil {
-		return false
-	}
 	if srcs := a.clipboardSources(); len(srcs) > 0 {
 		a.pastePaths(s, srcs)
 		return true
 	}
-	if text != "" {
+	if sessionConn(s) == nil || text != "" {
 		return false
 	}
 	img := a.host.clipboardImage()
