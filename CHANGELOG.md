@@ -5,6 +5,9 @@ needs a `## <version>` section here, or its build fails.
 
 ## Unreleased
 
+- A sideways swipe scrolls the result pane of a merge, as the side panes'
+  does; the swipe used to be lost on the result editor's own sideways
+  scroll, which no scroller of the merge tracks.
 - The panes of a merge wrap their lines as the Word Wrap setting says, and
   ⌥Z wraps or unwraps the merge of the tab alone. The marks of the
   conflicts, the click that chooses one, the jump that reveals one, the

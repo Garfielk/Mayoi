@@ -1931,3 +1931,23 @@ func TestMergeGutterButtonSurvivesTallConflict(t *testing.T) {
 		t.Errorf("the conflict stands %v, not ours' side", st)
 	}
 }
+
+// TestMergeResultScrollsSideways: a mostly sideways swipe on the result
+// pane scrolls the pane, as the side panes do — the editor the pane
+// embeds must not take the swipe for its own sideways scroll, which no
+// scroller of the merge tracks.
+func TestMergeResultScrollsSideways(t *testing.T) {
+	hs := newHarness(t, true)
+	long := strings.Repeat("a long merge line ", 20)
+	hs.mergeRepo("a\n"+long+"\nz\n", "ours\n"+long+"\nz\n", "theirs\n"+long+"\nz\n")
+	v := hs.mergeOf()
+	r, ok := hs.tt.Find(v.resultLabel())
+	if !ok {
+		t.Fatal("no result header")
+	}
+	hs.tt.Scroll(r.X+r.W/2, r.Y+r.H+120, 90, 0)
+	hs.settle()
+	if v.panes[1].hscroll.X <= 0 {
+		t.Errorf("the result pane stands at %v after a sideways swipe", v.panes[1].hscroll.X)
+	}
+}
