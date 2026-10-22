@@ -61,6 +61,15 @@ func mapMergeLine(hs []linediff.Hunk, line float32, back bool) float32 {
 // top and the end the line followed goes to the top and the end of the
 // view, so that the panes start and end together.
 func (a *app) syncMergePanes(v *mergeView) {
+	// While a pane sweeps its wrapped lines outward, the heights of the
+	// frame are part estimate, and mapping the panes onto each other by
+	// them would carry the views away; they stand still until the sweep
+	// has measured the file.
+	for k := range 3 {
+		if v.panes[k].sweeping {
+			return
+		}
+	}
 	moved := -1
 	for k := range 3 {
 		if v.panes[k].scroll.Y != v.lastY[k] {
